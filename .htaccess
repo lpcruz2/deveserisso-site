@@ -1,3 +1,4 @@
+TesteDeQuebraDeliberadaG31 sintaxe invalida propositalmente
 # BEGIN Really Simple Security Redirect
 <IfModule mod_rewrite.c>
 RewriteEngine on
