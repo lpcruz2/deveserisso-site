@@ -12,6 +12,52 @@ jobs:
         run: |
           find dsi-magazine -name "*.php" -print0 | xargs -0 -n1 php -l
 
+      - name: Validate .htaccess syntax
+        run: |
+          cat > /tmp/httpd-test.conf <<'EOF'
+          ServerName localhost
+          Listen 8080
+          DocumentRoot "/usr/local/apache2/htdocs"
+          <Directory "/usr/local/apache2/htdocs">
+              AllowOverride All
+              Require all granted
+          </Directory>
+          ErrorLog /proc/self/fd/2
+          LoadModule rewrite_module modules/mod_rewrite.so
+          LoadModule headers_module modules/mod_headers.so
+          LoadModule mime_module modules/mod_mime.so
+          LoadModule authz_core_module modules/mod_authz_core.so
+          LoadModule authz_host_module modules/mod_authz_host.so
+          LoadModule unixd_module modules/mod_unixd.so
+          LoadModule dir_module modules/mod_dir.so
+          LoadModule log_config_module modules/mod_log_config.so
+          EOF
+          docker run -d --name htaccess-test -p 8080:8080 \
+            -v $(pwd)/.htaccess:/usr/local/apache2/htdocs/.htaccess:ro \
+            -v /tmp/httpd-test.conf:/usr/local/apache2/conf/httpd.conf:ro \
+            httpd:2.4
+          sleep 3
+          docker logs htaccess-test > /tmp/htaccess-logs.txt 2>&1
+          cat /tmp/htaccess-logs.txt
+          if grep -qiE "Invalid command|Syntax error|AH00526|could not be configured" /tmp/htaccess-logs.txt; then
+            echo "ERRO: .htaccess com sintaxe invalida — bloqueando deploy"
+            docker stop htaccess-test || true
+            exit 1
+          fi
+          if ! curl -sf http://localhost:8080/ -o /dev/null; then
+            echo "ERRO: requisicao de teste falhou com o .htaccess atual — bloqueando deploy"
+            docker logs htaccess-test
+            docker stop htaccess-test || true
+            exit 1
+          fi
+          docker stop htaccess-test
+
+      - name: Fix title encoding
+        run: |
+          curl -T scripts/fix-encoding.php "ftp://${{ secrets.FTP_USER }}:${{ secrets.FTP_PASS }}@45.151.121.68/fix-encoding.php" -Q "CWD /"
+          curl -s https://deveserisso.com.br/fix-encoding.php
+          curl --user "${{ secrets.FTP_USER }}:${{ secrets.FTP_PASS }}" -Q "CWD /" -X "DELE fix-encoding.php" "ftp://45.151.121.68/"
+
       - name: Deploy to staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -21,6 +67,11 @@ jobs:
           password: ${{ secrets.FTP_PASS }}
           server-dir: /staging/wp-content/themes/dsi-magazine/
           local-dir: ./dsi-magazine/
+
+      - name: Test critical URLs on staging
+        run: |
+          curl -sI https://staging.deveserisso.com.br/ | grep "200"
+          curl -sI https://staging.deveserisso.com.br/privacidade | grep "301"
 
       - name: FTP Deploy (produção)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -34,3 +85,10 @@ jobs:
 
       - name: Purge cache
         run: curl -s https://deveserisso.com.br/purge_ls.php
+
+      - name: Post-deploy healthcheck
+        run: |
+          sleep 5
+          curl -sI https://deveserisso.com.br/privacidade | grep "301"
+          curl -sI https://deveserisso.com.br/blog/ | grep "200"
+          curl -sI -H "Accept: image/webp" "https://deveserisso.com.br/blog/wp-content/uploads/2021/02/logo-dsi_laranja_bc-96x96.png" | grep "image/webp"
