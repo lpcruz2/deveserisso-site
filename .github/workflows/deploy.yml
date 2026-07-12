@@ -23,6 +23,7 @@ jobs:
               Require all granted
           </Directory>
           ErrorLog /proc/self/fd/2
+          LoadModule mpm_prefork_module modules/mod_mpm_prefork.so
           LoadModule rewrite_module modules/mod_rewrite.so
           LoadModule headers_module modules/mod_headers.so
           LoadModule mime_module modules/mod_mime.so
