@@ -90,19 +90,8 @@ wp_reset_postdata();
                 $hero_img_url = $matches[1] ?? '';
 
                 if ( $hero_img_url ) {
-                    // Generate srcset variants based on image path
-                    $path_parts = explode( '/', $hero_img_url );
-                    $filename = end( $path_parts );
-                    $dir = implode( '/', array_slice( $path_parts, 0, -1 ) );
-                    $base_name = pathinfo( $filename, PATHINFO_FILENAME );
-                    $ext = pathinfo( $filename, PATHINFO_EXTENSION );
-
-                    // Build srcset URL pattern
-                    $srcset = "$dir/{$base_name}-400w.$ext 400w, $dir/{$base_name}-768w.$ext 768w, $dir/{$base_name}-1200w.$ext 1200w";
-                    $srcset_webp = "$dir/{$base_name}-400w.webp 400w, $dir/{$base_name}-768w.webp 768w, $dir/{$base_name}-1200w.webp 1200w";
-
-                    // Replace in hero_thumb
-                    $hero_thumb = str_replace( 'src="', 'srcset="' . esc_attr( $srcset_webp ) . '" src="', $hero_thumb );
+                    // Removido srcset manual que tentava criar versões não-regeneradas
+                    // O WordPress srcset do get_the_post_thumbnail já é suficiente
                     $hero_thumb = str_replace( 'decoding="sync"', 'decoding="async"', $hero_thumb );
                 }
                 ?>
