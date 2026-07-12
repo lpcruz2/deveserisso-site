@@ -55,10 +55,13 @@ jobs:
           docker stop htaccess-test
 
       - name: Fix title encoding
+        env:
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
         run: |
-          curl -T scripts/fix-encoding.php "ftp://${{ secrets.FTP_USER }}:${{ secrets.FTP_PASS }}@45.151.121.68/fix-encoding.php" -Q "CWD /"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T scripts/fix-encoding.php "ftp://45.151.121.68/fix-encoding.php"
           curl -s https://deveserisso.com.br/fix-encoding.php
-          curl --user "${{ secrets.FTP_USER }}:${{ secrets.FTP_PASS }}" -Q "CWD /" -X "DELE fix-encoding.php" "ftp://45.151.121.68/"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -X "DELE fix-encoding.php" "ftp://45.151.121.68/"
 
       - name: Deploy to staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
