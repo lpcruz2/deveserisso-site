@@ -16,6 +16,7 @@ jobs:
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: 45.151.121.68
+          protocol: ftp
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASS }}
           server-dir: /blog/wp-content/themes/dsi-magazine/
