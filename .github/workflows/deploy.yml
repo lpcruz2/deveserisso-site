@@ -1,0 +1,25 @@
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint PHP syntax
+        run: |
+          find dsi-magazine -name "*.php" -print0 | xargs -0 -n1 php -l
+
+      - name: FTP Deploy
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: 45.151.121.68
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          server-dir: /blog/wp-content/themes/dsi-magazine/
+          local-dir: ./dsi-magazine/
+
+      - name: Purge cache
+        run: curl -s https://deveserisso.com.br/purge_ls.php
