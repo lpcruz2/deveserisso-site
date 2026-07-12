@@ -1,0 +1,69 @@
+# BEGIN Really Simple Security Redirect
+<IfModule mod_rewrite.c>
+RewriteEngine on
+RewriteCond %{HTTP_USER_AGENT} !lscache_runner [NC]
+RewriteCond %{HTTP:X-Forwarded-Proto} !https
+RewriteCond %{REQUEST_URI} !^/\.well-known/acme-challenge/
+RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+</IfModule>
+# END Really Simple Security Redirect
+# BEGIN Blog to Root Redirects
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^blog/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^blog/(.+)$ https://deveserisso.com.br/$1 [R=301,L]
+</IfModule>
+# END Blog to Root Redirects
+
+# BEGIN 404 Fix - Pages
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^privacidade/?$ https://deveserisso.com.br/politicas-de-privacidade/ [R=301,L]
+RewriteRule ^quem-somos/?$ https://deveserisso.com.br/ [R=301,L]
+</IfModule>
+# END 404 Fix - Pages
+
+# BEGIN WebP Serve
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteCond %{HTTP_ACCEPT} image/webp
+RewriteCond %{DOCUMENT_ROOT}/$1.webp -f
+RewriteRule ^(.+)\.(jpe?g|png)$ /$1.webp [T=image/webp,E=webp:1,L]
+</IfModule>
+<IfModule mod_headers.c>
+Header append Vary Accept env=webp
+</IfModule>
+# END WebP Serve
+
+# Charset UTF-8 para arquivos de texto usados por agentes de IA
+<Files "llms.txt">
+AddCharset UTF-8 .txt
+Header set Content-Type "text/plain; charset=utf-8"
+</Files>
+
+# Block xmlrpc.php
+<Files xmlrpc.php>
+Order Deny,Allow
+Deny from all
+</Files>
+
+# BEGIN WordPress
+# As diretrizes (linhas) entre "BEGIN WordPress" e "END WordPress" são
+# geradas dinamicamente e só devem ser modificadas através de filtros do WordPress.
+# Quaisquer alterações nas diretivas entre esses marcadores serão sobrescritas.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteBase /
+RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.php [L]
+</IfModule>
+
+# END WordPress
+
+# BEGIN Really Simple Security Disable directory indexing
+# Disable directory indexing to prevent listing of directory contents
+Options -Indexes
+# END Really Simple Security Disable directory indexing

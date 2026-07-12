@@ -1,0 +1,15 @@
+/*
+Theme Name:   DSI Magazine
+Theme URI:    https://deveserisso.com.br
+Description:  Magazine Minimalista — Direção C. Redesign completo do Deveserisso. Child de cream-magazine.
+Version:      1.0.0
+Template:     cream-magazine
+Author:       Leonardo Cruz
+Author URI:   https://deveserisso.com.br
+Text Domain:  dsi-magazine
+Tags:         editorial, magazine, minimal
+*/
+
+.dsi-prose h2 {
+    font-size: 27px;
+}
