@@ -61,7 +61,7 @@ jobs:
         run: |
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T scripts/fix-encoding.php "ftp://45.151.121.68/fix-encoding.php"
           curl -s https://deveserisso.com.br/fix-encoding.php
-          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -X "DELE fix-encoding.php" "ftp://45.151.121.68/"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -X "DELE fix-encoding.php" "ftp://45.151.121.68/" || true
 
       - name: Deploy to staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
