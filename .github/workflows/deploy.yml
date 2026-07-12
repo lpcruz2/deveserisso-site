@@ -71,6 +71,14 @@ jobs:
           curl -s https://deveserisso.com.br/fix-encoding-runner.php
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -X "DELE fix-encoding-runner.php" "ftp://45.151.121.68/" || true
 
+      - name: Deploy .htaccess and purge script (gateado por validação)
+        env:
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+        run: |
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T .htaccess "ftp://45.151.121.68/.htaccess"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T purge_ls.php "ftp://45.151.121.68/purge_ls.php"
+
       - name: Deploy to staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
