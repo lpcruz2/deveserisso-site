@@ -58,10 +58,18 @@ jobs:
         env:
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
         run: |
-          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T scripts/fix-encoding.php "ftp://45.151.121.68/fix-encoding.php"
-          curl -s https://deveserisso.com.br/fix-encoding.php
-          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -X "DELE fix-encoding.php" "ftp://45.151.121.68/" || true
+          cat > /tmp/fix-encoding-runner.php <<'PHPEOF'
+          <?php
+          putenv('DB_USER=' . getenv('DB_USER'));
+          putenv('DB_PASS=' . getenv('DB_PASS'));
+          include 'scripts/fix-encoding.php';
+          PHPEOF
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T /tmp/fix-encoding-runner.php "ftp://45.151.121.68/fix-encoding-runner.php"
+          curl -s https://deveserisso.com.br/fix-encoding-runner.php
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -X "DELE fix-encoding-runner.php" "ftp://45.151.121.68/" || true
 
       - name: Deploy to staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5

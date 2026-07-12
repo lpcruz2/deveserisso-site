@@ -1,7 +1,7 @@
 <?php
 ignore_user_abort(true);
 
-$db = new mysqli('127.0.0.1', 'u635223132_deveserisso', '@Vitrio1!', 'u635223132_wp_yzx11');
+$db = new mysqli('127.0.0.1', getenv('DB_USER'), getenv('DB_PASS'), 'u635223132_wp_yzx11');
 if ($db->connect_error) { die(json_encode(['error' => $db->connect_error])); }
 
 $r = $db->query("SELECT COUNT(*) n FROM UYVqiIqPf_postmeta WHERE meta_key='_yoast_wpseo_title' AND meta_value LIKE '%Ã%'");
