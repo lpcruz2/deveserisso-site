@@ -94,6 +94,7 @@ jobs:
       - name: Post-deploy healthcheck
         run: |
           sleep 5
+          curl -sI https://deveserisso.com.br/ | grep "200"
           curl -sI https://deveserisso.com.br/privacidade | grep "301"
-          curl -sI https://deveserisso.com.br/blog/ | grep "200"
+          curl -sI https://deveserisso.com.br/blog/ | grep "301"
           curl -sI -H "Accept: image/webp" "https://deveserisso.com.br/blog/wp-content/uploads/2021/02/logo-dsi_laranja_bc-96x96.png" | grep "image/webp"
