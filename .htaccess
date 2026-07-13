@@ -35,6 +35,15 @@ Header append Vary Accept env=webp
 </IfModule>
 # END WebP Serve
 
+# BEGIN Security Headers (H5 - Sprint 2026-07-12b)
+<IfModule mod_headers.c>
+Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; upgrade-insecure-requests"
+Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+Header set X-Frame-Options "SAMEORIGIN"
+Header set Cross-Origin-Opener-Policy "same-origin"
+</IfModule>
+# END Security Headers
+
 # Charset UTF-8 para arquivos de texto usados por agentes de IA
 <Files "llms.txt">
 AddCharset UTF-8 .txt
