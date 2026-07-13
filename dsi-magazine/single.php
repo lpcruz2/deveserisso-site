@@ -17,7 +17,6 @@ $author_id   = get_the_author_meta( 'ID' );
 $category    = dsi_primary_category();
 $read_time   = dsi_read_time();
 $author_init = dsi_author_initials();
-$thumb_url   = get_the_post_thumbnail_url( $post_id, 'dsi-hero' );
 $tags        = get_the_tags();
 $author_url  = get_author_posts_url( $author_id );
 $author_bio  = get_the_author_meta( 'description' );
@@ -38,7 +37,7 @@ $related = new WP_Query( [
 <main class="dsi-single" id="main-content">
 
     <!-- Topo: cabeçalho + imagem (grid 2 col no desktop, igual ao hero da home) -->
-    <div class="dsi-single__top<?php echo $thumb_url ? ' dsi-single__top--has-image' : ''; ?>">
+    <div class="dsi-single__top<?php echo has_post_thumbnail() ? ' dsi-single__top--has-image' : ''; ?>">
 
         <header class="dsi-single__header">
             <h1 class="dsi-single__title"><?php the_title(); ?></h1>
@@ -77,13 +76,21 @@ $related = new WP_Query( [
             </div>
         </header>
 
-        <?php if ( $thumb_url ) : ?>
+        <?php if ( has_post_thumbnail() ) : ?>
         <div class="dsi-single__hero-frame">
-            <img src="<?php echo esc_url( $thumb_url ); ?>"
-                 alt="<?php echo esc_attr( get_the_title() ); ?>"
-                 class="dsi-single__hero-img"
-                 loading="eager"
-                 fetchpriority="high">
+            <?php
+            echo wp_get_attachment_image(
+                get_post_thumbnail_id(),
+                'large',
+                false,
+                [
+                    'alt'           => esc_attr( get_the_title() ),
+                    'class'         => 'dsi-single__hero-img',
+                    'loading'       => 'eager',
+                    'fetchpriority' => 'high',
+                ]
+            );
+            ?>
             <?php
             $caption = get_the_post_thumbnail_caption();
             if ( $caption ) : ?>
