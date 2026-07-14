@@ -710,3 +710,20 @@ function dsi_newsletter_subscribe(): void {
 		wp_send_json_error( [ 'message' => 'Erro ao cadastrar. Tente novamente.' ] );
 	}
 }
+
+// =============================================================================
+// 21. PERFORMANCE — defer de scripts síncronos no <head> (TBT)
+// =============================================================================
+// jquery-core/jquery-migrate (WP core) e cream-magazine-bundle (tema pai) carregam
+// síncronos no head. Nenhum script inline do head depende de jQuery de forma síncrona
+// (confirmado via inspeção do HTML renderizado) — defer preserva a ordem de execução
+// entre eles porque scripts com defer rodam na ordem em que aparecem no documento.
+add_filter( 'script_loader_tag', function ( string $tag, string $handle, string $src ): string {
+	$defer_handles = [ 'jquery-core', 'jquery-migrate', 'cream-magazine-bundle' ];
+
+	if ( in_array( $handle, $defer_handles, true ) && ! str_contains( $tag, ' defer' ) ) {
+		$tag = str_replace( ' src=', ' defer src=', $tag );
+	}
+
+	return $tag;
+}, 10, 3 );
