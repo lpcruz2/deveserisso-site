@@ -727,3 +727,35 @@ add_filter( 'script_loader_tag', function ( string $tag, string $handle, string 
 
 	return $tag;
 }, 10, 3 );
+
+// =============================================================================
+// 22. SEO — Fallback de meta description para categorias/tags sem description
+// =============================================================================
+// Yoast (wpseo_metadesc) retorna vazio para taxonomias sem term_description
+// preenchida e sem template customizado em Search Appearance → Taxonomias.
+// Este filtro só atua quando o valor do Yoast vem vazio — não sobrescreve
+// nada que já esteja configurado.
+add_filter( 'wpseo_metadesc', function ( string $metadesc ): string {
+	if ( $metadesc !== '' ) {
+		return $metadesc;
+	}
+
+	if ( ! is_category() && ! is_tag() ) {
+		return $metadesc;
+	}
+
+	$term = get_queried_object();
+	if ( ! $term instanceof WP_Term ) {
+		return $metadesc;
+	}
+
+	if ( ! empty( $term->description ) ) {
+		return wp_trim_words( wp_strip_all_tags( $term->description ), 30, '…' );
+	}
+
+	$label = is_tag() ? 'sobre ' . $term->name : 'de ' . $term->name;
+	return sprintf(
+		'Confira as melhores críticas, listas e recomendações %s no Deveserisso — o que vale a pena assistir, ler e maratonar.',
+		$label
+	);
+}, 10, 1 );
