@@ -56,7 +56,7 @@ $year = date( 'Y' );
 
     <div class="dsi-footer__bottom">
         <span>© <?php echo esc_html( $year ); ?> Deveserisso · Todos os direitos reservados</span>
-        <span style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+        <span style="display:flex;align-items:center;gap:8px;">
             <span style="font-size:9px;letter-spacing:.05em;text-transform:none;">Este produto utiliza a API do TMDB, mas não é endossado nem certificado pelo TMDB.</span>
             <a href="https://www.themoviedb.org" target="_blank" rel="noopener" aria-label="The Movie Database (TMDB)">
                 <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg"
