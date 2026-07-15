@@ -34,6 +34,8 @@ if ( have_posts() ) {
 
 <?php get_template_part( 'template-parts/breadcrumb' ); ?>
 
+<main class="dsi-archive" id="main-content">
+
 <!-- Cabeçalho da categoria -->
 <section class="dsi-cat-header">
     <div class="dsi-cat-header__text">
@@ -137,7 +139,7 @@ if ( ! $is_tag && ! empty( $cat->term_id ) ) {
             </h2>
             <p class="dsi-lead__excerpt"><?php echo dsi_excerpt( 200, $lead_post->ID ); ?></p>
             <div class="dsi-lead__byline">
-                <a href="<?php echo esc_url( get_author_posts_url( $lead_post->post_author ) ); ?>" class="dsi-lead__avatar" aria-hidden="true">
+                <a href="<?php echo esc_url( get_author_posts_url( $lead_post->post_author ) ); ?>" class="dsi-lead__avatar" tabindex="-1" aria-hidden="true">
                     <?php
                     $av = get_avatar( $lead_post->post_author, 56, '', '', [ 'class' => 'dsi-lead__avatar-img' ] );
                     if ( $av ) { echo $av; }
@@ -335,6 +337,8 @@ if ( ! $is_tag && ! empty( $cat->term_id ) ) {
 </section>
 
 <?php dsi_pagination(); ?>
+
+</main>
 
 <?php get_template_part( 'template-parts/newsletter' ); ?>
 <?php get_template_part( 'template-parts/footer-content' ); ?>
