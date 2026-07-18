@@ -40,8 +40,49 @@ wp_reset_postdata();
     </form>
 </section>
 
-<!-- ===== CATEGORIAS + POSTS RECENTES ===== -->
+<!-- ===== TV + CATEGORIAS (igual à home) ===== -->
 <section class="dsi-tv-cats">
+    <!-- Programação de hoje -->
+    <div class="dsi-tv">
+        <div class="dsi-section-head">
+            <h2 class="dsi-tv__heading"><?php echo esc_html( get_option( 'dsi_tv_title', 'Programação de hoje' ) ); ?></h2>
+            <span class="dsi-rule"></span>
+        </div>
+        <?php
+        $slots = get_option( 'dsi_tv_slots', [
+            [ 'time' => '13h00', 'genre' => 'Sessão da Tarde',         'title' => 'Velocidade Máxima',   'link' => '', 'image' => '' ],
+            [ 'time' => '15h30', 'genre' => 'Vale a Pena Ver de Novo', 'title' => 'Pega Pega',           'link' => '', 'image' => '' ],
+            [ 'time' => '22h25', 'genre' => 'Tela Quente',             'title' => 'John Wick 4',         'link' => '', 'image' => '' ],
+            [ 'time' => '01h10', 'genre' => 'Corujão I',               'title' => 'O Advogado do Diabo', 'link' => '', 'image' => '' ],
+            [ 'time' => '03h05', 'genre' => 'Corujão II',              'title' => 'Constantine',         'link' => '', 'image' => '' ],
+        ] );
+        foreach ( $slots as $slot ) :
+            if ( empty( $slot['time'] ) && empty( $slot['title'] ) ) continue;
+            $genre = ! empty( $slot['genre'] ) ? $slot['genre'] : ( $slot['show'] ?? '' );
+            $link  = $slot['link']  ?? '';
+            $image = $slot['image'] ?? '';
+        ?>
+            <div class="dsi-tv__row<?php echo $image ? ' dsi-tv__row--has-image' : ''; ?>">
+                <?php if ( $image ) : ?>
+                    <div class="dsi-tv__poster">
+                        <img src="<?php echo esc_url( $image ); ?>" alt="<?php echo esc_attr( $slot['title'] ); ?>" loading="lazy">
+                    </div>
+                <?php endif; ?>
+                <div class="dsi-tv__meta">
+                    <span class="dsi-tv__time"><?php echo esc_html( $slot['time'] ); ?></span>
+                    <span class="dsi-tv__show"><?php echo esc_html( $genre ); ?></span>
+                </div>
+                <span class="dsi-tv__title">
+                    <?php if ( $link ) : ?>
+                        <a href="<?php echo esc_url( $link ); ?>"><?php echo esc_html( $slot['title'] ); ?></a>
+                    <?php else : ?>
+                        <?php echo esc_html( $slot['title'] ); ?>
+                    <?php endif; ?>
+                </span>
+            </div>
+        <?php endforeach; ?>
+    </div>
+
     <!-- Índice de categorias — usa menu WP "Explorar por tema" -->
     <div class="dsi-cat-index">
         <p class="dsi-cat-index__eyebrow">Índice de categorias</p>

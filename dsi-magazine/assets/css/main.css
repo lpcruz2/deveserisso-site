@@ -482,4 +482,3 @@ html body .dsi-prose .wp-block-details summary{background:#f4eee2!important;back
 @media(max-width:320px){
   .dsi-stories-grid__wrap{grid-template-columns:repeat(2,1fr)}
 }
-h2{font-size:clamp(2.25em,4.8vw,68px)!important;font-weight:600;line-height:31px}
