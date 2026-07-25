@@ -10,12 +10,15 @@
     // e respondeu a tempo; nunca atrasa o cadastro além do timeout (fail-open).
     // 4s: folga para a coleta de sinais do fingerprint, ainda bem abaixo do
     // timeout interno de 10s do próprio bootstrap do script (ver header.php).
-    function getCsideToken() {
+    function getCsideToken( email ) {
         if ( typeof window.sendClientTelemetry !== 'function' ) {
             return Promise.resolve( null );
         }
         return Promise.race( [
-            window.sendClientTelemetry().then( function ( r ) { return ( r && r.token ) ? r.token : null; } ),
+            window.sendClientTelemetry( { email: email } ).then( function ( r ) {
+                if ( ! r || ( r.errors && r.errors.length ) || ! r.token ) return null;
+                return r.token;
+            } ),
             new Promise( function ( resolve ) { setTimeout( function () { resolve( null ); }, 4000 ); } )
         ] ).catch( function () { return null; } );
     }
@@ -35,7 +38,7 @@
         btn.disabled    = true;
         btn.textContent = '…';
 
-        var resultPromise = getCsideToken()
+        var resultPromise = getCsideToken( email )
             .then( function ( token ) {
                 var data = new FormData();
                 data.append( 'action', 'dsi_newsletter_subscribe' );

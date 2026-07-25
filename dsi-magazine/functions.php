@@ -788,12 +788,14 @@ function dsi_cside_verify_token( string $token ): ?array {
 		return null;
 	}
 
-	$response = wp_remote_post( 'https://api.cside.com/token/v2/verify', [
+	// Contrato oficial (guia Device Intelligence, seção Backend): token vai
+	// cru no body como text/plain — não é JSON {"token": ...}.
+	$response = wp_remote_post( 'https://api.cside.com/token/v1/client', [
 		'headers' => [
 			'Authorization' => 'Bearer ' . CSIDE_FINGERPRINT_API_KEY,
-			'Content-Type'  => 'application/json',
+			'Content-Type'  => 'text/plain',
 		],
-		'body'    => wp_json_encode( [ 'token' => $token ] ),
+		'body'    => $token,
 		'timeout' => 3,
 	] );
 
