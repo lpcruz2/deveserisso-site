@@ -8,13 +8,15 @@
 
     // cSide Device Intelligence — pega o session token se o client.js já carregou
     // e respondeu a tempo; nunca atrasa o cadastro além do timeout (fail-open).
+    // 4s: folga para a coleta de sinais do fingerprint, ainda bem abaixo do
+    // timeout interno de 10s do próprio bootstrap do script (ver header.php).
     function getCsideToken() {
         if ( typeof window.sendClientTelemetry !== 'function' ) {
             return Promise.resolve( null );
         }
         return Promise.race( [
             window.sendClientTelemetry().then( function ( r ) { return ( r && r.token ) ? r.token : null; } ),
-            new Promise( function ( resolve ) { setTimeout( function () { resolve( null ); }, 1500 ); } )
+            new Promise( function ( resolve ) { setTimeout( function () { resolve( null ); }, 4000 ); } )
         ] ).catch( function () { return null; } );
     }
 

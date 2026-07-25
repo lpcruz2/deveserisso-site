@@ -674,12 +674,18 @@ function dsi_newsletter_subscribe(): void {
 
 	// cSide Device Intelligence — token opcional vindo do browser (ver seção 23).
 	// Só registra o resultado; não bloqueia o cadastro (thresholds não calibrados).
+	// Loga sempre (mesmo sem token/sem risco) para dar visibilidade se o
+	// fail-open do frontend passar a disparar com frequência incomum.
 	$cside_token = sanitize_text_field( wp_unslash( $_POST['cside_token'] ?? '' ) );
 	if ( $cside_token !== '' ) {
 		$risk = dsi_cside_verify_token( $cside_token );
-		if ( $risk !== null ) {
-			error_log( sprintf( '[DSI cSide] newsletter signup risk-check email=%s result=%s', $email, wp_json_encode( $risk ) ) );
-		}
+		error_log( sprintf(
+			'[DSI cSide] newsletter signup email=%s risk=%s',
+			$email,
+			$risk !== null ? wp_json_encode( $risk ) : 'null (erro ou ainda processando)'
+		) );
+	} else {
+		error_log( sprintf( '[DSI cSide] newsletter signup email=%s sem token (timeout do frontend ou script indisponível)', $email ) );
 	}
 
 	$api_key  = defined( 'DSI_MAILERLITE_KEY' ) ? DSI_MAILERLITE_KEY : '';
