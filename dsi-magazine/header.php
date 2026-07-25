@@ -21,6 +21,7 @@
 <link rel="preload" href="<?php echo get_theme_file_uri( 'assets/fonts/jetbrains-mono.woff2' ); ?>" as="font" type="font/woff2" crossorigin>
 
 <?php wp_head(); ?>
+<script type="text/javascript" src="https://7479667103286301696.csidetm.com/client.js" referrerpolicy="origin"></script>
 </head>
 <body <?php body_class(); ?>>
 <?php wp_body_open(); ?>
