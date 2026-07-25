@@ -672,6 +672,16 @@ function dsi_newsletter_subscribe(): void {
 		wp_send_json_error( [ 'message' => 'Email inválido.' ] );
 	}
 
+	// cSide Device Intelligence — token opcional vindo do browser (ver seção 23).
+	// Só registra o resultado; não bloqueia o cadastro (thresholds não calibrados).
+	$cside_token = sanitize_text_field( wp_unslash( $_POST['cside_token'] ?? '' ) );
+	if ( $cside_token !== '' ) {
+		$risk = dsi_cside_verify_token( $cside_token );
+		if ( $risk !== null ) {
+			error_log( sprintf( '[DSI cSide] newsletter signup risk-check email=%s result=%s', $email, wp_json_encode( $risk ) ) );
+		}
+	}
+
 	$api_key  = defined( 'DSI_MAILERLITE_KEY' ) ? DSI_MAILERLITE_KEY : '';
 	$group_id = '188168656705816082';
 
@@ -759,3 +769,37 @@ add_filter( 'wpseo_metadesc', function ( string $metadesc ): string {
 		$label
 	);
 }, 10, 1 );
+
+// =============================================================================
+// 23. cSide Device Intelligence — verificação server-side do session token
+// =============================================================================
+// O script cside (csidefd.com/client.js, carregado no <head> via header.php)
+// gera um session token no browser via sendClientTelemetry(). Esse token chega
+// aqui (ver uso em dsi_newsletter_subscribe) e é trocado pelos dados de risco
+// na Events API do cSide, usando a chave backend-only (nunca exposta no tema).
+function dsi_cside_verify_token( string $token ): ?array {
+	if ( ! defined( 'CSIDE_FINGERPRINT_API_KEY' ) || empty( CSIDE_FINGERPRINT_API_KEY ) ) {
+		return null;
+	}
+
+	$response = wp_remote_post( 'https://api.cside.com/token/v2/verify', [
+		'headers' => [
+			'Authorization' => 'Bearer ' . CSIDE_FINGERPRINT_API_KEY,
+			'Content-Type'  => 'application/json',
+		],
+		'body'    => wp_json_encode( [ 'token' => $token ] ),
+		'timeout' => 3,
+	] );
+
+	if ( is_wp_error( $response ) ) {
+		return null;
+	}
+
+	// 202 = ainda processando, outros códigos de erro — não bloqueia o fluxo chamador.
+	if ( (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
+		return null;
+	}
+
+	$body = json_decode( wp_remote_retrieve_body( $response ), true );
+	return is_array( $body ) ? $body : null;
+}

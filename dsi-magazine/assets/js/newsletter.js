@@ -6,6 +6,18 @@
 
     if ( ! form || ! window.dsiNewsletter ) return;
 
+    // cSide Device Intelligence — pega o session token se o client.js já carregou
+    // e respondeu a tempo; nunca atrasa o cadastro além do timeout (fail-open).
+    function getCsideToken() {
+        if ( typeof window.sendClientTelemetry !== 'function' ) {
+            return Promise.resolve( null );
+        }
+        return Promise.race( [
+            window.sendClientTelemetry().then( function ( r ) { return ( r && r.token ) ? r.token : null; } ),
+            new Promise( function ( resolve ) { setTimeout( function () { resolve( null ); }, 1500 ); } )
+        ] ).catch( function () { return null; } );
+    }
+
     form.addEventListener( 'submit', function ( e ) {
         e.preventDefault();
 
@@ -21,12 +33,15 @@
         btn.disabled    = true;
         btn.textContent = '…';
 
-        var data = new FormData();
-        data.append( 'action', 'dsi_newsletter_subscribe' );
-        data.append( 'nonce',  dsiNewsletter.nonce );
-        data.append( 'email',  email );
-
-        var resultPromise = fetch( dsiNewsletter.ajaxUrl, { method: 'POST', body: data } )
+        var resultPromise = getCsideToken()
+            .then( function ( token ) {
+                var data = new FormData();
+                data.append( 'action', 'dsi_newsletter_subscribe' );
+                data.append( 'nonce',  dsiNewsletter.nonce );
+                data.append( 'email',  email );
+                if ( token ) data.append( 'cside_token', token );
+                return fetch( dsiNewsletter.ajaxUrl, { method: 'POST', body: data } );
+            } )
             .then( function ( r ) { return r.json(); } )
             .then( function ( res ) {
                 if ( res.success ) {
