@@ -22,6 +22,75 @@
 
 <?php wp_head(); ?>
 <script type="text/javascript" src="https://7479667103286301696.csidetm.com/client.js" referrerpolicy="origin"></script>
+<script>
+(function () {
+  const calls = [];
+  let error;
+  let timeoutID;
+
+  function fallback(externalIds) {
+    return error
+      ? Promise.reject(error)
+      : new Promise((resolve, reject) => {
+          calls.push({ externalIds, resolve, reject });
+        });
+  }
+
+  function rejectAll(nextError) {
+    if (error) {
+      return;
+    }
+
+    error = nextError;
+    while (calls.length > 0) {
+      calls.shift().reject(nextError);
+    }
+  }
+
+  function flush(sendClientTelemetry) {
+    while (calls.length > 0) {
+      const call = calls.shift();
+      Promise.resolve()
+        .then(() => sendClientTelemetry(call.externalIds))
+        .then(call.resolve, call.reject);
+    }
+  }
+
+  window.sendClientTelemetry = window.sendClientTelemetry || fallback;
+
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = "https://7479667103286301696.csidefd.com/client.js";
+  script.referrerPolicy = "origin";
+  script.setAttribute("data-src", "6");
+
+  const fail = (nextError) => {
+    clearTimeout(timeoutID);
+    rejectAll(nextError);
+  };
+
+  script.onerror = () =>
+    fail(new Error("cside client.js failed to load"));
+  script.onload = () => {
+    clearTimeout(timeoutID);
+    const sendClientTelemetry = window.sendClientTelemetry;
+    if (
+      typeof sendClientTelemetry !== "function" ||
+      sendClientTelemetry === fallback
+    ) {
+      rejectAll(new Error("cside telemetry unavailable"));
+      return;
+    }
+    flush(sendClientTelemetry);
+  };
+
+  timeoutID = setTimeout(
+    () => fail(new Error("cside client.js timed out while loading")),
+    10000,
+  );
+  (document.head || document.documentElement).appendChild(script);
+})();
+</script>
 </head>
 <body <?php body_class(); ?>>
 <?php wp_body_open(); ?>
