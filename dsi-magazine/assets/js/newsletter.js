@@ -6,23 +6,6 @@
 
     if ( ! form || ! window.dsiNewsletter ) return;
 
-    // cSide Device Intelligence — pega o session token se o client.js já carregou
-    // e respondeu a tempo; nunca atrasa o cadastro além do timeout (fail-open).
-    // 4s: folga para a coleta de sinais do fingerprint, ainda bem abaixo do
-    // timeout interno de 10s do próprio bootstrap do script (ver header.php).
-    function getCsideToken( email ) {
-        if ( typeof window.sendClientTelemetry !== 'function' ) {
-            return Promise.resolve( null );
-        }
-        return Promise.race( [
-            window.sendClientTelemetry( { email: email } ).then( function ( r ) {
-                if ( ! r || ( r.errors && r.errors.length ) || ! r.token ) return null;
-                return r.token;
-            } ),
-            new Promise( function ( resolve ) { setTimeout( function () { resolve( null ); }, 4000 ); } )
-        ] ).catch( function () { return null; } );
-    }
-
     form.addEventListener( 'submit', function ( e ) {
         e.preventDefault();
 
@@ -38,15 +21,12 @@
         btn.disabled    = true;
         btn.textContent = '…';
 
-        var resultPromise = getCsideToken( email )
-            .then( function ( token ) {
-                var data = new FormData();
-                data.append( 'action', 'dsi_newsletter_subscribe' );
-                data.append( 'nonce',  dsiNewsletter.nonce );
-                data.append( 'email',  email );
-                if ( token ) data.append( 'cside_token', token );
-                return fetch( dsiNewsletter.ajaxUrl, { method: 'POST', body: data } );
-            } )
+        var data = new FormData();
+        data.append( 'action', 'dsi_newsletter_subscribe' );
+        data.append( 'nonce',  dsiNewsletter.nonce );
+        data.append( 'email',  email );
+
+        var resultPromise = fetch( dsiNewsletter.ajaxUrl, { method: 'POST', body: data } )
             .then( function ( r ) { return r.json(); } )
             .then( function ( res ) {
                 if ( res.success ) {
