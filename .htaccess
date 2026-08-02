@@ -7,6 +7,12 @@ RewriteCond %{REQUEST_URI} !^/\.well-known/acme-challenge/
 RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
 </IfModule>
 # END Really Simple Security Redirect
+# BEGIN Redirect - aprovados legado (N2, sprint 2026-08-02)
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^blog/aprovados-e-bom-e-vale-a-pena-assistir-confira-trailer-sinopse-e-mais/?$ https://deveserisso.com.br/aprovados/ [R=301,L]
+</IfModule>
+# END Redirect - aprovados legado
 # BEGIN Blog to Root Redirects
 <IfModule mod_rewrite.c>
 RewriteEngine On
