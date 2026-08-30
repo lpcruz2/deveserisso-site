@@ -760,3 +760,85 @@ add_filter( 'wpseo_metadesc', function ( string $metadesc ): string {
 	);
 }, 10, 1 );
 
+// =============================================================================
+// 23. SEO — FAQPage schema automático a partir de H2 "Perguntas Frequentes"
+// =============================================================================
+// Detecta a convenção editorial usada em /filmes-com-letra-q/: um H2 exato
+// "Perguntas Frequentes" seguido de pares H3 (pergunta) + parágrafo(s) (resposta).
+// As perguntas são H3, não H2 (confirmado por inspeção do DOM ao vivo — a spec
+// original da task N3 assumia H2 para as perguntas, o que nunca casaria com o
+// HTML real). Roda em qualquer post singular que siga essa convenção, sem
+// precisar de edição manual por página, inclusive em futuras páginas "letra-X".
+add_action( 'wp_head', function (): void {
+	if ( ! is_singular( 'post' ) ) return;
+
+	$content = get_post_field( 'post_content', get_the_ID() );
+	if ( stripos( $content, 'Perguntas Frequentes' ) === false ) return;
+
+	$rendered = apply_filters( 'the_content', $content );
+
+	$dom = new DOMDocument();
+	libxml_use_internal_errors( true );
+	$dom->loadHTML( '<?xml encoding="utf-8"?>' . $rendered );
+	libxml_clear_errors();
+
+	$h2s = $dom->getElementsByTagName( 'h2' );
+	$faq_heading = null;
+	foreach ( $h2s as $h2 ) {
+		if ( trim( $h2->textContent ) === 'Perguntas Frequentes' ) {
+			$faq_heading = $h2;
+			break;
+		}
+	}
+	if ( $faq_heading === null ) return;
+
+	// Perguntas = H3 entre o H2 "Perguntas Frequentes" e o próximo H2.
+	// Resposta = concatenação de todos os nós de bloco entre uma pergunta e a próxima.
+	$pairs = [];
+	$current_question = null;
+	$current_answer_parts = [];
+
+	$flush = function () use ( &$pairs, &$current_question, &$current_answer_parts ): void {
+		if ( $current_question === null ) return;
+		$answer = trim( implode( ' ', array_filter( $current_answer_parts ) ) );
+		if ( $answer !== '' ) {
+			$pairs[] = [ 'question' => $current_question, 'answer' => $answer ];
+		}
+	};
+
+	$node = $faq_heading->nextSibling;
+	while ( $node !== null ) {
+		if ( $node->nodeType === XML_ELEMENT_NODE && $node->nodeName === 'h2' ) {
+			break; // início da próxima seção do post
+		}
+		if ( $node->nodeType === XML_ELEMENT_NODE && $node->nodeName === 'h3' ) {
+			$flush();
+			$current_question = trim( $node->textContent );
+			$current_answer_parts = [];
+		} elseif ( $current_question !== null && $node->nodeType === XML_ELEMENT_NODE ) {
+			$current_answer_parts[] = trim( $node->textContent );
+		}
+		$node = $node->nextSibling;
+	}
+	$flush();
+
+	if ( empty( $pairs ) ) return;
+
+	$schema = [
+		'@context'   => 'https://schema.org',
+		'@type'      => 'FAQPage',
+		'mainEntity' => array_map( function ( array $p ): array {
+			return [
+				'@type'          => 'Question',
+				'name'           => $p['question'],
+				'acceptedAnswer' => [
+					'@type' => 'Answer',
+					'text'  => $p['answer'],
+				],
+			];
+		}, $pairs ),
+	];
+
+	echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . '</script>' . "\n";
+}, 20 );
+
