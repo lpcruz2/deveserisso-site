@@ -17,6 +17,7 @@ RewriteRule ^blog/aprovados-e-bom-e-vale-a-pena-assistir-confira-trailer-sinopse
 <IfModule mod_rewrite.c>
 RewriteEngine On
 RewriteRule ^blog/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteCond %{REQUEST_URI} !^/blog/(wp-admin|wp-includes|wp-content|wp-json|wp-login\.php|wp-comments-post\.php|wp-cron\.php|wp-trackback\.php|wp-links-opml\.php|xmlrpc\.php)
 RewriteRule ^blog/(.+)$ https://deveserisso.com.br/$1 [R=301,L]
 </IfModule>
 # END Blog to Root Redirects
