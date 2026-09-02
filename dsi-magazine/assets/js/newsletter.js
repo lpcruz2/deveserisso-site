@@ -30,6 +30,9 @@
             .then( function ( r ) { return r.json(); } )
             .then( function ( res ) {
                 if ( res.success ) {
+                    if ( window.dataLayer ) {
+                        window.dataLayer.push( { event: 'newsletter_success' } );
+                    }
                     form.style.display          = 'none';
                     feedback.style.display      = 'block';
                     feedback.style.color        = '#c2511d';
