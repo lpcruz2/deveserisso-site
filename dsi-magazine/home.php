@@ -4,26 +4,6 @@
  * Seções: Frontispiece → HeroSplit → Tricolumn → PullQuote → TVAndCategories → MoreReading → Newsletter
  */
 
-// Helper function to add srcset to images
-function add_srcset_to_image( $img_html ) {
-    if ( ! $img_html ) return $img_html;
-
-    preg_match( '/src="([^"]+)"/', $img_html, $matches );
-    $img_url = $matches[1] ?? '';
-
-    if ( ! $img_url ) return $img_html;
-
-    $path_parts = explode( '/', $img_url );
-    $filename = end( $path_parts );
-    $dir = implode( '/', array_slice( $path_parts, 0, -1 ) );
-    $base_name = pathinfo( $filename, PATHINFO_FILENAME );
-
-    // Add srcset with 400w and 768w variants
-    $srcset = "$dir/{$base_name}-400w.webp 400w, $dir/{$base_name}-768w.webp 768w, " . $img_url . " original";
-
-    return str_replace( 'src="', 'srcset="' . esc_attr( $srcset ) . '" src="', $img_html );
-}
-
 get_header();
 
 // Query principal (primeiro post para o hero)
@@ -128,7 +108,11 @@ wp_reset_postdata();
                 <?php if ( $thumb ) : ?>
                     <div class="dsi-tricolumn__frame">
                         <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>" tabindex="-1" aria-hidden="true">
-                            <?php echo add_srcset_to_image( $thumb ); ?>
+                            <?php
+                            // Removido srcset manual que tentava criar versões não-regeneradas (mesmo bug do hero, acima)
+                            // O WordPress srcset do get_the_post_thumbnail já é suficiente
+                            echo $thumb;
+                            ?>
                         </a>
                     </div>
                 <?php endif; ?>
