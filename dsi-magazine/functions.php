@@ -905,3 +905,21 @@ add_filter( 'lyte_match_postparse_template', function ( string $template, string
 	);
 }, 10, 3 );
 
+// =============================================================================
+// 25. PERFORMANCE — remove preconnect fonts.gstatic.com não usado (single/categoria)
+// =============================================================================
+// O tema não usa Google Fonts (fontes self-hosted, preloadadas em header.php),
+// mas o WP core emite esse resource hint via wp_resource_hints() em single.php e
+// category.php (confirmado via curl — formato de aspas simples característico da
+// API nativa, não hardcoded no tema pai). Preconnect para um domínio nunca usado
+// desperdiça uma conexão antecipada.
+add_filter( 'wp_resource_hints', function ( array $hints, string $relation_type ): array {
+	if ( $relation_type !== 'preconnect' ) {
+		return $hints;
+	}
+	return array_values( array_filter( $hints, function ( $hint ) {
+		$url = is_array( $hint ) ? ( $hint['href'] ?? '' ) : $hint;
+		return ! str_contains( $url, 'fonts.gstatic.com' );
+	} ) );
+}, 10, 2 );
+
