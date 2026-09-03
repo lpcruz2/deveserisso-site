@@ -6,19 +6,19 @@
 
 defined( 'ABSPATH' ) || exit;
 
-add_action( 'admin_menu', 'dsi_ai_bots_admin_menu' );
+add_action( 'admin_menu', 'dsi_agentmd_admin_menu' );
 
-function dsi_ai_bots_admin_menu(): void {
+function dsi_agentmd_admin_menu(): void {
 	add_management_page(
 		'Bots de IA',
 		'Bots de IA',
 		'manage_options',
 		'dsi-ai-bots',
-		'dsi_ai_bots_admin_page'
+		'dsi_agentmd_admin_page'
 	);
 }
 
-function dsi_ai_bots_admin_page(): void {
+function dsi_agentmd_admin_page(): void {
 	global $wpdb;
 	$table = $wpdb->prefix . 'ai_bot_requests';
 

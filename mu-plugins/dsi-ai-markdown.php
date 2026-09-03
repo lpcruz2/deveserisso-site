@@ -6,46 +6,20 @@
 
 defined( 'ABSPATH' ) || exit;
 
-add_action( 'template_redirect', 'dsi_maybe_serve_markdown' );
+add_action( 'template_redirect', 'dsi_agentmd_maybe_serve' );
 
-// DIAGNOSTICO TEMPORARIO — remover apos achar a causa do 500.
-register_shutdown_function( 'dsi_debug_shutdown' );
-function dsi_debug_shutdown(): void {
-	if ( ! isset( $_GET['dsi_markdown'] ) ) {
-		return;
-	}
-	$error = error_get_last();
-	if ( $error && in_array( $error['type'], [ E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR ], true ) ) {
-		if ( ! headers_sent() ) {
-			header( 'Content-Type: text/plain; charset=utf-8' );
-		}
-		echo "\nDSI-SHUTDOWN-DEBUG: " . $error['message'] . ' em ' . $error['file'] . ':' . $error['line'];
-	}
-}
-
-function dsi_maybe_serve_markdown(): void {
+function dsi_agentmd_maybe_serve(): void {
 	if ( ! isset( $_GET['dsi_markdown'] ) || ! is_singular() ) {
 		return;
 	}
 
-	// DIAGNOSTICO TEMPORARIO — remover apos achar a causa do 500.
-	try {
-		dsi_maybe_serve_markdown_inner();
-	} catch ( \Throwable $e ) {
-		header( 'Content-Type: text/plain; charset=utf-8' );
-		echo "DSI-DEBUG: " . $e->getMessage() . " em " . $e->getFile() . ":" . $e->getLine();
-		exit;
-	}
-}
-
-function dsi_maybe_serve_markdown_inner(): void {
 	$post = get_queried_object();
 	if ( ! $post instanceof WP_Post ) {
 		return;
 	}
 
 	$html = apply_filters( 'the_content', $post->post_content );
-	$body = dsi_html_to_markdown( $html );
+	$body = dsi_agentmd_html_to_markdown( $html );
 
 	$description = get_post_meta( $post->ID, '_yoast_wpseo_metadesc', true );
 	if ( ! $description ) {
@@ -54,13 +28,13 @@ function dsi_maybe_serve_markdown_inner(): void {
 
 	$frontmatter = sprintf(
 		"---\ntitle: %s\nurl: %s\ndate: %s\ndescription: %s\n---\n\n",
-		dsi_yaml_escape( get_the_title( $post ) ),
+		dsi_agentmd_yaml_escape( get_the_title( $post ) ),
 		esc_url( get_permalink( $post ) ),
 		get_the_date( 'Y-m-d', $post ),
-		dsi_yaml_escape( $description )
+		dsi_agentmd_yaml_escape( $description )
 	);
 
-	dsi_log_ai_bot_request( $post->ID );
+	dsi_agentmd_log_request( $post->ID );
 
 	header( 'Content-Type: text/markdown; charset=utf-8' );
 	header( 'X-Robots-Tag: noindex' );
@@ -68,7 +42,7 @@ function dsi_maybe_serve_markdown_inner(): void {
 	exit;
 }
 
-function dsi_yaml_escape( string $text ): string {
+function dsi_agentmd_yaml_escape( string $text ): string {
 	$text = str_replace( '"', "'", $text );
 	return '"' . trim( $text ) . '"';
 }
@@ -77,7 +51,7 @@ function dsi_yaml_escape( string $text ): string {
 // LOG — quem pediu a versão Markdown (tabela criada via script one-off,
 // ver "Workflow de deploy padrão" no CLAUDE.md do projeto)
 // =============================================================================
-function dsi_log_ai_bot_request( int $post_id ): void {
+function dsi_agentmd_log_request( int $post_id ): void {
 	global $wpdb;
 
 	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
@@ -91,13 +65,13 @@ function dsi_log_ai_bot_request( int $post_id ): void {
 			'url_path'     => esc_url_raw( $_SERVER['REQUEST_URI'] ?? '' ),
 			'user_agent'   => $user_agent,
 			'client_ip'    => $client_ip,
-			'bot_label'    => dsi_classify_bot( $user_agent ),
+			'bot_label'    => dsi_agentmd_classify_bot( $user_agent ),
 		],
 		[ '%s', '%d', '%s', '%s', '%s', '%s' ]
 	);
 }
 
-function dsi_classify_bot( string $user_agent ): string {
+function dsi_agentmd_classify_bot( string $user_agent ): string {
 	$known = [
 		'GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'ClaudeBot', 'Claude-Web', 'anthropic-ai',
 		'PerplexityBot', 'CCBot', 'Google-Extended', 'GoogleOther', 'Bytespider',
@@ -118,18 +92,18 @@ function dsi_classify_bot( string $user_agent ): string {
 // Cobre só as tags que o tema realmente produz no conteúdo (sem dependência
 // externa — não há Composer no repo).
 // =============================================================================
-function dsi_html_to_markdown( string $html ): string {
+function dsi_agentmd_html_to_markdown( string $html ): string {
 	if ( trim( $html ) === '' ) {
 		return '';
 	}
 
 	$doc = new DOMDocument();
 	libxml_use_internal_errors( true );
-	$doc->loadHTML( '<?xml encoding="utf-8" ?><div id="dsi-root">' . $html . '</div>', LIBXML_NOWARNING | LIBXML_NOERROR );
+	$doc->loadHTML( '<?xml encoding="utf-8" ?><div id="dsi-agentmd-root">' . $html . '</div>', LIBXML_NOWARNING | LIBXML_NOERROR );
 	libxml_clear_errors();
 
-	$root = $doc->getElementById( 'dsi-root' );
-	$md   = $root ? dsi_node_to_markdown( $root ) : '';
+	$root = $doc->getElementById( 'dsi-agentmd-root' );
+	$md   = $root ? dsi_agentmd_node_to_markdown( $root ) : '';
 
 	$md = preg_replace( "/[ \t]+\n/", "\n", $md );
 	$md = preg_replace( "/\n{3,}/", "\n\n", $md );
@@ -137,7 +111,7 @@ function dsi_html_to_markdown( string $html ): string {
 	return trim( $md );
 }
 
-function dsi_node_to_markdown( DOMNode $node ): string {
+function dsi_agentmd_node_to_markdown( DOMNode $node ): string {
 	$out = '';
 
 	foreach ( $node->childNodes as $child ) {
@@ -151,7 +125,7 @@ function dsi_node_to_markdown( DOMNode $node ): string {
 		}
 
 		$tag   = strtolower( $child->nodeName );
-		$inner = dsi_node_to_markdown( $child );
+		$inner = dsi_agentmd_node_to_markdown( $child );
 
 		switch ( $tag ) {
 			case 'h1':
@@ -196,7 +170,7 @@ function dsi_node_to_markdown( DOMNode $node ): string {
 			case 'ul':
 			case 'ol':
 				if ( $child instanceof DOMElement ) {
-					$out .= "\n\n" . dsi_list_to_markdown( $child, $tag === 'ol' ) . "\n\n";
+					$out .= "\n\n" . dsi_agentmd_list_to_markdown( $child, $tag === 'ol' ) . "\n\n";
 				}
 				break;
 
@@ -226,7 +200,7 @@ function dsi_node_to_markdown( DOMNode $node ): string {
 	return $out;
 }
 
-function dsi_list_to_markdown( DOMElement $list, bool $ordered ): string {
+function dsi_agentmd_list_to_markdown( DOMElement $list, bool $ordered ): string {
 	$lines = [];
 	$i     = 1;
 
@@ -235,7 +209,7 @@ function dsi_list_to_markdown( DOMElement $list, bool $ordered ): string {
 			continue;
 		}
 		$marker  = $ordered ? ( $i++ . '.' ) : '-';
-		$lines[] = $marker . ' ' . trim( dsi_node_to_markdown( $item ) );
+		$lines[] = $marker . ' ' . trim( dsi_agentmd_node_to_markdown( $item ) );
 	}
 
 	return implode( "\n", $lines );
