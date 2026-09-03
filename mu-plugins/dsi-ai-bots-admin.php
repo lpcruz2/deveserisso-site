@@ -7,6 +7,7 @@
 defined( 'ABSPATH' ) || exit;
 
 add_action( 'admin_menu', 'dsi_agentmd_admin_menu' );
+add_action( 'admin_post_dsi_agentmd_export_csv', 'dsi_agentmd_export_csv' );
 
 function dsi_agentmd_admin_menu(): void {
 	add_management_page(
@@ -16,6 +17,44 @@ function dsi_agentmd_admin_menu(): void {
 		'dsi-ai-bots',
 		'dsi_agentmd_admin_page'
 	);
+}
+
+function dsi_agentmd_export_csv(): void {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( 'Sem permissão.' );
+	}
+	check_admin_referer( 'dsi_agentmd_export_csv' );
+
+	global $wpdb;
+	$table = $wpdb->prefix . 'ai_bot_requests';
+	$rows  = $wpdb->get_results(
+		"SELECT requested_at, bot_label, post_id, url_path, user_agent, client_ip
+		 FROM {$table}
+		 ORDER BY requested_at DESC"
+	);
+
+	nocache_headers();
+	header( 'Content-Type: text/csv; charset=utf-8' );
+	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . gmdate( 'Y-m-d' ) . '.csv"' );
+
+	$out = fopen( 'php://output', 'w' );
+	fputcsv( $out, [ 'data', 'bot', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip' ] );
+
+	foreach ( $rows as $row ) {
+		$post_title = $row->post_id ? get_the_title( (int) $row->post_id ) : '';
+		fputcsv( $out, [
+			$row->requested_at,
+			$row->bot_label,
+			$row->post_id,
+			$post_title,
+			$row->url_path,
+			$row->user_agent,
+			$row->client_ip,
+		] );
+	}
+
+	fclose( $out );
+	exit;
 }
 
 function dsi_agentmd_admin_page(): void {
@@ -37,7 +76,13 @@ function dsi_agentmd_admin_page(): void {
 		 LIMIT 50"
 	);
 
+	$export_url = wp_nonce_url(
+		admin_url( 'admin-post.php?action=dsi_agentmd_export_csv' ),
+		'dsi_agentmd_export_csv'
+	);
+
 	echo '<div class="wrap"><h1>Bots de IA — acessos ao Markdown</h1>';
+	echo '<p><a href="' . esc_url( $export_url ) . '" class="button button-primary">Baixar CSV completo</a></p>';
 
 	echo '<h2>Resumo (últimos 30 dias)</h2>';
 	echo '<table class="widefat striped"><thead><tr><th>Bot</th><th>Total</th><th>Última vez</th></tr></thead><tbody>';
