@@ -908,11 +908,14 @@ add_filter( 'lyte_match_postparse_template', function ( string $template, string
 // =============================================================================
 // 25. PERFORMANCE — remove preconnect fonts.gstatic.com não usado (single/categoria)
 // =============================================================================
-// O tema não usa Google Fonts (fontes self-hosted, preloadadas em header.php),
-// mas o WP core emite esse resource hint via wp_resource_hints() em single.php e
-// category.php (confirmado via curl — formato de aspas simples característico da
-// API nativa, não hardcoded no tema pai). Preconnect para um domínio nunca usado
-// desperdiça uma conexão antecipada.
+// O tema não usa Google Fonts (fontes self-hosted, preloadadas em header.php).
+// A origem real do hint (achado ao vivo, não documentado na spec original): o
+// plugin WP Asset CleanUp (WpAssetCleanUp\OptimiseAssets\FontsGoogle::resourceHints)
+// registra o próprio callback em 'wp_resource_hints' na prioridade PHP_INT_MAX
+// (9223372036854775807) — mais alta possível — então um add_filter comum (prioridade
+// 10) roda ANTES dele e tem o hint reinserido em seguida. Usa a mesma prioridade
+// máxima: como plugins carregam antes do tema, este filtro é registrado depois do
+// do WPACU e roda por último na mesma prioridade (ordem de inserção), vencendo.
 add_filter( 'wp_resource_hints', function ( array $hints, string $relation_type ): array {
 	if ( $relation_type !== 'preconnect' ) {
 		return $hints;
@@ -921,5 +924,5 @@ add_filter( 'wp_resource_hints', function ( array $hints, string $relation_type 
 		$url = is_array( $hint ) ? ( $hint['href'] ?? '' ) : $hint;
 		return ! str_contains( $url, 'fonts.gstatic.com' );
 	} ) );
-}, 10, 2 );
+}, PHP_INT_MAX, 2 );
 
