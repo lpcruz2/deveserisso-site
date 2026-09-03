@@ -32,6 +32,8 @@ $stats = [
 
 <?php get_template_part( 'template-parts/breadcrumb' ); ?>
 
+<main id="main-content">
+
 <!-- Cabeçalho do autor -->
 <section class="dsi-author-header">
     <div class="dsi-author-header__portrait">
@@ -274,6 +276,8 @@ if ( ! empty( $other_authors ) ) : ?>
     </div>
 </section>
 <?php endif; ?>
+
+</main>
 
 <?php get_template_part( 'template-parts/newsletter', null, [
     'eyebrow'  => '※ Carta do autor',
