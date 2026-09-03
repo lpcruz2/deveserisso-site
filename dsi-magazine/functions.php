@@ -874,3 +874,28 @@ add_action( 'wp_head', function (): void {
 	echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . '</script>' . "\n";
 }, 20 );
 
+// =============================================================================
+// 24. Acessibilidade — aria-label no botão de play do embed lite-YouTube (wp-youtube-lyte)
+// =============================================================================
+// O plugin renderiza <button tabindex="0" class="play"></button> sem nome
+// acessível (WCAG 4.1.2 "critical", axe-core em 2026-09-02, derruba também
+// agent-accessibility-tree). Usa o filtro nativo do plugin em vez de editar o
+// arquivo do plugin (perdido em updates) ou um shim JS: o botão já sai pronto
+// no HTML (confirmado em wp-youtube-lyte.php:370/378), então o filtro de
+// server-side resolve sem depender de timing de lazy-render.
+add_filter( 'lyte_match_postparse_template', function ( string $template, string $type, $yt_resp_array ): string {
+	$title = ( is_array( $yt_resp_array ) && ! empty( $yt_resp_array['title'] ) )
+		? $yt_resp_array['title']
+		: '';
+
+	$label = $title !== ''
+		? sprintf( 'Reproduzir vídeo: %s', $title )
+		: 'Reproduzir vídeo';
+
+	return str_replace(
+		'<button tabindex="0" class="play"></button>',
+		'<button tabindex="0" class="play" aria-label="' . esc_attr( $label ) . '"></button>',
+		$template
+	);
+}, 10, 3 );
+
