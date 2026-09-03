@@ -9,7 +9,24 @@ defined( 'ABSPATH' ) || exit;
 add_action( 'template_redirect', 'dsi_agentmd_maybe_serve' );
 
 function dsi_agentmd_maybe_serve(): void {
-	if ( ! isset( $_GET['dsi_markdown'] ) || ! is_singular() ) {
+	if ( ! isset( $_GET['dsi_markdown'] ) ) {
+		return;
+	}
+
+	// DIAGNOSTICO TEMPORARIO — remover apos achar a causa do 404.
+	if ( isset( $_GET['dsi_debug'] ) ) {
+		header( 'Content-Type: text/plain; charset=utf-8' );
+		echo 'REQUEST_URI: ' . ( $_SERVER['REQUEST_URI'] ?? '' ) . "\n";
+		echo 'QUERY_STRING: ' . ( $_SERVER['QUERY_STRING'] ?? '' ) . "\n";
+		echo 'is_singular: ' . ( is_singular() ? 'true' : 'false' ) . "\n";
+		echo 'is_404: ' . ( is_404() ? 'true' : 'false' ) . "\n";
+		echo 'queried_object: ' . print_r( get_queried_object(), true ) . "\n";
+		global $wp_query;
+		echo 'query_vars: ' . print_r( $wp_query->query_vars, true );
+		exit;
+	}
+
+	if ( ! is_singular() ) {
 		return;
 	}
 
