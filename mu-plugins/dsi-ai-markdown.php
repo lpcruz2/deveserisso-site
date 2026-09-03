@@ -56,6 +56,7 @@ function dsi_agentmd_maybe_serve(): void {
 
 	dsi_agentmd_log_request( $post->ID );
 
+	status_header( 200 );
 	header( 'Content-Type: text/markdown; charset=utf-8' );
 	header( 'X-Robots-Tag: noindex' );
 	echo $frontmatter . $body;
