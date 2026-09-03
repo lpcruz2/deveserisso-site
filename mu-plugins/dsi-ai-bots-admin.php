@@ -139,6 +139,30 @@ function dsi_agentmd_admin_page(): void {
 	// independente do periodo filtrado, pra nao sumir opcao ao estreitar a data.
 	$bots_disponiveis = $wpdb->get_col( "SELECT DISTINCT bot_label FROM {$table} ORDER BY bot_label ASC" );
 
+	// --- Período imediatamente anterior, com a mesma duração, pra comparação ---
+	$duracao_dias        = (int) ( ( strtotime( $fim_input ) - strtotime( $inicio_input ) ) / DAY_IN_SECONDS ) + 1;
+	$anterior_fim_input  = gmdate( 'Y-m-d', strtotime( $inicio_input ) - DAY_IN_SECONDS );
+	$anterior_ini_input  = gmdate( 'Y-m-d', strtotime( $anterior_fim_input ) - ( $duracao_dias - 1 ) * DAY_IN_SECONDS );
+	$anterior_ini_sql    = $anterior_ini_input . ' 00:00:00';
+	$anterior_fim_sql    = $anterior_fim_input . ' 23:59:59';
+
+	[ $where_anterior, $params_anterior ] = dsi_agentmd_where_and_params( $anterior_ini_sql, $anterior_fim_sql, $bot );
+	$total_anterior = (int) $wpdb->get_var(
+		$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE {$where_anterior}", $params_anterior )
+	);
+
+	if ( $total_anterior > 0 ) {
+		$variacao_pct = ( ( $total_periodo - $total_anterior ) / $total_anterior ) * 100;
+		$variacao_cor = $variacao_pct > 0 ? '#00a32a' : ( $variacao_pct < 0 ? '#d63638' : '#646970' );
+		$variacao_txt = sprintf( '%+.0f%%', $variacao_pct );
+	} elseif ( $total_periodo > 0 ) {
+		$variacao_cor = '#00a32a';
+		$variacao_txt = 'novo';
+	} else {
+		$variacao_cor = '#646970';
+		$variacao_txt = '—';
+	}
+
 	$per_page      = 50;
 	$paged         = max( 1, absint( $_GET['paged'] ?? 1 ) );
 	$offset        = ( $paged - 1 ) * $per_page;
@@ -194,11 +218,15 @@ function dsi_agentmd_admin_page(): void {
 	// --- Overview ---
 	echo '<div style="display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;">';
 	printf(
-		'<div style="background:#fff;border:1px solid #ccd0d4;padding:16px 24px;min-width:220px;">
-			<div style="font-size:13px;color:#646970;">Requisições de MD no período</div>
-			<div style="font-size:28px;font-weight:600;">%d</div>
+		'<div style="background:#fff;border:1px solid #ccd0d4;width:180px;height:180px;padding:20px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;">
+			<div style="font-size:13px;color:#646970;line-height:1.4;">Requisições de MD no período</div>
+			<div style="font-size:36px;font-weight:600;line-height:1;">%d</div>
+			<div style="font-size:13px;color:%s;font-weight:600;">%s <span style="color:#646970;font-weight:400;">vs. período anterior (%d)</span></div>
 		</div>',
-		$total_periodo
+		$total_periodo,
+		esc_attr( $variacao_cor ),
+		esc_html( $variacao_txt ),
+		$total_anterior
 	);
 	echo '</div>';
 
