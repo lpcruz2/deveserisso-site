@@ -246,7 +246,7 @@ wp_reset_postdata();
                 <div class="dsi-card__thumb dsi-card__thumb--square">
                     <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>" tabindex="-1" aria-hidden="true">
                         <?php if ( $thumb ) : ?>
-                            <?php echo str_replace( '>', ' loading="lazy">', $thumb ); ?>
+                            <?php echo $thumb; ?>
                         <?php else : ?>
                             <div class="dsi-card__thumb-fallback" aria-hidden="true"></div>
                         <?php endif; ?>
@@ -284,7 +284,7 @@ wp_reset_postdata();
                 <div class="dsi-card__thumb dsi-card__thumb--square">
                     <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>" tabindex="-1" aria-hidden="true">
                         <?php if ( $thumb ) : ?>
-                            <?php echo str_replace( '>', ' loading="lazy">', $thumb ); ?>
+                            <?php echo $thumb; ?>
                         <?php else : ?>
                             <div class="dsi-card__thumb-fallback" aria-hidden="true"></div>
                         <?php endif; ?>
