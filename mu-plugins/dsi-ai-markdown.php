@@ -13,6 +13,17 @@ function dsi_maybe_serve_markdown(): void {
 		return;
 	}
 
+	// DIAGNOSTICO TEMPORARIO — remover apos achar a causa do 500.
+	try {
+		dsi_maybe_serve_markdown_inner();
+	} catch ( \Throwable $e ) {
+		header( 'Content-Type: text/plain; charset=utf-8' );
+		echo "DSI-DEBUG: " . $e->getMessage() . " em " . $e->getFile() . ":" . $e->getLine();
+		exit;
+	}
+}
+
+function dsi_maybe_serve_markdown_inner(): void {
 	$post = get_queried_object();
 	if ( ! $post instanceof WP_Post ) {
 		return;
