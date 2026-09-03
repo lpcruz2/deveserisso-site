@@ -660,6 +660,22 @@ add_action( 'wp_enqueue_scripts', function (): void {
 	] );
 } );
 
+// =============================================================================
+// 21. AVALIAÇÃO (dsi-avaliacoes, mu-plugin externo) — tracking de voto
+// =============================================================================
+add_action( 'wp_enqueue_scripts', function (): void {
+	if ( ! is_singular() ) {
+		return;
+	}
+	wp_enqueue_script(
+		'dsi-aval-tracking',
+		get_stylesheet_directory_uri() . '/assets/js/aval-tracking.js',
+		[],
+		'1.0.0',
+		[ 'strategy' => 'defer', 'in_footer' => true ]
+	);
+} );
+
 // Handler AJAX (logado e não logado)
 add_action( 'wp_ajax_nopriv_dsi_newsletter_subscribe', 'dsi_newsletter_subscribe' );
 add_action( 'wp_ajax_dsi_newsletter_subscribe',        'dsi_newsletter_subscribe' );
