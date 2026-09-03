@@ -744,21 +744,27 @@ function dsi_newsletter_subscribe(): void {
 }
 
 // =============================================================================
-// 21. PERFORMANCE — defer de scripts síncronos no <head> (TBT)
+// 21. PERFORMANCE — remoção do jQuery do tema pai (código morto)
 // =============================================================================
-// jquery-core/jquery-migrate (WP core) e cream-magazine-bundle (tema pai) carregam
-// síncronos no head. Nenhum script inline do head depende de jQuery de forma síncrona
-// (confirmado via inspeção do HTML renderizado) — defer preserva a ordem de execução
-// entre eles porque scripts com defer rodam na ordem em que aparecem no documento.
-add_filter( 'script_loader_tag', function ( string $tag, string $handle, string $src ): string {
-	$defer_handles = [ 'jquery-core', 'jquery-migrate', 'cream-magazine-bundle' ];
-
-	if ( in_array( $handle, $defer_handles, true ) && ! str_contains( $tag, ' defer' ) ) {
-		$tag = str_replace( ' src=', ' defer src=', $tag );
-	}
-
-	return $tag;
-}, 10, 3 );
+// Investigação Q1 (2026-09-02b) confirmou ao vivo, em produção, que
+// cream-magazine-bundle (tema pai) não afeta nada em dsi-magazine — 0 elementos
+// para todos os seletores que o script manipula, em home/single/categoria, com
+// interação real testada (busca, hover, scroll, menu mobile) e zero warnings de
+// deprecação do JQMIGRATE apesar do jQuery estar carregado. dsi-magazine (tema
+// filho) já é 100% vanilla JS. Confirmado também via wp_scripts() ao vivo que
+// nenhum outro script na fila de enqueue do front-end depende de 'jquery'/
+// 'jquery-core' — só o próprio cream-magazine-bundle. Substitui o defer (task
+// I2/2026-07-13) por dequeue completo: menos ~30-35KB de JS não utilizado.
+add_action( 'wp_enqueue_scripts', function (): void {
+	wp_dequeue_script( 'cream-magazine-bundle' );
+	wp_deregister_script( 'cream-magazine-bundle' );
+	wp_dequeue_script( 'jquery-migrate' );
+	wp_deregister_script( 'jquery-migrate' );
+	wp_dequeue_script( 'jquery-core' );
+	wp_deregister_script( 'jquery-core' );
+	wp_dequeue_script( 'jquery' );
+	wp_deregister_script( 'jquery' );
+}, 100 );
 
 // =============================================================================
 // 22. SEO — Fallback de meta description para categorias/tags sem description
