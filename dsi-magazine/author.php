@@ -38,7 +38,7 @@ $stats = [
 <section class="dsi-author-header">
     <div class="dsi-author-header__portrait">
         <?php
-        $av = get_avatar( $author_id, 600, '', $author_name, [ 'class' => 'dsi-author-header__photo' ] );
+        $av = get_avatar( $author_id, 330, '', $author_name, [ 'class' => 'dsi-author-header__photo' ] );
         if ( $av ) : ?>
             <?php echo $av; ?>
         <?php else : ?>
