@@ -23,6 +23,7 @@ function dsi_agentmd_alternate_link(): void {
 
 function dsi_agentmd_maybe_serve(): void {
 	if ( ! isset( $_GET['dsi_markdown'] ) ) {
+		dsi_agentmd_maybe_log_html();
 		return;
 	}
 
@@ -67,7 +68,8 @@ function dsi_agentmd_maybe_serve(): void {
 		dsi_agentmd_yaml_escape( $description )
 	);
 
-	dsi_agentmd_log_request( $post->ID );
+	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+	dsi_agentmd_log_request( $post->ID, $user_agent, 'md' );
 
 	status_header( 200 );
 	header( 'Content-Type: text/markdown; charset=utf-8' );
@@ -76,20 +78,34 @@ function dsi_agentmd_maybe_serve(): void {
 	exit;
 }
 
+// Visita normal (sem sufixo .md) a um post/pagina -- so loga se o UA for
+// um bot reconhecido, senao a tabela vira log de trafego humano inteiro.
+function dsi_agentmd_maybe_log_html(): void {
+	if ( ! is_singular( [ 'post', 'page' ] ) ) {
+		return;
+	}
+
+	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+	if ( dsi_agentmd_classify_bot( $user_agent ) === 'desconhecido' ) {
+		return;
+	}
+
+	dsi_agentmd_log_request( (int) get_queried_object_id(), $user_agent, 'html' );
+}
+
 function dsi_agentmd_yaml_escape( string $text ): string {
 	$text = str_replace( '"', "'", $text );
 	return '"' . trim( $text ) . '"';
 }
 
 // =============================================================================
-// LOG — quem pediu a versão Markdown (tabela criada via script one-off,
-// ver "Workflow de deploy padrão" no CLAUDE.md do projeto)
+// LOG — quem pediu Markdown ou visitou HTML como bot reconhecido (tabela
+// criada via script one-off, ver "Workflow de deploy padrão" no CLAUDE.md)
 // =============================================================================
-function dsi_agentmd_log_request( int $post_id ): void {
+function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo ): void {
 	global $wpdb;
 
-	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
-	$client_ip  = sanitize_text_field( $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['REMOTE_ADDR'] ?? '' );
+	$client_ip = sanitize_text_field( $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['REMOTE_ADDR'] ?? '' );
 
 	$wpdb->insert(
 		$wpdb->prefix . 'ai_bot_requests',
@@ -100,8 +116,9 @@ function dsi_agentmd_log_request( int $post_id ): void {
 			'user_agent'   => $user_agent,
 			'client_ip'    => $client_ip,
 			'bot_label'    => dsi_agentmd_classify_bot( $user_agent ),
+			'tipo'         => $tipo,
 		],
-		[ '%s', '%d', '%s', '%s', '%s', '%s' ]
+		[ '%s', '%d', '%s', '%s', '%s', '%s', '%s' ]
 	);
 }
 
