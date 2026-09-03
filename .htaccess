@@ -47,16 +47,18 @@ Header append Vary Accept env=webp
 # usa _.template() (underscore.js -> new Function()) pra compilar templates do
 # Backbone em telas nativas como o modal de Adicionar mídia, Customizer etc.
 # Sem isso o CSP bloqueava o eval e o modal nunca abria. Restrito a
-# /blog/wp-admin/ e /blog/wp-login.php via env var -- o site público continua
-# com o script-src estrito de antes.
-<IfModule mod_rewrite.c>
-RewriteEngine On
-RewriteCond %{REQUEST_URI} ^/blog/(wp-admin|wp-login\.php)
-RewriteRule .* - [E=DSI_WPADMIN:1]
-</IfModule>
+# /blog/wp-admin/ e /blog/wp-login.php via <If>/<Else> autocontido -- tentativa
+# anterior com env var setada em <IfModule mod_rewrite.c> separado não
+# funcionou (mesma classe de problema já visto antes: LiteSpeed não propagou
+# a env var pro bloco <IfModule mod_headers.c> seguinte). O site público
+# continua com o script-src estrito de antes.
 <IfModule mod_headers.c>
-Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://image.tmdb.org https://www.themoviedb.org https://secure.gravatar.com https://www.googletagmanager.com https://www.google-analytics.com https://www.google.com.br https://fonts.gstatic.com; connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://region1.google-analytics.com https://www.googletagmanager.com https://stats.g.doubleclick.net; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; upgrade-insecure-requests" env=DSI_WPADMIN
-Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://image.tmdb.org https://www.themoviedb.org https://secure.gravatar.com https://www.googletagmanager.com https://www.google-analytics.com https://www.google.com.br https://fonts.gstatic.com; connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://region1.google-analytics.com https://www.googletagmanager.com https://stats.g.doubleclick.net; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; upgrade-insecure-requests" env=!DSI_WPADMIN
+<If "%{REQUEST_URI} =~ m#^/blog/(wp-admin|wp-login\.php)#">
+Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://image.tmdb.org https://www.themoviedb.org https://secure.gravatar.com https://www.googletagmanager.com https://www.google-analytics.com https://www.google.com.br https://fonts.gstatic.com; connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://region1.google-analytics.com https://www.googletagmanager.com https://stats.g.doubleclick.net; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; upgrade-insecure-requests"
+</If>
+<Else>
+Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://image.tmdb.org https://www.themoviedb.org https://secure.gravatar.com https://www.googletagmanager.com https://www.google-analytics.com https://www.google.com.br https://fonts.gstatic.com; connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://region1.google-analytics.com https://www.googletagmanager.com https://stats.g.doubleclick.net; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; upgrade-insecure-requests"
+</Else>
 Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
 Header set X-Frame-Options "SAMEORIGIN"
 Header set Cross-Origin-Opener-Policy "same-origin"
