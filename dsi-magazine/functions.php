@@ -676,6 +676,22 @@ add_action( 'wp_enqueue_scripts', function (): void {
 	);
 } );
 
+// =============================================================================
+// 22. COMENTÁRIOS — tracking de envio com sucesso
+// =============================================================================
+add_action( 'wp_enqueue_scripts', function (): void {
+	if ( ! is_singular() || ! comments_open() ) {
+		return;
+	}
+	wp_enqueue_script(
+		'dsi-comment-tracking',
+		get_stylesheet_directory_uri() . '/assets/js/comment-tracking.js',
+		[],
+		'1.0.0',
+		[ 'strategy' => 'defer', 'in_footer' => true ]
+	);
+} );
+
 // Handler AJAX (logado e não logado)
 add_action( 'wp_ajax_nopriv_dsi_newsletter_subscribe', 'dsi_newsletter_subscribe' );
 add_action( 'wp_ajax_dsi_newsletter_subscribe',        'dsi_newsletter_subscribe' );
