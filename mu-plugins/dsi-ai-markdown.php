@@ -13,27 +13,30 @@ function dsi_agentmd_maybe_serve(): void {
 		return;
 	}
 
-	// DIAGNOSTICO TEMPORARIO — remover apos achar a causa do 404.
-	if ( isset( $_GET['dsi_debug'] ) ) {
-		header( 'Content-Type: text/plain; charset=utf-8' );
-		echo 'REQUEST_URI: ' . ( $_SERVER['REQUEST_URI'] ?? '' ) . "\n";
-		echo 'QUERY_STRING: ' . ( $_SERVER['QUERY_STRING'] ?? '' ) . "\n";
-		echo 'is_singular: ' . ( is_singular() ? 'true' : 'false' ) . "\n";
-		echo 'is_404: ' . ( is_404() ? 'true' : 'false' ) . "\n";
-		echo 'queried_object: ' . print_r( get_queried_object(), true ) . "\n";
-		global $wp_query;
-		echo 'query_vars: ' . print_r( $wp_query->query_vars, true );
-		exit;
-	}
+	// O LiteSpeed nao atualiza $_SERVER['REQUEST_URI'] entre os blocos de
+	// rewrite do .htaccess (cada <IfModule> e reescrito internamente, mas o
+	// valor que o PHP ve continua sendo a URI original com ".md"). Por isso
+	// nao da pra confiar em is_singular()/get_queried_object() aqui -- o
+	// parser de permalinks do WP tentaria casar ".md" como parte do slug.
+	// Resolve o post direto pelo path, ignorando o roteamento do WP.
+	$path = (string) parse_url( $_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH );
+	$path = preg_replace( '#\.md$#', '', $path );
+	$path = trim( $path, '/' );
 
-	if ( ! is_singular() ) {
+	if ( $path === '' ) {
 		return;
 	}
 
-	$post = get_queried_object();
-	if ( ! $post instanceof WP_Post ) {
+	$post = get_page_by_path( $path, OBJECT, [ 'post', 'page' ] );
+	if ( ! $post instanceof WP_Post || $post->post_status !== 'publish' ) {
 		return;
 	}
+
+	global $wp_query;
+	$wp_query->queried_object    = $post;
+	$wp_query->queried_object_id = $post->ID;
+	$GLOBALS['post']             = $post;
+	setup_postdata( $post );
 
 	$html = apply_filters( 'the_content', $post->post_content );
 	$body = dsi_agentmd_html_to_markdown( $html );
