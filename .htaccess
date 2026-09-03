@@ -57,6 +57,14 @@ AddCharset UTF-8 .txt
 Header set Content-Type "text/plain; charset=utf-8"
 </Files>
 
+# BEGIN Markdown for Agents
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteCond %{REQUEST_URI} !^/(blog/)?(wp-admin|wp-includes|wp-content|wp-json)
+RewriteRule ^(.+)\.md$ /$1/?dsi_markdown=1 [QSA,L]
+</IfModule>
+# END Markdown for Agents
+
 # Block xmlrpc.php
 <Files xmlrpc.php>
 Order Deny,Allow

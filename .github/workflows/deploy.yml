@@ -10,7 +10,7 @@ jobs:
 
       - name: Lint PHP syntax
         run: |
-          find dsi-magazine -name "*.php" -print0 | xargs -0 -n1 php -l
+          find dsi-magazine mu-plugins -name "*.php" -print0 | xargs -0 -n1 php -l
 
       - name: Validate .htaccess syntax
         run: |
@@ -71,13 +71,14 @@ jobs:
           curl -s https://deveserisso.com.br/fix-encoding-runner.php
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -X "DELE fix-encoding-runner.php" "ftp://45.151.121.68/" || true
 
-      - name: Deploy .htaccess and purge script (gateado por validação)
+      - name: Deploy .htaccess, purge script e llms.txt (gateado por validação)
         env:
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
         run: |
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T .htaccess "ftp://45.151.121.68/.htaccess"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T purge_ls.php "ftp://45.151.121.68/purge_ls.php"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T llms.txt "ftp://45.151.121.68/llms.txt"
 
       - name: Deploy to staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -88,6 +89,16 @@ jobs:
           password: ${{ secrets.FTP_PASS }}
           server-dir: /staging/wp-content/themes/dsi-magazine/
           local-dir: ./dsi-magazine/
+
+      - name: Deploy mu-plugins to staging
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: 45.151.121.68
+          protocol: ftp
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          server-dir: /staging/wp-content/mu-plugins/
+          local-dir: ./mu-plugins/
 
       - name: Test critical URLs on staging
         run: |
@@ -103,6 +114,16 @@ jobs:
           password: ${{ secrets.FTP_PASS }}
           server-dir: /blog/wp-content/themes/dsi-magazine/
           local-dir: ./dsi-magazine/
+
+      - name: Deploy mu-plugins (produção)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: 45.151.121.68
+          protocol: ftp
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          server-dir: /blog/wp-content/mu-plugins/
+          local-dir: ./mu-plugins/
 
       - name: Purge cache
         run: curl -s https://deveserisso.com.br/purge_ls.php
@@ -124,3 +145,4 @@ jobs:
           curl -sI https://deveserisso.com.br/privacidade | grep "301"
           curl -sI https://deveserisso.com.br/blog/ | grep "301"
           curl -sI -H "Accept: image/webp" "https://deveserisso.com.br/blog/wp-content/uploads/2021/02/logo-dsi_laranja_bc-96x96.png" | grep "image/webp"
+          curl -sI https://deveserisso.com.br/politicas-de-privacidade.md | grep "text/markdown"
