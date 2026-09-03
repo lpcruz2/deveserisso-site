@@ -69,11 +69,21 @@ function dsi_agentmd_admin_page(): void {
 		 ORDER BY total DESC"
 	);
 
+	$per_page     = 50;
+	$paged        = max( 1, absint( $_GET['paged'] ?? 1 ) );
+	$offset       = ( $paged - 1 ) * $per_page;
+	$total_rows   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+	$total_paginas = (int) max( 1, ceil( $total_rows / $per_page ) );
+
 	$detalhe = $wpdb->get_results(
-		"SELECT requested_at, bot_label, post_id, url_path, client_ip
-		 FROM {$table}
-		 ORDER BY requested_at DESC
-		 LIMIT 50"
+		$wpdb->prepare(
+			"SELECT requested_at, bot_label, post_id, url_path, client_ip
+			 FROM {$table}
+			 ORDER BY requested_at DESC
+			 LIMIT %d OFFSET %d",
+			$per_page,
+			$offset
+		)
 	);
 
 	$export_url = wp_nonce_url(
@@ -100,7 +110,12 @@ function dsi_agentmd_admin_page(): void {
 	}
 	echo '</tbody></table>';
 
-	echo '<h2 style="margin-top:32px;">Últimas 50 requisições</h2>';
+	printf(
+		'<h2 style="margin-top:32px;">Requisições — página %d de %d (%d no total)</h2>',
+		$paged,
+		$total_paginas,
+		$total_rows
+	);
 	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Bot</th><th>Post</th><th>URL</th><th>IP</th></tr></thead><tbody>';
 	if ( $detalhe ) {
 		foreach ( $detalhe as $row ) {
@@ -117,5 +132,35 @@ function dsi_agentmd_admin_page(): void {
 	} else {
 		echo '<tr><td colspan="5">Nenhuma requisição ainda.</td></tr>';
 	}
-	echo '</tbody></table></div>';
+	echo '</tbody></table>';
+
+	dsi_agentmd_render_pagination( $paged, $total_paginas );
+
+	echo '</div>';
+}
+
+function dsi_agentmd_render_pagination( int $paged, int $total_paginas ): void {
+	if ( $total_paginas <= 1 ) {
+		return;
+	}
+
+	$base_url = remove_query_arg( 'paged' );
+
+	echo '<p class="tablenav-pages" style="margin-top:12px;">';
+
+	if ( $paged > 1 ) {
+		printf(
+			'<a class="button" href="%s">&laquo; Anterior</a> ',
+			esc_url( add_query_arg( 'paged', $paged - 1, $base_url ) )
+		);
+	}
+
+	if ( $paged < $total_paginas ) {
+		printf(
+			'<a class="button" href="%s">Próxima &raquo;</a>',
+			esc_url( add_query_arg( 'paged', $paged + 1, $base_url ) )
+		);
+	}
+
+	echo '</p>';
 }
