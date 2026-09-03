@@ -40,6 +40,29 @@ function dsi_agentmd_periodo_from_request(): array {
 	return [ $inicio . ' 00:00:00', $fim . ' 23:59:59', $inicio, $fim ];
 }
 
+function dsi_agentmd_bot_from_request(): string {
+	return isset( $_GET['bot'] ) ? sanitize_text_field( wp_unslash( $_GET['bot'] ) ) : '';
+}
+
+/**
+ * Monta a clausula WHERE (periodo + bot opcional) e os parametros pra
+ * $wpdb->prepare(), reaproveitada pelo overview, pela tabela paginada
+ * e pelo export CSV -- os tres sempre filtram igual.
+ *
+ * @return array{0: string, 1: array<int, string>}
+ */
+function dsi_agentmd_where_and_params( string $inicio_sql, string $fim_sql, string $bot ): array {
+	$where  = 'requested_at BETWEEN %s AND %s';
+	$params = [ $inicio_sql, $fim_sql ];
+
+	if ( $bot !== '' ) {
+		$where   .= ' AND bot_label = %s';
+		$params[] = $bot;
+	}
+
+	return [ $where, $params ];
+}
+
 function dsi_agentmd_export_csv(): void {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		wp_die( 'Sem permissão.' );
@@ -50,21 +73,24 @@ function dsi_agentmd_export_csv(): void {
 	$table = $wpdb->prefix . 'ai_bot_requests';
 
 	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_agentmd_periodo_from_request();
+	$bot                = dsi_agentmd_bot_from_request();
+	[ $where, $params ] = dsi_agentmd_where_and_params( $inicio_sql, $fim_sql, $bot );
 
 	$rows = $wpdb->get_results(
 		$wpdb->prepare(
 			"SELECT requested_at, bot_label, post_id, url_path, user_agent, client_ip
 			 FROM {$table}
-			 WHERE requested_at BETWEEN %s AND %s
+			 WHERE {$where}
 			 ORDER BY requested_at DESC",
-			$inicio_sql,
-			$fim_sql
+			$params
 		)
 	);
 
+	$sufixo_bot = $bot !== '' ? '-' . sanitize_title( $bot ) : '';
+
 	nocache_headers();
 	header( 'Content-Type: text/csv; charset=utf-8' );
-	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . $inicio_input . '-a-' . $fim_input . '.csv"' );
+	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . $inicio_input . '-a-' . $fim_input . $sufixo_bot . '.csv"' );
 
 	$out = fopen( 'php://output', 'w' );
 	fputcsv( $out, [ 'data', 'bot', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip' ] );
@@ -91,26 +117,27 @@ function dsi_agentmd_admin_page(): void {
 	$table = $wpdb->prefix . 'ai_bot_requests';
 
 	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_agentmd_periodo_from_request();
+	$bot                = dsi_agentmd_bot_from_request();
+	[ $where, $params ] = dsi_agentmd_where_and_params( $inicio_sql, $fim_sql, $bot );
 
 	$total_periodo = (int) $wpdb->get_var(
-		$wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table} WHERE requested_at BETWEEN %s AND %s",
-			$inicio_sql,
-			$fim_sql
-		)
+		$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE {$where}", $params )
 	);
 
 	$top_bots = $wpdb->get_results(
 		$wpdb->prepare(
 			"SELECT bot_label, COUNT(*) AS total, MAX(requested_at) AS ultima_vez
 			 FROM {$table}
-			 WHERE requested_at BETWEEN %s AND %s
+			 WHERE {$where}
 			 GROUP BY bot_label
 			 ORDER BY total DESC",
-			$inicio_sql,
-			$fim_sql
+			$params
 		)
 	);
+
+	// Lista de bots pro dropdown: todos os ja vistos historicamente,
+	// independente do periodo filtrado, pra nao sumir opcao ao estreitar a data.
+	$bots_disponiveis = $wpdb->get_col( "SELECT DISTINCT bot_label FROM {$table} ORDER BY bot_label ASC" );
 
 	$per_page      = 50;
 	$paged         = max( 1, absint( $_GET['paged'] ?? 1 ) );
@@ -121,19 +148,21 @@ function dsi_agentmd_admin_page(): void {
 		$wpdb->prepare(
 			"SELECT requested_at, bot_label, post_id, url_path, client_ip
 			 FROM {$table}
-			 WHERE requested_at BETWEEN %s AND %s
+			 WHERE {$where}
 			 ORDER BY requested_at DESC
 			 LIMIT %d OFFSET %d",
-			$inicio_sql,
-			$fim_sql,
-			$per_page,
-			$offset
+			array_merge( $params, [ $per_page, $offset ] )
 		)
 	);
 
 	$export_url = wp_nonce_url(
 		add_query_arg(
-			[ 'action' => 'dsi_agentmd_export_csv', 'data_inicio' => $inicio_input, 'data_fim' => $fim_input ],
+			[
+				'action'      => 'dsi_agentmd_export_csv',
+				'data_inicio' => $inicio_input,
+				'data_fim'    => $fim_input,
+				'bot'         => $bot,
+			],
 			admin_url( 'admin-post.php' )
 		),
 		'dsi_agentmd_export_csv'
@@ -141,11 +170,23 @@ function dsi_agentmd_admin_page(): void {
 
 	echo '<div class="wrap"><h1>Bots de IA — acessos ao Markdown</h1>';
 
-	// --- Filtro de data ---
+	// --- Filtros ---
 	echo '<form method="get" style="margin:16px 0;display:flex;gap:8px;align-items:end;flex-wrap:wrap;">';
 	echo '<input type="hidden" name="page" value="dsi-ai-bots">';
 	echo '<label>De <input type="date" name="data_inicio" value="' . esc_attr( $inicio_input ) . '"></label>';
 	echo '<label>Até <input type="date" name="data_fim" value="' . esc_attr( $fim_input ) . '"></label>';
+
+	echo '<label>Bot <select name="bot"><option value="">Todos</option>';
+	foreach ( $bots_disponiveis as $opcao ) {
+		printf(
+			'<option value="%s"%s>%s</option>',
+			esc_attr( $opcao ),
+			selected( $bot, $opcao, false ),
+			esc_html( $opcao )
+		);
+	}
+	echo '</select></label>';
+
 	echo '<button type="submit" class="button">Filtrar</button>';
 	echo '<a href="' . esc_url( $export_url ) . '" class="button button-primary">Baixar CSV do período</a>';
 	echo '</form>';
