@@ -240,7 +240,7 @@ wp_reset_postdata();
     </div>
     <div class="dsi-more__grid">
         <?php foreach ( $more_posts as $i => $p ) :
-            $thumb = get_the_post_thumbnail( $p->ID, 'dsi-square', [ 'class' => 'dsi-card__thumb-img', 'width' => '400', 'height' => '400' ] );
+            $thumb = get_the_post_thumbnail( $p->ID, 'dsi-square', [ 'class' => 'dsi-card__thumb-img', 'width' => '400', 'height' => '400', 'loading' => 'lazy' ] );
         ?>
             <article class="dsi-card">
                 <div class="dsi-card__thumb dsi-card__thumb--square">
@@ -278,7 +278,7 @@ wp_reset_postdata();
     </div>
     <div class="dsi-more__grid dsi-more__grid--3col">
         <?php foreach ( $extra_posts as $p ) :
-            $thumb = get_the_post_thumbnail( $p->ID, 'dsi-square', [ 'class' => 'dsi-card__thumb-img', 'width' => '400', 'height' => '400' ] );
+            $thumb = get_the_post_thumbnail( $p->ID, 'dsi-square', [ 'class' => 'dsi-card__thumb-img', 'width' => '400', 'height' => '400', 'loading' => 'lazy' ] );
         ?>
             <article class="dsi-card">
                 <div class="dsi-card__thumb dsi-card__thumb--square">
