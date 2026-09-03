@@ -7,6 +7,19 @@
 defined( 'ABSPATH' ) || exit;
 
 add_action( 'template_redirect', 'dsi_agentmd_maybe_serve' );
+add_action( 'wp_head', 'dsi_agentmd_alternate_link' );
+
+// Autodescoberta: declara a versao Markdown de qualquer post/pagina na
+// propria tag <head>, pra agentes que chegam direto na URL HTML (nao so
+// via llms.txt) saberem que a alternativa .md existe.
+function dsi_agentmd_alternate_link(): void {
+	if ( ! is_singular( [ 'post', 'page' ] ) ) {
+		return;
+	}
+
+	$url = rtrim( get_permalink(), '/' ) . '.md';
+	printf( '<link rel="alternate" type="text/markdown" href="%s">' . "\n", esc_url( $url ) );
+}
 
 function dsi_agentmd_maybe_serve(): void {
 	if ( ! isset( $_GET['dsi_markdown'] ) ) {
