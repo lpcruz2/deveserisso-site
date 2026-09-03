@@ -224,6 +224,18 @@ $related = new WP_Query( [
     }
     grid.addEventListener('scroll', update, { passive: true });
     update();
+
+    // Tracking de clique em post relacionado (delegação — cobre imagem e título)
+    grid.addEventListener('click', function ( e ) {
+        var link = e.target.closest( 'a[href]' );
+        if ( ! link || ! grid.contains( link ) ) return;
+        if ( window.dataLayer ) {
+            window.dataLayer.push( {
+                event:              'related_post_click',
+                related_post_url:   link.href
+            } );
+        }
+    } );
 })();
 </script>
 <?php endif; ?>
