@@ -8,6 +8,21 @@ defined( 'ABSPATH' ) || exit;
 
 add_action( 'template_redirect', 'dsi_maybe_serve_markdown' );
 
+// DIAGNOSTICO TEMPORARIO — remover apos achar a causa do 500.
+register_shutdown_function( 'dsi_debug_shutdown' );
+function dsi_debug_shutdown(): void {
+	if ( ! isset( $_GET['dsi_markdown'] ) ) {
+		return;
+	}
+	$error = error_get_last();
+	if ( $error && in_array( $error['type'], [ E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR ], true ) ) {
+		if ( ! headers_sent() ) {
+			header( 'Content-Type: text/plain; charset=utf-8' );
+		}
+		echo "\nDSI-SHUTDOWN-DEBUG: " . $error['message'] . ' em ' . $error['file'] . ':' . $error['line'];
+	}
+}
+
 function dsi_maybe_serve_markdown(): void {
 	if ( ! isset( $_GET['dsi_markdown'] ) || ! is_singular() ) {
 		return;
