@@ -19,6 +19,27 @@ function dsi_agentmd_admin_menu(): void {
 	);
 }
 
+/**
+ * Le e valida o intervalo de datas da querystring, com fallback pros
+ * ultimos 30 dias. Usado tanto pela pagina quanto pelo export CSV, pra
+ * os dois sempre baterem com o que esta na tela.
+ *
+ * @return array{0: string, 1: string,2: string, 3: string} [inicio_sql, fim_sql, inicio_input, fim_input]
+ */
+function dsi_agentmd_periodo_from_request(): array {
+	$inicio = isset( $_GET['data_inicio'] ) ? sanitize_text_field( wp_unslash( $_GET['data_inicio'] ) ) : '';
+	$fim    = isset( $_GET['data_fim'] ) ? sanitize_text_field( wp_unslash( $_GET['data_fim'] ) ) : '';
+
+	if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $inicio ) ) {
+		$inicio = gmdate( 'Y-m-d', strtotime( '-30 days' ) );
+	}
+	if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $fim ) ) {
+		$fim = gmdate( 'Y-m-d' );
+	}
+
+	return [ $inicio . ' 00:00:00', $fim . ' 23:59:59', $inicio, $fim ];
+}
+
 function dsi_agentmd_export_csv(): void {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		wp_die( 'Sem permissão.' );
@@ -27,15 +48,23 @@ function dsi_agentmd_export_csv(): void {
 
 	global $wpdb;
 	$table = $wpdb->prefix . 'ai_bot_requests';
-	$rows  = $wpdb->get_results(
-		"SELECT requested_at, bot_label, post_id, url_path, user_agent, client_ip
-		 FROM {$table}
-		 ORDER BY requested_at DESC"
+
+	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_agentmd_periodo_from_request();
+
+	$rows = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT requested_at, bot_label, post_id, url_path, user_agent, client_ip
+			 FROM {$table}
+			 WHERE requested_at BETWEEN %s AND %s
+			 ORDER BY requested_at DESC",
+			$inicio_sql,
+			$fim_sql
+		)
 	);
 
 	nocache_headers();
 	header( 'Content-Type: text/csv; charset=utf-8' );
-	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . gmdate( 'Y-m-d' ) . '.csv"' );
+	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . $inicio_input . '-a-' . $fim_input . '.csv"' );
 
 	$out = fopen( 'php://output', 'w' );
 	fputcsv( $out, [ 'data', 'bot', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip' ] );
@@ -61,43 +90,81 @@ function dsi_agentmd_admin_page(): void {
 	global $wpdb;
 	$table = $wpdb->prefix . 'ai_bot_requests';
 
-	$resumo = $wpdb->get_results(
-		"SELECT bot_label, COUNT(*) AS total, MAX(requested_at) AS ultima_vez
-		 FROM {$table}
-		 WHERE requested_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-		 GROUP BY bot_label
-		 ORDER BY total DESC"
+	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_agentmd_periodo_from_request();
+
+	$total_periodo = (int) $wpdb->get_var(
+		$wpdb->prepare(
+			"SELECT COUNT(*) FROM {$table} WHERE requested_at BETWEEN %s AND %s",
+			$inicio_sql,
+			$fim_sql
+		)
 	);
 
-	$per_page     = 50;
-	$paged        = max( 1, absint( $_GET['paged'] ?? 1 ) );
-	$offset       = ( $paged - 1 ) * $per_page;
-	$total_rows   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
-	$total_paginas = (int) max( 1, ceil( $total_rows / $per_page ) );
+	$top_bots = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT bot_label, COUNT(*) AS total, MAX(requested_at) AS ultima_vez
+			 FROM {$table}
+			 WHERE requested_at BETWEEN %s AND %s
+			 GROUP BY bot_label
+			 ORDER BY total DESC",
+			$inicio_sql,
+			$fim_sql
+		)
+	);
+
+	$per_page      = 50;
+	$paged         = max( 1, absint( $_GET['paged'] ?? 1 ) );
+	$offset        = ( $paged - 1 ) * $per_page;
+	$total_paginas = (int) max( 1, ceil( $total_periodo / $per_page ) );
 
 	$detalhe = $wpdb->get_results(
 		$wpdb->prepare(
 			"SELECT requested_at, bot_label, post_id, url_path, client_ip
 			 FROM {$table}
+			 WHERE requested_at BETWEEN %s AND %s
 			 ORDER BY requested_at DESC
 			 LIMIT %d OFFSET %d",
+			$inicio_sql,
+			$fim_sql,
 			$per_page,
 			$offset
 		)
 	);
 
 	$export_url = wp_nonce_url(
-		admin_url( 'admin-post.php?action=dsi_agentmd_export_csv' ),
+		add_query_arg(
+			[ 'action' => 'dsi_agentmd_export_csv', 'data_inicio' => $inicio_input, 'data_fim' => $fim_input ],
+			admin_url( 'admin-post.php' )
+		),
 		'dsi_agentmd_export_csv'
 	);
 
 	echo '<div class="wrap"><h1>Bots de IA — acessos ao Markdown</h1>';
-	echo '<p><a href="' . esc_url( $export_url ) . '" class="button button-primary">Baixar CSV completo</a></p>';
 
-	echo '<h2>Resumo (últimos 30 dias)</h2>';
+	// --- Filtro de data ---
+	echo '<form method="get" style="margin:16px 0;display:flex;gap:8px;align-items:end;flex-wrap:wrap;">';
+	echo '<input type="hidden" name="page" value="dsi-ai-bots">';
+	echo '<label>De <input type="date" name="data_inicio" value="' . esc_attr( $inicio_input ) . '"></label>';
+	echo '<label>Até <input type="date" name="data_fim" value="' . esc_attr( $fim_input ) . '"></label>';
+	echo '<button type="submit" class="button">Filtrar</button>';
+	echo '<a href="' . esc_url( $export_url ) . '" class="button button-primary">Baixar CSV do período</a>';
+	echo '</form>';
+
+	// --- Overview ---
+	echo '<div style="display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;">';
+	printf(
+		'<div style="background:#fff;border:1px solid #ccd0d4;padding:16px 24px;min-width:220px;">
+			<div style="font-size:13px;color:#646970;">Requisições de MD no período</div>
+			<div style="font-size:28px;font-weight:600;">%d</div>
+		</div>',
+		$total_periodo
+	);
+	echo '</div>';
+
+	echo '<h2>Principais bots que solicitaram</h2>';
 	echo '<table class="widefat striped"><thead><tr><th>Bot</th><th>Total</th><th>Última vez</th></tr></thead><tbody>';
-	if ( $resumo ) {
-		foreach ( $resumo as $row ) {
+	if ( $top_bots ) {
+		foreach ( $top_bots as $row ) {
 			printf(
 				'<tr><td>%s</td><td>%d</td><td>%s</td></tr>',
 				esc_html( $row->bot_label ),
@@ -106,15 +173,15 @@ function dsi_agentmd_admin_page(): void {
 			);
 		}
 	} else {
-		echo '<tr><td colspan="3">Nenhum acesso registrado ainda.</td></tr>';
+		echo '<tr><td colspan="3">Nenhum acesso registrado nesse período.</td></tr>';
 	}
 	echo '</tbody></table>';
 
 	printf(
-		'<h2 style="margin-top:32px;">Requisições — página %d de %d (%d no total)</h2>',
+		'<h2 style="margin-top:32px;">Requisições do período — página %d de %d (%d no total)</h2>',
 		$paged,
 		$total_paginas,
-		$total_rows
+		$total_periodo
 	);
 	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Bot</th><th>Post</th><th>URL</th><th>IP</th></tr></thead><tbody>';
 	if ( $detalhe ) {
@@ -130,7 +197,7 @@ function dsi_agentmd_admin_page(): void {
 			);
 		}
 	} else {
-		echo '<tr><td colspan="5">Nenhuma requisição ainda.</td></tr>';
+		echo '<tr><td colspan="5">Nenhuma requisição nesse período.</td></tr>';
 	}
 	echo '</tbody></table>';
 

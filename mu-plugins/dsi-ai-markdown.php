@@ -107,9 +107,15 @@ function dsi_agentmd_log_request( int $post_id ): void {
 
 function dsi_agentmd_classify_bot( string $user_agent ): string {
 	$known = [
-		'GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'ClaudeBot', 'Claude-Web', 'anthropic-ai',
-		'PerplexityBot', 'CCBot', 'Google-Extended', 'GoogleOther', 'Bytespider',
-		'Amazonbot', 'Applebot', 'meta-externalagent', 'DuckAssistBot',
+		// Bots de IA
+		'GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'ClaudeBot', 'Claude-Web', 'Claude-User',
+		'Claude-SearchBot', 'anthropic-ai', 'PerplexityBot', 'Perplexity-User', 'CCBot',
+		'Google-Extended', 'GoogleOther', 'Bytespider', 'Amazonbot', 'Applebot',
+		'meta-externalagent', 'FacebookBot', 'DuckAssistBot', 'YouBot', 'Diffbot',
+		'cohere-ai', 'AI2Bot', 'ImagesiftBot', 'omgili', 'Timpibot', 'MistralAI',
+		// Buscadores tradicionais (tambem podem pedir a versao .md)
+		'Googlebot', 'bingbot', 'Bingbot', 'YandexBot', 'Baiduspider', 'DuckDuckBot',
+		'AhrefsBot', 'SemrushBot', 'MJ12bot', 'DotBot', 'PetalBot',
 	];
 
 	foreach ( $known as $bot ) {
