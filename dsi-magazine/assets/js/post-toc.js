@@ -80,6 +80,12 @@
   links.forEach(link => {
     link.addEventListener('click', function (e) {
       e.preventDefault();
+      if (window.dataLayer) {
+        window.dataLayer.push({
+          event:    'toc_click',
+          toc_item: this.textContent
+        });
+      }
       const target = document.getElementById(this.dataset.target);
       if (!target) return;
       const top = target.getBoundingClientRect().top + window.scrollY - 80; // 80px de offset p/ masthead sticky
