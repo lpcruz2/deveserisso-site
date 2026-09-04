@@ -143,7 +143,7 @@ jobs:
 
       - name: Post-deploy healthcheck
         run: |
-          sleep 20
+          sleep 45
           curl -sI https://deveserisso.com.br/ | grep "200"
           curl -sI https://deveserisso.com.br/privacidade | grep "301"
           curl -sI https://deveserisso.com.br/blog/ | grep "301"
