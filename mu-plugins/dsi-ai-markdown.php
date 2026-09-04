@@ -58,6 +58,10 @@ function dsi_agentmd_maybe_serve(): void {
 		return;
 	}
 
+	// TESTE TEMPORARIO: Cache-Control generico (sem X-LiteSpeed-Cache-Control)
+	// pra ver se o hcdn para de cachear esse HTML sem o LiteSpeed tambem parar.
+	header( 'Cache-Control: private, no-store' );
+
 	dsi_agentmd_maybe_log_html();
 }
 
