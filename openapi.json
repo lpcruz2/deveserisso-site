@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Deveserisso WebMCP API",
-    "description": "API pública de leitura do Deveserisso — busca, artigos e categorias de cinema/séries/animes/livros/jogos, em português do Brasil. Sem autenticação, sem escrita, sem custo.",
+    "description": "API pública de leitura do Deveserisso — busca, artigos e categorias de cinema/séries/animes/livros/jogos, em português do Brasil. Sem autenticação, sem escrita, sem custo. Rate limit: 60 requisições/min por IP (headers RateLimit-* em toda resposta). Versionamento: a versão vai na URL (/v1/); mudanças que quebrem compatibilidade saem como /v2/ com a v1 mantida durante a transição, sem prazo de desligamento definido no momento.",
     "version": "1.0.0",
     "contact": {
       "url": "https://deveserisso.com.br/desenvolvedores/"
@@ -37,7 +37,8 @@
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
-          }
+          },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
         }
       }
     },
@@ -66,7 +67,8 @@
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
-          }
+          },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
         }
       }
     },
@@ -81,12 +83,29 @@
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/CategoryList" } }
             }
-          }
+          },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
         }
       }
     }
   },
   "components": {
+    "responses": {
+      "TooManyRequests": {
+        "description": "Limite de requisições excedido (60/min por IP)",
+        "headers": {
+          "Retry-After": { "schema": { "type": "integer" }, "description": "Segundos até poder tentar novamente" }
+        },
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+        }
+      }
+    },
+    "headers": {
+      "RateLimit-Limit": { "schema": { "type": "integer" }, "description": "Limite de requisições na janela atual" },
+      "RateLimit-Remaining": { "schema": { "type": "integer" }, "description": "Requisições restantes na janela atual" },
+      "RateLimit-Reset": { "schema": { "type": "integer" }, "description": "Segundos até a janela resetar" }
+    },
     "schemas": {
       "Error": {
         "type": "object",

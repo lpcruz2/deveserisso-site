@@ -182,3 +182,8 @@ jobs:
           check "openapi.json 200" 'curl -sI https://deveserisso.com.br/openapi.json' "200"
           check "openapi.json conteudo" 'curl -s https://deveserisso.com.br/openapi.json' '"openapi"'
           check "erro JSON estruturado da API" 'curl -s "https://deveserisso.com.br/wp-json/webmcp/v1/tools/search"' '"code"'
+
+          # Rate limit headers (item 8) e Organization JSON-LD / og:image (itens 12-14)
+          check "RateLimit-Limit header" 'curl -sI "https://deveserisso.com.br/wp-json/webmcp/v1/tools/categories"' "ratelimit-limit"
+          check "og:image presente" 'curl -s https://deveserisso.com.br/' 'og:image'
+          check "Organization com description" 'curl -s https://deveserisso.com.br/' '"@type": "Organization"'
