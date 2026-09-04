@@ -159,5 +159,6 @@ jobs:
           # Content Signals no robots.txt, Link header (RFC 8288) e API Catalog (RFC 9727)
           curl -s https://deveserisso.com.br/robots.txt | grep "Content-Signal"
           curl -sI https://deveserisso.com.br/ | grep -i 'rel="llms.txt"'
+          curl -sI https://deveserisso.com.br/ | grep -i 'rel="api-catalog"'
           curl -sI https://deveserisso.com.br/.well-known/api-catalog | grep "200"
           curl -sI https://deveserisso.com.br/.well-known/api-catalog | grep -i "application/linkset"

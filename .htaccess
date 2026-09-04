@@ -78,10 +78,13 @@ Header set Content-Type "application/linkset+json; charset=utf-8"
 
 # BEGIN Link Discovery Header (RFC 8288)
 # "Header add" (nao "set") pra nao sobrescrever o Link rel="mcp" que o
-# mu-plugin do WebMCP ja envia via PHP -- os dois convivem como linhas
-# Link separadas na mesma resposta.
+# mu-plugin do WebMCP ja envia via PHP -- convivem como linhas Link
+# separadas na mesma resposta. rel="api-catalog" e o unico tipo de
+# relacao registrado no IANA aqui (RFC 9727); "mcp" e "llms.txt" sao
+# convencoes informais, por isso mantidas como headers a parte.
 <IfModule mod_headers.c>
 Header add Link '<https://deveserisso.com.br/llms.txt>; rel="llms.txt"'
+Header add Link '</.well-known/api-catalog>; rel="api-catalog"'
 </IfModule>
 # END Link Discovery Header
 
