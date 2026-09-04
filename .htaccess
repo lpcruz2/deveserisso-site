@@ -82,9 +82,15 @@ RewriteRule ^(.+)\.md$ /$1/?dsi_markdown=1 [QSA,L]
 # nunca chegaria no codigo de negociacao do mu-plugin. Forca pular a
 # checagem de cache quando o Accept pede markdown, garantindo que o PHP
 # sempre rode nesse caso (o mu-plugin ja marca a resposta como no-store).
+# IfModule LiteSpeed: pseudo-modulo que so existe no LiteSpeed real --
+# no Apache puro (container de teste do CI) o bloco inteiro e pulado sem
+# ser parseado, entao CacheLookup (diretiva LiteSpeed-only) nunca causa
+# erro de sintaxe la.
+<IfModule LiteSpeed>
 <If "%{HTTP:Accept} =~ /text\/markdown/">
 CacheLookup off
 </If>
+</IfModule>
 # END Markdown for Agents
 
 # Block xmlrpc.php

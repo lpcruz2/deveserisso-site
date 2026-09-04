@@ -14,12 +14,6 @@ jobs:
 
       - name: Validate .htaccess syntax
         run: |
-          # CacheLookup e diretiva nativa do LiteSpeed, nao existe no Apache
-          # puro do container de teste -- Apache nao ignora diretiva
-          # desconhecida, recusa subir o processo inteiro. Testa uma copia
-          # sem essa linha; o arquivo real (com CacheLookup) e o que vai
-          # pro FTP no proximo step, sem alteracao.
-          grep -v "CacheLookup" .htaccess > /tmp/htaccess-for-test
           cat > /tmp/httpd-test.conf <<'EOF'
           ServerName localhost
           Listen 8080
@@ -41,7 +35,7 @@ jobs:
           LoadModule log_config_module modules/mod_log_config.so
           EOF
           docker run -d --name htaccess-test -p 8080:8080 \
-            -v /tmp/htaccess-for-test:/usr/local/apache2/htdocs/.htaccess:ro \
+            -v $(pwd)/.htaccess:/usr/local/apache2/htdocs/.htaccess:ro \
             -v /tmp/httpd-test.conf:/usr/local/apache2/conf/httpd.conf:ro \
             httpd:2.4
           sleep 3
