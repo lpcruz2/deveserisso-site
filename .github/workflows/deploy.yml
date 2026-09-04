@@ -143,26 +143,42 @@ jobs:
 
       - name: Post-deploy healthcheck
         run: |
-          sleep 45
-          curl -sI https://deveserisso.com.br/ | grep "200"
-          curl -sI https://deveserisso.com.br/privacidade | grep "301"
-          curl -sI https://deveserisso.com.br/blog/ | grep "301"
-          curl -sI -H "Accept: image/webp" "https://deveserisso.com.br/blog/wp-content/uploads/2021/02/logo-dsi_laranja_bc-96x96.png" | grep "image/webp"
-          curl -sI https://deveserisso.com.br/politicas-de-privacidade.md | grep "text/markdown"
-          curl -sI https://deveserisso.com.br/politicas-de-privacidade/ | grep -i "text/html"
+          # A propagacao entre as 3 camadas de cache (LiteSpeed -> hcdn ->
+          # Cloudflare) as vezes passa de 45s. Em vez de um sleep fixo (ja
+          # causou falso-negativo com 20s e com 45s), tenta cada checagem
+          # varias vezes antes de falhar de verdade.
+          check() {
+            local desc="$1"; local cmd="$2"; local pattern="$3"
+            for i in 1 2 3 4 5 6; do
+              if eval "$cmd" | grep -qi "$pattern"; then
+                echo "OK: $desc"
+                return 0
+              fi
+              sleep 10
+            done
+            echo "FALHOU apos 6 tentativas: $desc"
+            return 1
+          }
+
+          check "home 200" 'curl -sI https://deveserisso.com.br/' "200"
+          check "privacidade redirect 301" 'curl -sI https://deveserisso.com.br/privacidade' "301"
+          check "blog/ redirect 301" 'curl -sI https://deveserisso.com.br/blog/' "301"
+          check "WebP negotiation" 'curl -sI -H "Accept: image/webp" "https://deveserisso.com.br/blog/wp-content/uploads/2021/02/logo-dsi_laranja_bc-96x96.png"' "image/webp"
+          check "sufixo .md" 'curl -sI https://deveserisso.com.br/politicas-de-privacidade.md' "text/markdown"
+          check "HTML normal sem .md" 'curl -sI https://deveserisso.com.br/politicas-de-privacidade/' "text/html"
 
           # trust anchor pages (item 4) e pagina de desenvolvedores/MCP (item 5)
-          curl -sI https://deveserisso.com.br/sobre/ | grep "200"
-          curl -sI https://deveserisso.com.br/contato/ | grep "200"
-          curl -sI https://deveserisso.com.br/desenvolvedores/ | grep "200"
-          curl -sI https://deveserisso.com.br/quem-somos/ | grep "301"
+          check "/sobre/ 200" 'curl -sI https://deveserisso.com.br/sobre/' "200"
+          check "/contato/ 200" 'curl -sI https://deveserisso.com.br/contato/' "200"
+          check "/desenvolvedores/ 200" 'curl -sI https://deveserisso.com.br/desenvolvedores/' "200"
+          check "/quem-somos/ redirect 301" 'curl -sI https://deveserisso.com.br/quem-somos/' "301"
 
           # Content Signals no robots.txt, Link header (RFC 8288) e API Catalog (RFC 9727)
-          curl -s https://deveserisso.com.br/robots.txt | grep "Content-Signal"
-          curl -sI https://deveserisso.com.br/ | grep -i 'rel="llms.txt"'
-          curl -sI https://deveserisso.com.br/ | grep -i 'rel="api-catalog"'
-          curl -sI https://deveserisso.com.br/.well-known/api-catalog | grep "200"
-          curl -sI https://deveserisso.com.br/.well-known/api-catalog | grep -i "application/linkset"
-          curl -sI https://deveserisso.com.br/openapi.json | grep "200"
-          curl -s https://deveserisso.com.br/openapi.json | grep '"openapi"'
-          curl -s "https://deveserisso.com.br/wp-json/webmcp/v1/tools/search" | grep '"code"'
+          check "Content-Signal no robots.txt" 'curl -s https://deveserisso.com.br/robots.txt' "Content-Signal"
+          check "Link rel=llms.txt" 'curl -sI https://deveserisso.com.br/' 'rel="llms.txt"'
+          check "Link rel=api-catalog" 'curl -sI https://deveserisso.com.br/' 'rel="api-catalog"'
+          check "api-catalog 200" 'curl -sI https://deveserisso.com.br/.well-known/api-catalog' "200"
+          check "api-catalog content-type" 'curl -sI https://deveserisso.com.br/.well-known/api-catalog' "application/linkset"
+          check "openapi.json 200" 'curl -sI https://deveserisso.com.br/openapi.json' "200"
+          check "openapi.json conteudo" 'curl -s https://deveserisso.com.br/openapi.json' '"openapi"'
+          check "erro JSON estruturado da API" 'curl -s "https://deveserisso.com.br/wp-json/webmcp/v1/tools/search"' '"code"'
