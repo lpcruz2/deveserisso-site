@@ -71,7 +71,7 @@ jobs:
           curl -s https://deveserisso.com.br/fix-encoding-runner.php
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -X "DELE fix-encoding-runner.php" "ftp://45.151.121.68/" || true
 
-      - name: Deploy .htaccess, purge script e llms.txt (gateado por validação)
+      - name: Deploy .htaccess, purge script, llms.txt, robots.txt, api-catalog (gateado por validação)
         env:
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
@@ -79,6 +79,8 @@ jobs:
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T .htaccess "ftp://45.151.121.68/.htaccess"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T purge_ls.php "ftp://45.151.121.68/purge_ls.php"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T llms.txt "ftp://45.151.121.68/llms.txt"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T robots.txt "ftp://45.151.121.68/robots.txt"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" --ftp-create-dirs -T ".well-known/api-catalog" "ftp://45.151.121.68/.well-known/api-catalog"
 
       - name: Deploy to staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -153,3 +155,9 @@ jobs:
           curl -sI https://deveserisso.com.br/contato/ | grep "200"
           curl -sI https://deveserisso.com.br/desenvolvedores/ | grep "200"
           curl -sI https://deveserisso.com.br/quem-somos/ | grep "301"
+
+          # Content Signals no robots.txt, Link header (RFC 8288) e API Catalog (RFC 9727)
+          curl -s https://deveserisso.com.br/robots.txt | grep "Content-Signal"
+          curl -sI https://deveserisso.com.br/ | grep -i 'rel="llms.txt"'
+          curl -sI https://deveserisso.com.br/.well-known/api-catalog | grep "200"
+          curl -sI https://deveserisso.com.br/.well-known/api-catalog | grep -i "application/linkset"

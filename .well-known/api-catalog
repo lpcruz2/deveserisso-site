@@ -1,0 +1,19 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://deveserisso.com.br/",
+      "service-desc": [
+        {
+          "href": "https://deveserisso.com.br/wp-json/webmcp/v1/",
+          "type": "application/json",
+          "title": "Deveserisso WebMCP API — busca, artigos e categorias para agentes de IA"
+        },
+        {
+          "href": "https://deveserisso.com.br/wp-json/",
+          "type": "application/json",
+          "title": "WordPress REST API — conteúdo do site (posts, páginas, categorias, tags)"
+        }
+      ]
+    }
+  ]
+}

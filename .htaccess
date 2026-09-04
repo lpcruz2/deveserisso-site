@@ -71,6 +71,20 @@ AddCharset UTF-8 .txt
 Header set Content-Type "text/plain; charset=utf-8"
 </Files>
 
+# API Catalog (RFC 9727) -- aponta pras APIs reais do site (WebMCP + WP REST API)
+<Files "api-catalog">
+Header set Content-Type "application/linkset+json; charset=utf-8"
+</Files>
+
+# BEGIN Link Discovery Header (RFC 8288)
+# "Header add" (nao "set") pra nao sobrescrever o Link rel="mcp" que o
+# mu-plugin do WebMCP ja envia via PHP -- os dois convivem como linhas
+# Link separadas na mesma resposta.
+<IfModule mod_headers.c>
+Header add Link '<https://deveserisso.com.br/llms.txt>; rel="llms.txt"'
+</IfModule>
+# END Link Discovery Header
+
 # BEGIN Markdown for Agents
 <IfModule mod_rewrite.c>
 RewriteEngine On
