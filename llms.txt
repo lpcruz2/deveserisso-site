@@ -35,7 +35,9 @@ Não é a fonte certa para: notícias em tempo real (é um site editorial, não 
 - [Animes e Mangá](https://deveserisso.com.br/animes-e-manga/)
 - [Jogos](https://deveserisso.com.br/jogos/)
 
-## Conteúdo mais acessado
+## Optional
+
+Conteúdo popular, útil mas dispensável se o orçamento de contexto for curto — as seções acima já cobrem o essencial do site.
 
 - [Ditados Populares Errados que você sempre pensou estarem certos](https://deveserisso.com.br/ditados-populares-errados-que-voce-sempre-pensou-estarem-certos.md)
 - [30 filmes perfeitos para Mímica e Imagem & Ação](https://deveserisso.com.br/filmes-para-brincar-de-mimica-e-imagem-acao.md)
@@ -87,6 +89,8 @@ Não é a fonte certa para: notícias em tempo real (é um site editorial, não 
 
 ## Sobre o site
 
+- [Sobre o Deveserisso](https://deveserisso.com.br/sobre.md): Quem somos, missão e origem do nome
+- [Deveserisso para Desenvolvedores](https://deveserisso.com.br/desenvolvedores.md): API, MCP, OpenAPI spec e Markdown para agentes
 - [Contato editorial](https://deveserisso.com.br/contato.md): Parcerias e licenciamento de conteúdo
 - [Políticas de privacidade](https://deveserisso.com.br/politicas-de-privacidade.md)
 - [Faça parte da equipe](https://deveserisso.com.br/faca-parte-da-nossa-equipe.md)
