@@ -156,8 +156,11 @@ jobs:
           # ANTES do teste "Accept: text/html" abaixo, que cacheia a pagina.
           curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/x-nao-suportado" https://deveserisso.com.br/politicas-de-privacidade/ | grep 406
           curl -sI -H "Accept: text/markdown" https://deveserisso.com.br/politicas-de-privacidade/ | grep -i "text/markdown"
-          curl -sI -H "Accept: text/markdown" https://deveserisso.com.br/politicas-de-privacidade/ | grep -i "^vary:.*accept"
           curl -sI -H "Accept: text/html" https://deveserisso.com.br/politicas-de-privacidade/ | grep -i "text/html"
+          # Nao checa Vary aqui: confirmado que a infra (LiteSpeed/hcdn) some
+          # com o header Vary de QUALQUER resposta, PHP ou .htaccess/mod_headers
+          # (o Vary do WebP Serve, que existe ha meses, tem o mesmo problema) --
+          # fora do nosso controle, ver nota no CLAUDE.md.
 
           # trust anchor pages (item 4) e pagina de desenvolvedores/MCP (item 5)
           curl -sI https://deveserisso.com.br/sobre/ | grep "200"

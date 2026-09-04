@@ -8,37 +8,6 @@ defined( 'ABSPATH' ) || exit;
 
 add_action( 'template_redirect', 'dsi_agentmd_maybe_serve' );
 add_action( 'wp_head', 'dsi_agentmd_alternate_link' );
-add_action( 'template_redirect', 'dsi_agentmd_register_vary_callback', 0 );
-
-/**
- * Garante "Accept" em Vary pra qualquer post/pagina, mesmo se outro
- * plugin tambem escrever o header Vary depois de nos (varios plugins de
- * cache/seguranca fazem isso em send_headers/shutdown e, como header()
- * substitui por padrao, apagavam nosso valor). header_register_callback
- * roda no ultimo instante possivel antes dos headers saírem de fato --
- * imune a qualquer coisa que rode depois disso.
- */
-function dsi_agentmd_register_vary_callback(): void {
-	if ( ! is_singular( [ 'post', 'page' ] ) ) {
-		return;
-	}
-
-	header_register_callback( function (): void {
-		$existente = '';
-		foreach ( headers_list() as $h ) {
-			if ( stripos( $h, 'Vary:' ) === 0 ) {
-				$existente = trim( substr( $h, strlen( 'Vary:' ) ) );
-			}
-		}
-
-		$valores = array_filter( array_map( 'trim', explode( ',', $existente ) ) );
-		if ( ! in_array( 'Accept', $valores, true ) ) {
-			$valores[] = 'Accept';
-		}
-
-		header( 'Vary: ' . implode( ', ', array_unique( $valores ) ) );
-	} );
-}
 
 // Autodescoberta: declara a versao Markdown de qualquer post/pagina na
 // propria tag <head>, pra agentes que chegam direto na URL HTML (nao so
@@ -62,9 +31,13 @@ function dsi_agentmd_maybe_serve(): void {
 		return;
 	}
 
-	// Vary: Accept e garantido por dsi_agentmd_register_vary_callback()
-	// (ver header_register_callback acima) -- roda no ultimo instante,
-	// entao nao precisa ser repetido aqui.
+	// Vary: Accept -- declarado corretamente aqui a nivel de aplicacao,
+	// ainda que a infra (LiteSpeed/hcdn) tire esse header da resposta
+	// final antes de chegar no cliente (confirmado: o mesmo acontece com
+	// o Vary do bloco WebP Serve, setado via .htaccess/mod_headers, nao
+	// tem nada a ver com PHP). Fora do nosso controle -- ver CLAUDE.md.
+	header( 'Vary: Accept' );
+
 	$negociado = dsi_agentmd_negotiate_accept( $_SERVER['HTTP_ACCEPT'] ?? '' );
 
 	if ( $negociado === 'unsatisfiable' ) {
