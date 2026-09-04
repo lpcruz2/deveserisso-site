@@ -27,37 +27,6 @@ function dsi_agentmd_maybe_serve(): void {
 		return;
 	}
 
-	if ( ! is_singular( [ 'post', 'page' ] ) ) {
-		return;
-	}
-
-	// Vary: Accept -- declarado corretamente aqui a nivel de aplicacao,
-	// ainda que a infra (LiteSpeed/hcdn) tire esse header da resposta
-	// final antes de chegar no cliente (confirmado: o mesmo acontece com
-	// o Vary do bloco WebP Serve, setado via .htaccess/mod_headers, nao
-	// tem nada a ver com PHP). Fora do nosso controle -- ver CLAUDE.md.
-	header( 'Vary: Accept' );
-
-	$negociado = dsi_agentmd_negotiate_accept( $_SERVER['HTTP_ACCEPT'] ?? '' );
-
-	if ( $negociado === 'unsatisfiable' ) {
-		dsi_agentmd_send_406();
-		return;
-	}
-
-	if ( $negociado === 'markdown' ) {
-		$post = get_queried_object();
-		if ( $post instanceof WP_Post ) {
-			$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
-			// bypass_cache=true: essa MESMA URL tambem serve HTML por padrao,
-			// entao essa resposta especifica nunca pode ser guardada no
-			// LSCache -- ver bloco "Markdown for Agents (Accept negotiation)"
-			// no .htaccess, que ja pula a checagem de cache pra esse caso.
-			dsi_agentmd_send_markdown( $post, $user_agent, true );
-		}
-		return;
-	}
-
 	dsi_agentmd_maybe_log_html();
 }
 
@@ -93,71 +62,21 @@ function dsi_agentmd_serve_via_md_suffix(): void {
 	setup_postdata( $post );
 
 	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
-	dsi_agentmd_send_markdown( $post, $user_agent, false );
+	dsi_agentmd_send_markdown( $post, $user_agent );
 }
 
 /**
- * Decide o que a negociacao de conteudo deveria retornar pra esse Accept,
- * honrando q-values (RFC 9110) entre os dois tipos que esse recurso
- * realmente oferece -- text/html (padrao) e text/markdown.
+ * Monta o Markdown (frontmatter + corpo) e envia. So chamada pelo sufixo
+ * .md -- URL propria, cache-safe por natureza, sem precisar de bypass.
  *
- * @return string 'markdown' | 'html' | 'unsatisfiable'
+ * Negociacao por Accept header (mesma URL variando por Content-Type) foi
+ * tentada e removida em 2026-09-04: o hcdn (CDN interna da Hostinger,
+ * entre a origem e o Cloudflare) cacheia por URL sem considerar o Accept,
+ * e nao ha como fazer so ele pular o cache sem o LiteSpeed tambem parar
+ * de cachear (os dois respeitam o mesmo sinal de Cache-Control) -- ver
+ * CLAUDE.md, secao "Servidor e CDN", pra detalhes e evidencia.
  */
-function dsi_agentmd_negotiate_accept( string $accept ): string {
-	$accept = strtolower( trim( $accept ) );
-
-	if ( $accept === '' ) {
-		return 'html';
-	}
-
-	$best_type = '';
-	$best_q    = -1.0;
-	$algum_ok  = false;
-
-	foreach ( explode( ',', $accept ) as $part ) {
-		$bits = explode( ';', trim( $part ) );
-		$type = trim( $bits[0] );
-		$q    = 1.0;
-
-		foreach ( array_slice( $bits, 1 ) as $param ) {
-			if ( preg_match( '/q\s*=\s*([0-9.]+)/', $param, $m ) ) {
-				$q = (float) $m[1];
-			}
-		}
-
-		if ( $q <= 0 ) {
-			continue;
-		}
-
-		$oferecido = in_array( $type, [ 'text/markdown', 'text/html', 'text/*', '*/*' ], true );
-		if ( $oferecido ) {
-			$algum_ok = true;
-			if ( $q > $best_q ) {
-				$best_q    = $q;
-				$best_type = $type;
-			}
-		}
-	}
-
-	if ( ! $algum_ok ) {
-		return 'unsatisfiable';
-	}
-
-	return $best_type === 'text/markdown' ? 'markdown' : 'html';
-}
-
-function dsi_agentmd_send_406(): void {
-	status_header( 406 );
-	header( 'Content-Type: text/plain; charset=utf-8' );
-	echo "406 Not Acceptable\n\nEste recurso esta disponivel em text/html ou text/markdown.";
-	exit;
-}
-
-/**
- * Monta o Markdown (frontmatter + corpo) e envia -- usado tanto pelo
- * sufixo .md quanto pela negociacao via Accept.
- */
-function dsi_agentmd_send_markdown( WP_Post $post, string $user_agent, bool $bypass_cache ): void {
+function dsi_agentmd_send_markdown( WP_Post $post, string $user_agent ): void {
 	$html = apply_filters( 'the_content', $post->post_content );
 	$body = dsi_agentmd_html_to_markdown( $html );
 
@@ -179,12 +98,6 @@ function dsi_agentmd_send_markdown( WP_Post $post, string $user_agent, bool $byp
 	status_header( 200 );
 	header( 'Content-Type: text/markdown; charset=utf-8' );
 	header( 'X-Robots-Tag: noindex' );
-
-	if ( $bypass_cache ) {
-		header( 'X-LiteSpeed-Cache-Control: no-cache' );
-		header( 'Cache-Control: private, no-store' );
-	}
-
 	echo $frontmatter . $body;
 	exit;
 }
