@@ -926,3 +926,89 @@ add_filter( 'wp_resource_hints', function ( array $hints, string $relation_type 
 	} ) );
 }, PHP_INT_MAX, 2 );
 
+// =============================================================================
+// 26. FORMULÁRIO DE CONTATO — shortcode [dsi_contato] + envio por e-mail
+// =============================================================================
+// Substitui o shortcode [contact-form-7 ...] deixado na página /contato/, órfão
+// porque o plugin Contact Form 7 nunca chegou a ser instalado no site (o texto
+// do shortcode aparecia cru, sem processar, no HTML renderizado). Formulário
+// próprio, sem dependência externa — mesmo padrão AJAX já usado na newsletter
+// (seção 20): admin-ajax + nonce + vanilla JS.
+add_shortcode( 'dsi_contato', function (): string {
+	ob_start();
+	?>
+	<form class="dsi-contact-form" id="dsi-contact-form" aria-label="Formulário de contato" novalidate>
+		<div class="dsi-contact-form__row">
+			<label class="dsi-contact-form__label" for="dsi-contact-nome">Nome</label>
+			<input class="dsi-contact-form__input" type="text" id="dsi-contact-nome" name="nome" autocomplete="name" required>
+		</div>
+		<div class="dsi-contact-form__row">
+			<label class="dsi-contact-form__label" for="dsi-contact-email">Email</label>
+			<input class="dsi-contact-form__input" type="email" id="dsi-contact-email" name="email" autocomplete="email" required>
+		</div>
+		<div class="dsi-contact-form__row">
+			<label class="dsi-contact-form__label" for="dsi-contact-mensagem">Mensagem</label>
+			<textarea class="dsi-contact-form__textarea" id="dsi-contact-mensagem" name="mensagem" rows="6" required></textarea>
+		</div>
+		<div class="dsi-contact-form__hp" aria-hidden="true">
+			<label for="dsi-contact-site">Deixe este campo em branco</label>
+			<input type="text" id="dsi-contact-site" name="site" tabindex="-1" autocomplete="off">
+		</div>
+		<button class="dsi-contact-form__btn" type="submit">Enviar</button>
+	</form>
+	<p class="dsi-contact-form__feedback" id="dsi-contact-feedback" aria-live="polite" style="display:none"></p>
+	<?php
+	return ob_get_clean();
+} );
+
+add_action( 'wp_enqueue_scripts', function (): void {
+	global $post;
+	if ( ! $post instanceof WP_Post || ! has_shortcode( $post->post_content, 'dsi_contato' ) ) {
+		return;
+	}
+	wp_enqueue_script(
+		'dsi-contact-form',
+		get_stylesheet_directory_uri() . '/assets/js/contact-form.js',
+		[],
+		'1.0.0',
+		[ 'strategy' => 'defer', 'in_footer' => true ]
+	);
+	wp_localize_script( 'dsi-contact-form', 'dsiContactForm', [
+		'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+		'nonce'   => wp_create_nonce( 'dsi_contato' ),
+	] );
+} );
+
+add_action( 'wp_ajax_nopriv_dsi_contact_submit', 'dsi_contact_submit' );
+add_action( 'wp_ajax_dsi_contact_submit',        'dsi_contact_submit' );
+
+function dsi_contact_submit(): void {
+	check_ajax_referer( 'dsi_contato', 'nonce' );
+
+	// Honeypot: bots preenchem campos ocultos. Finge sucesso sem enviar e-mail.
+	if ( ! empty( $_POST['site'] ) ) {
+		wp_send_json_success( [ 'message' => 'Recebemos sua mensagem! Em breve entraremos em contato.' ] );
+	}
+
+	$nome     = sanitize_text_field( wp_unslash( $_POST['nome'] ?? '' ) );
+	$email    = sanitize_email( wp_unslash( $_POST['email'] ?? '' ) );
+	$mensagem = sanitize_textarea_field( wp_unslash( $_POST['mensagem'] ?? '' ) );
+
+	if ( $nome === '' || $mensagem === '' || ! is_email( $email ) ) {
+		wp_send_json_error( [ 'message' => 'Preencha todos os campos corretamente.' ] );
+	}
+
+	$sent = wp_mail(
+		'audiencia@deveserisso.com.br',
+		sprintf( 'Novo contato via site — %s', $nome ),
+		sprintf( "Nome: %s\nEmail: %s\n\nMensagem:\n%s", $nome, $email, $mensagem ),
+		[ 'Reply-To: ' . $nome . ' <' . $email . '>' ]
+	);
+
+	if ( ! $sent ) {
+		wp_send_json_error( [ 'message' => 'Erro ao enviar. Tente novamente em instantes.' ] );
+	}
+
+	wp_send_json_success( [ 'message' => 'Recebemos sua mensagem! Em breve entraremos em contato.' ] );
+}
+
