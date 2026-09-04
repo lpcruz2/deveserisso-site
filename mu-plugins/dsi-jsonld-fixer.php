@@ -319,6 +319,14 @@ function dsi_jfix_organization( array $node ): array {
 		}
 	}
 
+	if ( empty( $node['contactPoint'] ) ) {
+		$node['contactPoint'] = [
+			'@type'       => 'ContactPoint',
+			'email'       => 'contato@deveserisso.com.br',
+			'contactType' => 'customer support',
+		];
+	}
+
 	return $node;
 }
 
