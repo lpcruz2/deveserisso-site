@@ -46,6 +46,32 @@ function dsi_rl_hit( string $ip ): array {
 }
 
 /**
+ * Registra a chamada na mesma tabela/painel "Ferramentas -> Bots de IA" que
+ * ja existe pra .md e HTML (dsi-ai-markdown.php, tipo='mcp' novo). Sem isso
+ * nao havia nenhuma forma de saber se o MCP realmente foi chamado por algum
+ * agente -- so dava pra confirmar que o endpoint respondia, testando na mao.
+ * Reaproveita dsi_agentmd_classify_bot()/dsi_agentmd_log_request(), definidas
+ * em dsi-ai-markdown.php (carrega antes, ordem alfabetica de mu-plugins).
+ */
+function dsi_rl_log( WP_REST_Request $request ): void {
+	if ( ! function_exists( 'dsi_agentmd_log_request' ) ) {
+		return;
+	}
+
+	$post_id = 0;
+	if ( str_ends_with( $request->get_route(), '/tools/get_post' ) ) {
+		$slug = (string) $request->get_param( 'slug' );
+		$post = $slug !== '' ? get_page_by_path( $slug, OBJECT, [ 'post', 'page' ] ) : null;
+		if ( $post instanceof WP_Post ) {
+			$post_id = $post->ID;
+		}
+	}
+
+	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+	dsi_agentmd_log_request( $post_id, $user_agent, 'mcp' );
+}
+
+/**
  * rest_pre_dispatch: roda antes do handler da rota. Retornar algo != null
  * interrompe o dispatch normal -- usado aqui so pra barrar com 429 quando
  * o limite estoura. Guarda o estado num static pra o hook de headers
@@ -60,6 +86,8 @@ function dsi_rl_check( $result, $server, $request ) {
 	$state = dsi_rl_hit( $ip );
 
 	$GLOBALS['dsi_rl_state'] = $state;
+
+	dsi_rl_log( $request );
 
 	if ( $state['count'] > DSI_RL_LIMIT ) {
 		$response = new WP_REST_Response(

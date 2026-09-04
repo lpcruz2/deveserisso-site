@@ -44,9 +44,13 @@ function dsi_agentmd_bot_from_request(): string {
 	return isset( $_GET['bot'] ) ? sanitize_text_field( wp_unslash( $_GET['bot'] ) ) : '';
 }
 
+function dsi_agentmd_tipo_label( string $tipo ): string {
+	return [ 'md' => 'Markdown', 'html' => 'Página HTML', 'mcp' => 'MCP (tool call)' ][ $tipo ] ?? $tipo;
+}
+
 function dsi_agentmd_tipo_from_request(): string {
 	$tipo = isset( $_GET['tipo'] ) ? sanitize_text_field( wp_unslash( $_GET['tipo'] ) ) : '';
-	return in_array( $tipo, [ 'md', 'html' ], true ) ? $tipo : '';
+	return in_array( $tipo, [ 'md', 'html', 'mcp' ], true ) ? $tipo : '';
 }
 
 /**
@@ -231,6 +235,7 @@ function dsi_agentmd_admin_page(): void {
 	printf( '<option value=""%s>Todos</option>', selected( $tipo, '', false ) );
 	printf( '<option value="md"%s>Markdown</option>', selected( $tipo, 'md', false ) );
 	printf( '<option value="html"%s>Página HTML</option>', selected( $tipo, 'html', false ) );
+	printf( '<option value="mcp"%s>MCP (tool call)</option>', selected( $tipo, 'mcp', false ) );
 	echo '</select></label>';
 
 	echo '<button type="submit" class="button">Filtrar</button>';
@@ -282,7 +287,7 @@ function dsi_agentmd_admin_page(): void {
 				'<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
 				esc_html( $row->requested_at ),
 				esc_html( $row->bot_label ),
-				esc_html( $row->tipo === 'md' ? 'Markdown' : 'HTML' ),
+				esc_html( dsi_agentmd_tipo_label( $row->tipo ) ),
 				esc_html( $post_title ),
 				esc_html( $row->url_path ),
 				esc_html( $row->client_ip )
