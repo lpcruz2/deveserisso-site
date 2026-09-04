@@ -1,0 +1,142 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Deveserisso WebMCP API",
+    "description": "API pública de leitura do Deveserisso — busca, artigos e categorias de cinema/séries/animes/livros/jogos, em português do Brasil. Sem autenticação, sem escrita, sem custo.",
+    "version": "1.0.0",
+    "contact": {
+      "url": "https://deveserisso.com.br/desenvolvedores/"
+    }
+  },
+  "servers": [
+    { "url": "https://deveserisso.com.br/wp-json/webmcp/v1" }
+  ],
+  "paths": {
+    "/tools/search": {
+      "get": {
+        "operationId": "search",
+        "summary": "Busca artigos por palavra-chave",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "Termo de busca",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de resultados (JSON-LD, schema.org/SearchResultsPage)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SearchResultsPage" } }
+            }
+          },
+          "400": {
+            "description": "Parâmetro obrigatório ausente",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/tools/get_post": {
+      "get": {
+        "operationId": "get_post",
+        "summary": "Retorna o conteúdo completo de um artigo pelo slug da URL",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": true,
+            "description": "Slug do artigo (parte final da URL, ex: \"matrix\" para /matrix/)",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artigo completo (JSON-LD, schema.org/Article)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Article" } }
+            }
+          },
+          "404": {
+            "description": "Slug não encontrado",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/tools/categories": {
+      "get": {
+        "operationId": "categories",
+        "summary": "Lista as categorias do site com suas URLs",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Lista de categorias (JSON-LD, schema.org/ItemList)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CategoryList" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Formato de erro padrão da WP REST API, usado por todas as rotas deste site",
+        "properties": {
+          "code": { "type": "string", "example": "rest_missing_callback_param" },
+          "message": { "type": "string" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "integer", "example": 400 }
+            }
+          }
+        }
+      },
+      "SearchResultsPage": {
+        "type": "object",
+        "properties": {
+          "@context": { "type": "string" },
+          "@type": { "type": "string", "example": "SearchResultsPage" },
+          "mainEntity": {
+            "type": "object",
+            "properties": {
+              "@type": { "type": "string", "example": "ItemList" },
+              "numberOfItems": { "type": "integer" },
+              "itemListElement": { "type": "array", "items": { "type": "object" } }
+            }
+          }
+        }
+      },
+      "Article": {
+        "type": "object",
+        "properties": {
+          "@context": { "type": "string" },
+          "@type": { "type": "string", "example": "Article" },
+          "name": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "articleBody": { "type": "string" }
+        }
+      },
+      "CategoryList": {
+        "type": "object",
+        "properties": {
+          "@context": { "type": "string" },
+          "@type": { "type": "string", "example": "ItemList" },
+          "name": { "type": "string" },
+          "numberOfItems": { "type": "integer" },
+          "itemListElement": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    }
+  }
+}

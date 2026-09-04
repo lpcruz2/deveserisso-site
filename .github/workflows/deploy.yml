@@ -81,6 +81,7 @@ jobs:
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T llms.txt "ftp://45.151.121.68/llms.txt"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T robots.txt "ftp://45.151.121.68/robots.txt"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" --ftp-create-dirs -T ".well-known/api-catalog" "ftp://45.151.121.68/.well-known/api-catalog"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T openapi.json "ftp://45.151.121.68/openapi.json"
 
       - name: Deploy to staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -162,3 +163,6 @@ jobs:
           curl -sI https://deveserisso.com.br/ | grep -i 'rel="api-catalog"'
           curl -sI https://deveserisso.com.br/.well-known/api-catalog | grep "200"
           curl -sI https://deveserisso.com.br/.well-known/api-catalog | grep -i "application/linkset"
+          curl -sI https://deveserisso.com.br/openapi.json | grep "200"
+          curl -s https://deveserisso.com.br/openapi.json | grep '"openapi"'
+          curl -s "https://deveserisso.com.br/wp-json/webmcp/v1/tools/search" | grep '"code"'
