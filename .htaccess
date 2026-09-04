@@ -26,7 +26,7 @@ RewriteRule ^blog/(.+)$ https://deveserisso.com.br/$1 [R=301,L]
 <IfModule mod_rewrite.c>
 RewriteEngine On
 RewriteRule ^privacidade/?$ https://deveserisso.com.br/politicas-de-privacidade/ [R=301,L]
-RewriteRule ^quem-somos/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^quem-somos/?$ https://deveserisso.com.br/sobre/ [R=301,L]
 </IfModule>
 # END 404 Fix - Pages
 
@@ -77,6 +77,14 @@ RewriteEngine On
 RewriteCond %{REQUEST_URI} !^/(blog/)?(wp-admin|wp-includes|wp-content|wp-json)
 RewriteRule ^(.+)\.md$ /$1/?dsi_markdown=1 [QSA,L]
 </IfModule>
+# Accept: text/markdown (acceptmarkdown.com) -- o LSCache decide servir do
+# cache ANTES do PHP rodar, entao sem isso uma URL ja cacheada como HTML
+# nunca chegaria no codigo de negociacao do mu-plugin. Forca pular a
+# checagem de cache quando o Accept pede markdown, garantindo que o PHP
+# sempre rode nesse caso (o mu-plugin ja marca a resposta como no-store).
+<If "%{HTTP:Accept} =~ /text\/markdown/">
+CacheLookup off
+</If>
 # END Markdown for Agents
 
 # Block xmlrpc.php

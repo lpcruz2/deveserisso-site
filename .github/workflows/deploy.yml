@@ -146,3 +146,15 @@ jobs:
           curl -sI https://deveserisso.com.br/blog/ | grep "301"
           curl -sI -H "Accept: image/webp" "https://deveserisso.com.br/blog/wp-content/uploads/2021/02/logo-dsi_laranja_bc-96x96.png" | grep "image/webp"
           curl -sI https://deveserisso.com.br/politicas-de-privacidade.md | grep "text/markdown"
+
+          # acceptmarkdown.com: negociacao via Accept header (sem sufixo .md)
+          curl -sI -H "Accept: text/markdown" https://deveserisso.com.br/politicas-de-privacidade/ | grep -i "text/markdown"
+          curl -sI -H "Accept: text/markdown" https://deveserisso.com.br/politicas-de-privacidade/ | grep -i "^vary:.*accept"
+          curl -sI -H "Accept: text/html" https://deveserisso.com.br/politicas-de-privacidade/ | grep -i "text/html"
+          curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/x-nao-suportado" https://deveserisso.com.br/politicas-de-privacidade/ | grep 406
+
+          # trust anchor pages (item 4) e pagina de desenvolvedores/MCP (item 5)
+          curl -sI https://deveserisso.com.br/sobre/ | grep "200"
+          curl -sI https://deveserisso.com.br/contato/ | grep "200"
+          curl -sI https://deveserisso.com.br/desenvolvedores/ | grep "200"
+          curl -sI https://deveserisso.com.br/quem-somos/ | grep "301"
