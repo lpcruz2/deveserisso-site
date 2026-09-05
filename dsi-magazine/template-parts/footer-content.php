@@ -49,6 +49,11 @@ $year = date( 'Y' );
                         Instagram
                     </a>
                 </li>
+                <li>
+                    <a href="https://www.facebook.com/deveserisso/" target="_blank" rel="noopener noreferrer">
+                        Facebook
+                    </a>
+                </li>
             </ul>
         </div>
 
