@@ -194,4 +194,4 @@ jobs:
           check "mode=agent retorna JSON" 'curl -sI "https://deveserisso.com.br/?mode=agent"' "application/json"
           check "mode=agent tem campo api" 'curl -s "https://deveserisso.com.br/?mode=agent"' '"api"'
           check "api-catalog tem item" 'curl -s https://deveserisso.com.br/.well-known/api-catalog' '"item"'
-          check "api-catalog profile no content-type" 'curl -sI https://deveserisso.com.br/.well-known/api-catalog' "profile="
+          check "api-catalog profile no content-type (sem aspas escapadas)" 'curl -sI https://deveserisso.com.br/.well-known/api-catalog' 'profile="https'
