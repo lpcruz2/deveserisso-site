@@ -105,6 +105,19 @@ function dsi_agentmd_send_homepage_markdown(): void {
 		return;
 	}
 
+	// Frontmatter separado do llms.txt em si -- o llms.txt ja abre com "#
+	// Deveserisso" (titulo em Markdown), nao com um bloco --- YAML. Agentes
+	// que leem metadado de frontmatter (title/description/canonical/
+	// last-updated) sem raspar o corpo precisam dele aqui.
+	$frontmatter = sprintf(
+		"---\ntitle: %s\ndescription: %s\ncanonical: %s\nlast-updated: %s\n---\n\n",
+		dsi_agentmd_yaml_escape( get_bloginfo( 'name' ) ),
+		dsi_agentmd_yaml_escape( get_bloginfo( 'description' ) ),
+		esc_url( home_url( '/' ) ),
+		gmdate( 'Y-m-d', filemtime( $llms_path ) )
+	);
+	$body = $frontmatter . $body;
+
 	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
 	dsi_agentmd_log_request( 0, $user_agent, 'md' );
 
