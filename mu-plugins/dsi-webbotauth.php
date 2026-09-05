@@ -220,27 +220,82 @@ function dsi_wba_base64url_decode( string $data ): string {
 }
 
 /**
+ * Domínios conhecidos do ecossistema Web Bot Auth cuja chave publica vale a
+ * pena buscar. Isto NAO e uma lista de "quem confiamos sem verificar" -- a
+ * assinatura Ed25519 ainda e checada por completo depois. E uma allowlist
+ * de ONDE o servidor tem permissao de sair fazendo requisicao de rede,
+ * porque o valor de Signature-Agent vem inteiramente do cliente e usa-lo
+ * sem checagem pra montar uma URL e SSRF de livro-texto (o servidor bate
+ * em qualquer endereco que o remetente da requisicao mandar, incluindo
+ * IP interno/metadados de nuvem). Sem essa lista, um atacante nem
+ * precisa de uma assinatura valida -- so mandar o header e suficiente
+ * pra forcar uma requisicao de saida.
+ *
+ * Manutencao: ecossistema ainda muito novo (Web Bot Auth lancado 2026,
+ * poucos participantes confirmados). Revisar e adicionar dominios
+ * conforme mais provedores publicarem diretorio proprio -- ver anuncio
+ * da Cloudflare sobre o "signed agents program" pra quem mais participa.
+ */
+const DSI_WBA_ALLOWED_AGENT_HOSTS = [
+	'operator.openai.com', // confirmado: OpenAI assina requisicoes do Operator com chave publicada aqui
+	'chatgpt.com',
+	'openai.com',
+];
+
+/**
+ * Confere que o host resolve pra um IP publico -- nao privado (RFC 1918),
+ * nao loopback, nao link-local/metadados de nuvem (169.254.0.0/16). Camada
+ * extra pro caso de um dominio da allowlist ter o DNS comprometido ou mal
+ * configurado -- nao substitui a allowlist, complementa ela.
+ */
+function dsi_wba_host_resolves_to_public_ip( string $host ): bool {
+	$ip = gethostbyname( $host );
+	if ( $ip === $host ) {
+		return false; // gethostbyname falhou em resolver (retorna o proprio input)
+	}
+	return (bool) filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
+}
+
+/**
  * Busca o diretorio JWKS em /.well-known/http-message-signatures-directory
- * do dominio indicado em Signature-Agent, cacheado por 1h (ou 5 min em
- * caso de falha, pra nao martelar um dominio fora do ar a cada requisicao).
- * Retorna a chave publica Ed25519 (32 bytes brutos) que casa com o keyid.
+ * do dominio indicado em Signature-Agent -- SO se esse dominio estiver na
+ * allowlist acima (ver comentario dela pro motivo: sem isso e SSRF).
+ * Cacheado por 1h (ou 5 min em caso de falha, pra nao martelar um dominio
+ * fora do ar a cada requisicao). Retorna a chave publica Ed25519 (32
+ * bytes brutos) que casa com o keyid.
  */
 function dsi_wba_resolve_public_key( string $sig_agent_raw, string $keyid ): ?string {
 	if ( $keyid === '' ) {
 		return null;
 	}
 
-	$base = trim( $sig_agent_raw, '"' );
-	if ( ! str_contains( $base, '://' ) ) {
-		$base = 'https://' . $base;
+	$host = dsi_wba_normalize_agent_host( $sig_agent_raw );
+
+	// Comparacao estrita contra a allowlist -- o valor usado pra montar a
+	// URL a partir daqui e sempre a string vetada, nunca o input bruto do
+	// cliente, mesmo que ele "bata" com a allowlist.
+	$matched = null;
+	foreach ( DSI_WBA_ALLOWED_AGENT_HOSTS as $allowed ) {
+		if ( strcasecmp( $host, $allowed ) === 0 ) {
+			$matched = $allowed;
+			break;
+		}
 	}
-	$directory_url = rtrim( $base, '/' ) . '/.well-known/http-message-signatures-directory';
+	if ( $matched === null ) {
+		return null;
+	}
+
+	if ( ! dsi_wba_host_resolves_to_public_ip( $matched ) ) {
+		return null;
+	}
+
+	$directory_url = 'https://' . $matched . '/.well-known/http-message-signatures-directory';
 
 	$cache_key = 'dsi_wba_jwks_' . md5( $directory_url );
 	$jwks      = get_transient( $cache_key );
 
 	if ( $jwks === false ) {
-		$resp = wp_remote_get( $directory_url, [ 'timeout' => 5 ] );
+		$resp = wp_remote_get( $directory_url, [ 'timeout' => 2 ] );
 		if ( is_wp_error( $resp ) || wp_remote_retrieve_response_code( $resp ) !== 200 ) {
 			set_transient( $cache_key, [ 'keys' => [] ], 300 );
 			return null;
