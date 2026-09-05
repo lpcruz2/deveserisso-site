@@ -17,7 +17,7 @@ $year = date( 'Y' );
             </a>
             <p class="dsi-footer__desc">
                 Crítica, listas e recomendações sobre o que realmente vale a pena assistir.
-                Desde 2018, feito por gente que ama cinema, séries, livros e TV.
+                Desde 2009, feito por gente que ama cinema, séries, livros e TV.
             </p>
         </div>
 

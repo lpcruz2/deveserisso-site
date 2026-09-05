@@ -26,7 +26,7 @@ $nav_items = [
 
     <!-- Wordmark -->
     <div class="dsi-masthead__brand">
-        <p class="dsi-masthead__established">Desde 2018</p>
+        <p class="dsi-masthead__established">Desde 2009</p>
         <h1 class="dsi-masthead__wordmark-heading">
             <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="dsi-masthead__wordmark" aria-label="<?php bloginfo( 'name' ); ?>">
                 Deve<em>ser</em>isso

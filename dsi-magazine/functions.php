@@ -133,7 +133,7 @@ img,svg,video{display:block;max-width:100%}
 .dsi-masthead__brand--compact .dsi-masthead__wordmark{font-size:clamp(40px,4.4vw,64px);letter-spacing:-0.03em}
 .dsi-masthead__wordmark em{font-style:italic;color:#c2511d}
 .dsi-masthead__subtitle{font-family:"DM Serif Display","Times New Roman",serif;font-style:italic;font-size:22px;color:#6a5f4d;margin-top:12px}
-.dsi-masthead__established{font-size:0}.dsi-masthead__established::before{content:"Desde 2018";font-size:11px;font-family:"JetBrains Mono",monospace;letter-spacing:.35em;text-transform:uppercase;color:#6a5f4d}
+.dsi-masthead__established{font-size:0}.dsi-masthead__established::before{content:"Desde 2009";font-size:11px;font-family:"JetBrains Mono",monospace;letter-spacing:.35em;text-transform:uppercase;color:#6a5f4d}
 .dsi-masthead__nav{display:flex;align-items:center;padding:16px 64px;border-bottom:1px solid #1d1a14;gap:36px}
 @media(max-width:768px){.dsi-masthead__nav{display:none}}
 .dsi-masthead__nav-list{display:flex;align-items:center;gap:36px}
