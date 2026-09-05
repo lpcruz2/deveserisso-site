@@ -319,6 +319,16 @@ function dsi_jfix_organization( array $node ): array {
 		}
 	}
 
+	if ( empty( $node['address'] ) ) {
+		$node['address'] = [
+			'@type'           => 'PostalAddress',
+			'streetAddress'   => 'Rua Diana, 921 - Perdizes',
+			'addressLocality' => 'São Paulo',
+			'addressRegion'   => 'SP',
+			'addressCountry'  => 'BR',
+		];
+	}
+
 	if ( empty( $node['contactPoint'] ) ) {
 		$node['contactPoint'] = [
 			'@type'       => 'ContactPoint',
