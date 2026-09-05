@@ -1012,3 +1012,66 @@ function dsi_contact_submit(): void {
 	wp_send_json_success( [ 'message' => 'Recebemos sua mensagem! Em breve entraremos em contato.' ] );
 }
 
+// =============================================================================
+// 27. RESUMO DO TEXTO (AEO) — meta box editorial + box automático no topo do artigo
+// =============================================================================
+// Antes, o box <details>/<summary> de resumo era colado manualmente como HTML
+// cru dentro do post_content de cada post. Isso duplicava markup entre posts e
+// dependia do autor lembrar o HTML exato. Agora o autor só cola os bullets (um
+// por linha) neste meta box; o tema monta o HTML e injeta automaticamente no
+// topo do artigo (single.php, antes de the_content()). O estilo visual do box
+// (borda, radius, etc.) já vem do CSS global de details/summary (main.css) —
+// não precisa de CSS novo. Posts antigos com o HTML colado manualmente foram
+// migrados uma única vez (script pontual, não versionado — ver histórico de
+// deploy) para este meta box, com o bloco removido do post_content.
+add_action( 'add_meta_boxes', function (): void {
+	add_meta_box(
+		'dsi_resumo',
+		'Resumo do texto (AEO)',
+		'dsi_resumo_meta_box_render',
+		'post',
+		'normal',
+		'high'
+	);
+} );
+
+function dsi_resumo_meta_box_render( WP_Post $post ): void {
+	wp_nonce_field( 'dsi_resumo_save', 'dsi_resumo_nonce' );
+	$bullets = get_post_meta( $post->ID, '_dsi_resumo_bullets', true );
+	?>
+	<p style="margin-top:0">Um bullet por linha de texto. Aparece automaticamente como caixa "Ler resumo do texto" no topo do artigo — não precisa colar HTML no corpo do post.</p>
+	<textarea name="dsi_resumo_bullets" rows="6" style="width:100%;font-family:inherit" placeholder="Um bullet por linha..."><?php echo esc_textarea( $bullets ); ?></textarea>
+	<?php
+}
+
+add_action( 'save_post', function ( int $post_id ): void {
+	if ( ! isset( $_POST['dsi_resumo_nonce'] ) || ! wp_verify_nonce( $_POST['dsi_resumo_nonce'], 'dsi_resumo_save' ) ) {
+		return;
+	}
+	if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+		return;
+	}
+	if ( ! current_user_can( 'edit_post', $post_id ) ) {
+		return;
+	}
+	$bullets = isset( $_POST['dsi_resumo_bullets'] ) ? sanitize_textarea_field( wp_unslash( $_POST['dsi_resumo_bullets'] ) ) : '';
+	update_post_meta( $post_id, '_dsi_resumo_bullets', $bullets );
+} );
+
+function dsi_render_resumo_box( int $post_id ): string {
+	$raw = get_post_meta( $post_id, '_dsi_resumo_bullets', true );
+	if ( ! is_string( $raw ) || trim( $raw ) === '' ) {
+		return '';
+	}
+	$lines = array_filter( array_map( 'trim', explode( "\n", $raw ) ) );
+	if ( empty( $lines ) ) {
+		return '';
+	}
+	$items = '';
+	foreach ( $lines as $line ) {
+		$items .= '<li>' . esc_html( $line ) . '</li>';
+	}
+	return '<section aria-labelledby="resumo"><aside aria-label="Resumo do texto"><details><summary style="margin-top: 0; font-weight: bold; font-size: 1em; cursor: pointer;">Ler resumo do texto</summary>'
+		. '<ul style="margin-top: 15px;">' . $items . '</ul></details></aside></section>';
+}
+
