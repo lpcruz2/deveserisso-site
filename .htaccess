@@ -100,6 +100,19 @@ RewriteEngine On
 RewriteCond %{REQUEST_URI} !^/(blog/)?(wp-admin|wp-includes|wp-content|wp-json)
 RewriteRule ^(.+)\.md$ /$1/?dsi_markdown=1 [QSA,L]
 </IfModule>
+# Accept: text/markdown (acceptmarkdown.com) -- EXPERIMENTO monitorado,
+# reintroduzido em 2026-09-05 (ver mu-plugins/dsi-ai-markdown.php e
+# scripts/monitor-accept-negotiation.py). O LSCache decide servir do
+# cache ANTES do PHP rodar, entao sem isso uma URL ja cacheada como HTML
+# nunca chegaria no codigo de negociacao. Forca pular a checagem de
+# cache quando o Accept pede markdown -- nao resolve o problema do hcdn
+# (camada anterior ao LiteSpeed, ver CLAUDE.md), so evita piorar do lado
+# do LiteSpeed em cima do risco ja conhecido e aceito.
+<IfModule LiteSpeed>
+<If "%{HTTP:Accept} =~ /text\/markdown/">
+CacheLookup off
+</If>
+</IfModule>
 # END Markdown for Agents
 
 # Block xmlrpc.php
