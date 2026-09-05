@@ -1,12 +1,25 @@
 {
   "linkset": [
     {
+      "anchor": "https://deveserisso.com.br/.well-known/api-catalog",
+      "item": [
+        {
+          "href": "https://deveserisso.com.br/wp-json/webmcp/v1/",
+          "title": "Deveserisso WebMCP API — busca, artigos e categorias para agentes de IA"
+        },
+        {
+          "href": "https://deveserisso.com.br/wp-json/",
+          "title": "WordPress REST API — conteúdo do site (posts, páginas, categorias, tags)"
+        }
+      ]
+    },
+    {
       "anchor": "https://deveserisso.com.br/wp-json/webmcp/v1/",
       "service-desc": [
         {
           "href": "https://deveserisso.com.br/openapi.json",
           "type": "application/json",
-          "title": "OpenAPI 3.0 — Deveserisso WebMCP API (busca, artigos e categorias para agentes de IA)"
+          "title": "OpenAPI 3.0 — Deveserisso WebMCP API"
         }
       ]
     },
@@ -16,7 +29,7 @@
         {
           "href": "https://deveserisso.com.br/wp-json/",
           "type": "application/json",
-          "title": "WordPress REST API — discovery document nativo (lista todas as rotas: posts, páginas, categorias, tags)"
+          "title": "WordPress REST API — discovery document nativo (lista todas as rotas)"
         }
       ]
     }

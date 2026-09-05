@@ -187,3 +187,11 @@ jobs:
           check "RateLimit-Limit header" 'curl -sI "https://deveserisso.com.br/wp-json/webmcp/v1/tools/categories"' "ratelimit-limit"
           check "og:image presente" 'curl -s https://deveserisso.com.br/' 'og:image'
           check "Organization com description" 'curl -s https://deveserisso.com.br/' '"@type": "Organization"'
+
+          # Rodada audit Ora (score 49): /index.md, ?mode=agent, api-catalog "item"
+          check "index.md e markdown" 'curl -sI https://deveserisso.com.br/index.md' "text/markdown"
+          check "index.md tem conteudo do llms.txt" 'curl -s https://deveserisso.com.br/index.md' "Deveserisso"
+          check "mode=agent retorna JSON" 'curl -sI "https://deveserisso.com.br/?mode=agent"' "application/json"
+          check "mode=agent tem campo api" 'curl -s "https://deveserisso.com.br/?mode=agent"' '"api"'
+          check "api-catalog tem item" 'curl -s https://deveserisso.com.br/.well-known/api-catalog' '"item"'
+          check "api-catalog profile no content-type" 'curl -sI https://deveserisso.com.br/.well-known/api-catalog' "profile="

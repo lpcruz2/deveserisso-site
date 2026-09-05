@@ -73,7 +73,7 @@ Header set Content-Type "text/plain; charset=utf-8"
 
 # API Catalog (RFC 9727) -- aponta pras APIs reais do site (WebMCP + WP REST API)
 <Files "api-catalog">
-Header set Content-Type "application/linkset+json; charset=utf-8"
+Header set Content-Type "application/linkset+json; profile=\"https://www.rfc-editor.org/info/rfc9727\""
 </Files>
 
 # BEGIN Link Discovery Header (RFC 8288)

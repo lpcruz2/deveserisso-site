@@ -11,8 +11,18 @@ add_action( 'wp_head', 'dsi_agentmd_alternate_link' );
 
 // Autodescoberta: declara a versao Markdown de qualquer post/pagina na
 // propria tag <head>, pra agentes que chegam direto na URL HTML (nao so
-// via llms.txt) saberem que a alternativa .md existe.
+// via llms.txt) saberem que a alternativa .md existe. A home entra aqui
+// tambem (achado do audit "Ora": agente que cai frio na home, sem ter
+// lido o llms.txt antes, nao tinha como saber que /index.md existe).
 function dsi_agentmd_alternate_link(): void {
+	if ( is_front_page() ) {
+		printf(
+			'<link rel="alternate" type="text/markdown" href="%s">' . "\n",
+			esc_url( home_url( '/index.md' ) )
+		);
+		return;
+	}
+
 	if ( ! is_singular( [ 'post', 'page' ] ) ) {
 		return;
 	}
@@ -22,6 +32,11 @@ function dsi_agentmd_alternate_link(): void {
 }
 
 function dsi_agentmd_maybe_serve(): void {
+	if ( is_front_page() && isset( $_GET['mode'] ) && $_GET['mode'] === 'agent' ) {
+		dsi_agentmd_send_agent_mode_view();
+		return;
+	}
+
 	if ( isset( $_GET['dsi_markdown'] ) ) {
 		dsi_agentmd_serve_via_md_suffix();
 		return;
@@ -50,6 +65,15 @@ function dsi_agentmd_serve_via_md_suffix(): void {
 		return;
 	}
 
+	// /index.md -- a home nunca teve versao .md (o mecanismo sempre cobriu
+	// só post/pagina individual). "index" nao e slug de post nenhum, entao
+	// sem esse caso especial isso caia silenciosamente e servia a home em
+	// HTML normal pra quem pedia .md.
+	if ( $path === 'index' ) {
+		dsi_agentmd_send_homepage_markdown();
+		return;
+	}
+
 	$post = get_page_by_path( $path, OBJECT, [ 'post', 'page' ] );
 	if ( ! $post instanceof WP_Post || $post->post_status !== 'publish' ) {
 		return;
@@ -63,6 +87,67 @@ function dsi_agentmd_serve_via_md_suffix(): void {
 
 	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
 	dsi_agentmd_send_markdown( $post, $user_agent );
+}
+
+/**
+ * /index.md -- versao Markdown da home. Reaproveita o llms.txt como fonte
+ * unica de verdade (mesmo arquivo, sem duplicar conteudo em dois lugares
+ * que podem sair de sincronia) em vez de montar um resumo proprio da home.
+ */
+function dsi_agentmd_send_homepage_markdown(): void {
+	$llms_path = realpath( ABSPATH . '../llms.txt' );
+	if ( ! $llms_path || ! is_readable( $llms_path ) ) {
+		return; // arquivo nao encontrado -- deixa a home servir HTML normal
+	}
+
+	$body = file_get_contents( $llms_path );
+	if ( $body === false ) {
+		return;
+	}
+
+	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+	dsi_agentmd_log_request( 0, $user_agent, 'md' );
+
+	status_header( 200 );
+	header( 'Content-Type: text/markdown; charset=utf-8' );
+	header( 'X-Robots-Tag: noindex' );
+	echo $body;
+	exit;
+}
+
+/**
+ * ?mode=agent na home -- view estruturada (JSON) em vez do HTML de
+ * marketing, pra agente que quer entender rapido do que o site trata e
+ * quais APIs/mecanismos existem, sem parsear a pagina inteira. Query
+ * string e cache-safe por natureza (URL propria), mesmo raciocinio do
+ * sufixo .md -- sem risco de servir a variante errada pra visitante errado.
+ */
+function dsi_agentmd_send_agent_mode_view(): void {
+	$data = [
+		'name'        => get_bloginfo( 'name' ),
+		'description' => get_bloginfo( 'description' ),
+		'url'         => home_url( '/' ),
+		'language'    => 'pt-BR',
+		'authentication' => 'nenhuma -- API pública, somente leitura, sem custo',
+		'api'         => [
+			'webmcp'  => rest_url( 'webmcp/v1/' ),
+			'openapi' => home_url( '/openapi.json' ),
+			'wp_rest' => rest_url(),
+			'catalog' => home_url( '/.well-known/api-catalog' ),
+		],
+		'markdown'    => [
+			'homepage'  => home_url( '/index.md' ),
+			'any_page'  => 'adicione .md ao final de qualquer URL de post/página do site',
+			'llms_txt'  => home_url( '/llms.txt' ),
+		],
+		'documentation' => home_url( '/desenvolvedores/' ),
+	];
+
+	status_header( 200 );
+	header( 'Content-Type: application/json; charset=utf-8' );
+	header( 'X-Robots-Tag: noindex' );
+	echo wp_json_encode( $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT );
+	exit;
 }
 
 /**

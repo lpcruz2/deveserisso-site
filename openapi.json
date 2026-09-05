@@ -87,6 +87,50 @@
           "429": { "$ref": "#/components/responses/TooManyRequests" }
         }
       }
+    },
+    "/tools/assinar-newsletter": {
+      "post": {
+        "operationId": "assinar_newsletter",
+        "summary": "Inscreve um email na newsletter do Deveserisso",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Chave opcional gerada pelo chamador. Reenviar a mesma chave dentro de 24h devolve a resposta já processada em vez de inscrever de novo — evita duplicidade em retry de rede.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": { "email": { "type": "string", "format": "email" } },
+                "required": [ "email" ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Inscrito com sucesso (ou já estava na lista)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
     }
   },
   "components": {
