@@ -53,6 +53,12 @@ function dsi_agentmd_tipo_from_request(): string {
 	return in_array( $tipo, [ 'md', 'html', 'mcp' ], true ) ? $tipo : '';
 }
 
+/** '' = todos, '1' = so assinados (Web Bot Auth, RFC 9421), '0' = so nao assinados */
+function dsi_agentmd_assinado_from_request(): string {
+	$assinado = isset( $_GET['assinado'] ) ? sanitize_text_field( wp_unslash( $_GET['assinado'] ) ) : '';
+	return in_array( $assinado, [ '1', '0' ], true ) ? $assinado : '';
+}
+
 /**
  * Monta a clausula WHERE (periodo + bot + tipo, todos opcionais exceto
  * periodo) e os parametros pra $wpdb->prepare(), reaproveitada pelo
@@ -61,7 +67,7 @@ function dsi_agentmd_tipo_from_request(): string {
  *
  * @return array{0: string, 1: array<int, string>}
  */
-function dsi_agentmd_where_and_params( string $inicio_sql, string $fim_sql, string $bot, string $tipo = '' ): array {
+function dsi_agentmd_where_and_params( string $inicio_sql, string $fim_sql, string $bot, string $tipo = '', string $assinado = '' ): array {
 	$where  = 'requested_at BETWEEN %s AND %s';
 	$params = [ $inicio_sql, $fim_sql ];
 
@@ -73,6 +79,12 @@ function dsi_agentmd_where_and_params( string $inicio_sql, string $fim_sql, stri
 	if ( $tipo !== '' ) {
 		$where   .= ' AND tipo = %s';
 		$params[] = $tipo;
+	}
+
+	if ( $assinado === '1' ) {
+		$where .= ' AND signed_agent IS NOT NULL';
+	} elseif ( $assinado === '0' ) {
+		$where .= ' AND signed_agent IS NULL';
 	}
 
 	return [ $where, $params ];
@@ -90,7 +102,8 @@ function dsi_agentmd_export_csv(): void {
 	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_agentmd_periodo_from_request();
 	$bot                = dsi_agentmd_bot_from_request();
 	$tipo               = dsi_agentmd_tipo_from_request();
-	[ $where, $params ] = dsi_agentmd_where_and_params( $inicio_sql, $fim_sql, $bot, $tipo );
+	$assinado           = dsi_agentmd_assinado_from_request();
+	[ $where, $params ] = dsi_agentmd_where_and_params( $inicio_sql, $fim_sql, $bot, $tipo, $assinado );
 
 	$rows = $wpdb->get_results(
 		$wpdb->prepare(
@@ -102,12 +115,13 @@ function dsi_agentmd_export_csv(): void {
 		)
 	);
 
-	$sufixo_bot  = $bot !== '' ? '-' . sanitize_title( $bot ) : '';
-	$sufixo_tipo = $tipo !== '' ? '-' . $tipo : '';
+	$sufixo_bot      = $bot !== '' ? '-' . sanitize_title( $bot ) : '';
+	$sufixo_tipo     = $tipo !== '' ? '-' . $tipo : '';
+	$sufixo_assinado = $assinado !== '' ? '-assinado' . $assinado : '';
 
 	nocache_headers();
 	header( 'Content-Type: text/csv; charset=utf-8' );
-	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . $inicio_input . '-a-' . $fim_input . $sufixo_bot . $sufixo_tipo . '.csv"' );
+	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . $inicio_input . '-a-' . $fim_input . $sufixo_bot . $sufixo_tipo . $sufixo_assinado . '.csv"' );
 
 	$out = fopen( 'php://output', 'w' );
 	fputcsv( $out, [ 'data', 'bot', 'assinado_rfc9421', 'tipo', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip' ] );
@@ -138,7 +152,8 @@ function dsi_agentmd_admin_page(): void {
 	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_agentmd_periodo_from_request();
 	$bot                = dsi_agentmd_bot_from_request();
 	$tipo               = dsi_agentmd_tipo_from_request();
-	[ $where, $params ] = dsi_agentmd_where_and_params( $inicio_sql, $fim_sql, $bot, $tipo );
+	$assinado           = dsi_agentmd_assinado_from_request();
+	[ $where, $params ] = dsi_agentmd_where_and_params( $inicio_sql, $fim_sql, $bot, $tipo, $assinado );
 
 	$total_periodo = (int) $wpdb->get_var(
 		$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE {$where}", $params )
@@ -166,7 +181,7 @@ function dsi_agentmd_admin_page(): void {
 	$anterior_ini_sql    = $anterior_ini_input . ' 00:00:00';
 	$anterior_fim_sql    = $anterior_fim_input . ' 23:59:59';
 
-	[ $where_anterior, $params_anterior ] = dsi_agentmd_where_and_params( $anterior_ini_sql, $anterior_fim_sql, $bot, $tipo );
+	[ $where_anterior, $params_anterior ] = dsi_agentmd_where_and_params( $anterior_ini_sql, $anterior_fim_sql, $bot, $tipo, $assinado );
 	$total_anterior = (int) $wpdb->get_var(
 		$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE {$where_anterior}", $params_anterior )
 	);
@@ -207,6 +222,7 @@ function dsi_agentmd_admin_page(): void {
 				'data_fim'    => $fim_input,
 				'bot'         => $bot,
 				'tipo'        => $tipo,
+				'assinado'    => $assinado,
 			],
 			admin_url( 'admin-post.php' )
 		),
@@ -237,6 +253,12 @@ function dsi_agentmd_admin_page(): void {
 	printf( '<option value="md"%s>Markdown</option>', selected( $tipo, 'md', false ) );
 	printf( '<option value="html"%s>Página HTML</option>', selected( $tipo, 'html', false ) );
 	printf( '<option value="mcp"%s>MCP (tool call)</option>', selected( $tipo, 'mcp', false ) );
+	echo '</select></label>';
+
+	echo '<label title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado <select name="assinado">';
+	printf( '<option value=""%s>Todos</option>', selected( $assinado, '', false ) );
+	printf( '<option value="1"%s>Só assinados</option>', selected( $assinado, '1', false ) );
+	printf( '<option value="0"%s>Só não assinados</option>', selected( $assinado, '0', false ) );
 	echo '</select></label>';
 
 	echo '<button type="submit" class="button">Filtrar</button>';
