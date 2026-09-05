@@ -27,6 +27,12 @@ RewriteRule ^blog/(.+)$ https://deveserisso.com.br/$1 [R=301,L]
 RewriteEngine On
 RewriteRule ^privacidade/?$ https://deveserisso.com.br/politicas-de-privacidade/ [R=301,L]
 RewriteRule ^quem-somos/?$ https://deveserisso.com.br/sobre/ [R=301,L]
+# Aliases em ingles pras trust anchor pages -- achado via ora MCP (run_checks):
+# o check "Trust anchor pages" sonda literalmente /about, /contact, /privacy
+# (convencao em ingles) em vez de navegar pelos links do site em portugues.
+RewriteRule ^about/?$ https://deveserisso.com.br/sobre/ [R=301,L]
+RewriteRule ^contact/?$ https://deveserisso.com.br/contato/ [R=301,L]
+RewriteRule ^privacy/?$ https://deveserisso.com.br/politicas-de-privacidade/ [R=301,L]
 </IfModule>
 # END 404 Fix - Pages
 
