@@ -94,7 +94,7 @@ function dsi_agentmd_export_csv(): void {
 
 	$rows = $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT requested_at, bot_label, tipo, post_id, url_path, user_agent, client_ip
+			"SELECT requested_at, bot_label, signed_agent, tipo, post_id, url_path, user_agent, client_ip
 			 FROM {$table}
 			 WHERE {$where}
 			 ORDER BY requested_at DESC",
@@ -110,13 +110,14 @@ function dsi_agentmd_export_csv(): void {
 	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . $inicio_input . '-a-' . $fim_input . $sufixo_bot . $sufixo_tipo . '.csv"' );
 
 	$out = fopen( 'php://output', 'w' );
-	fputcsv( $out, [ 'data', 'bot', 'tipo', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip' ] );
+	fputcsv( $out, [ 'data', 'bot', 'assinado_rfc9421', 'tipo', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip' ] );
 
 	foreach ( $rows as $row ) {
 		$post_title = $row->post_id ? get_the_title( (int) $row->post_id ) : '';
 		fputcsv( $out, [
 			$row->requested_at,
 			$row->bot_label,
+			$row->signed_agent ?? '',
 			$row->tipo,
 			$row->post_id,
 			$post_title,
@@ -189,7 +190,7 @@ function dsi_agentmd_admin_page(): void {
 
 	$detalhe = $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT requested_at, bot_label, tipo, post_id, url_path, client_ip
+			"SELECT requested_at, bot_label, signed_agent, tipo, post_id, url_path, client_ip
 			 FROM {$table}
 			 WHERE {$where}
 			 ORDER BY requested_at DESC
@@ -279,14 +280,16 @@ function dsi_agentmd_admin_page(): void {
 		$total_paginas,
 		$total_periodo
 	);
-	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Bot</th><th>Tipo</th><th>Post</th><th>URL</th><th>IP</th></tr></thead><tbody>';
+	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Bot</th><th title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado</th><th>Tipo</th><th>Post</th><th>URL</th><th>IP</th></tr></thead><tbody>';
 	if ( $detalhe ) {
 		foreach ( $detalhe as $row ) {
 			$post_title = $row->post_id ? get_the_title( (int) $row->post_id ) : '—';
+			$assinado   = $row->signed_agent ? esc_html( $row->signed_agent ) : '—';
 			printf(
-				'<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+				'<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
 				esc_html( $row->requested_at ),
 				esc_html( $row->bot_label ),
+				$assinado,
 				esc_html( dsi_agentmd_tipo_label( $row->tipo ) ),
 				esc_html( $post_title ),
 				esc_html( $row->url_path ),
@@ -294,7 +297,7 @@ function dsi_agentmd_admin_page(): void {
 			);
 		}
 	} else {
-		echo '<tr><td colspan="6">Nenhuma requisição nesse período.</td></tr>';
+		echo '<tr><td colspan="7">Nenhuma requisição nesse período.</td></tr>';
 	}
 	echo '</tbody></table>';
 

@@ -131,6 +131,13 @@ function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo
 
 	$client_ip = sanitize_text_field( $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['REMOTE_ADDR'] ?? '' );
 
+	// Assinatura Web Bot Auth (RFC 9421), quando presente -- unico jeito de
+	// distinguir um agente verificado (ex: ChatGPT) de um User-Agent comum
+	// de navegador, ja que a chamada de tool do WebMCP nao carrega UA de bot.
+	$signed_agent = function_exists( 'dsi_wba_verify_current_request' )
+		? dsi_wba_verify_current_request()
+		: null;
+
 	$wpdb->insert(
 		$wpdb->prefix . 'ai_bot_requests',
 		[
@@ -140,9 +147,10 @@ function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo
 			'user_agent'   => $user_agent,
 			'client_ip'    => $client_ip,
 			'bot_label'    => dsi_agentmd_classify_bot( $user_agent ),
+			'signed_agent' => $signed_agent,
 			'tipo'         => $tipo,
 		],
-		[ '%s', '%d', '%s', '%s', '%s', '%s', '%s' ]
+		[ '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s' ]
 	);
 }
 
