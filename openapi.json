@@ -88,6 +88,30 @@
         }
       }
     },
+    "/tools/recent_posts": {
+      "get": {
+        "operationId": "recent_posts",
+        "summary": "Lista os posts mais recentes do site, sem precisar de termo de busca",
+        "parameters": [
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "description": "Quantidade de posts a retornar (padrão 10, máximo 20)",
+            "schema": { "type": "integer", "default": 10, "maximum": 20 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de posts recentes (JSON-LD, schema.org/ItemList)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CategoryList" } }
+            }
+          },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
     "/tools/assinar-newsletter": {
       "post": {
         "operationId": "assinar_newsletter",
