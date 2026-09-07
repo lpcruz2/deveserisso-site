@@ -284,6 +284,8 @@ function dsi_agentmd_admin_page(): void {
 	);
 	echo '</div>';
 
+	dsi_agentmd_render_grafico_linha( $table, $where, $params, $inicio_input, $fim_input );
+
 	echo '<h2>Principais bots que solicitaram</h2>';
 	echo '<table class="widefat striped"><thead><tr><th>Bot</th><th>Total</th><th>Última vez</th></tr></thead><tbody>';
 	if ( $top_bots ) {
@@ -332,6 +334,125 @@ function dsi_agentmd_admin_page(): void {
 
 	dsi_agentmd_render_pagination( $paged, $total_paginas );
 
+	echo '</div>';
+}
+
+/**
+ * Volume de requisições por dia do período selecionado, como linha.
+ *
+ * SVG inline de proposito: nada de biblioteca de grafico. O wp-admin roda
+ * sob CSP e nao vale carregar dependencia externa por uma serie de uma
+ * dimensao so -- alem de que SVG inline nao depende de JS pra desenhar.
+ *
+ * Respeita os mesmos filtros do resto da pagina (periodo, bot, tipo,
+ * assinado), entao o grafico sempre mostra exatamente o recorte que esta
+ * na tela.
+ */
+function dsi_agentmd_render_grafico_linha( string $table, string $where, array $params, string $inicio_input, string $fim_input ): void {
+	global $wpdb;
+
+	$por_dia = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT DATE(requested_at) dia, COUNT(*) total
+			 FROM {$table}
+			 WHERE {$where}
+			 GROUP BY DATE(requested_at)",
+			$params
+		),
+		OBJECT_K
+	);
+
+	// Preenche o calendario inteiro do periodo, inclusive dias sem nenhuma
+	// requisicao. Se plotasse so o que voltou do GROUP BY, um dia vazio
+	// sumiria do eixo e a linha ligaria o dia anterior direto no seguinte
+	// -- escondendo justamente a queda que interessa ver.
+	$serie  = [];
+	$cursor = strtotime( $inicio_input );
+	$fim    = strtotime( $fim_input );
+
+	while ( $cursor <= $fim && count( $serie ) <= 400 ) {
+		$dia           = gmdate( 'Y-m-d', $cursor );
+		$serie[ $dia ] = isset( $por_dia[ $dia ] ) ? (int) $por_dia[ $dia ]->total : 0;
+		$cursor       += DAY_IN_SECONDS;
+	}
+
+	$n = count( $serie );
+	if ( $n < 2 || $n > 400 ) {
+		return; // um dia so nao e serie; acima de ~1 ano vira borrao ilegivel
+	}
+
+	$pico = max( $serie );
+	$topo = $pico > 0 ? $pico : 1;
+
+	// Sistema de coordenadas fixo -- o SVG escala sozinho pra largura da tela.
+	$larg   = 1000;
+	$alt    = 260;
+	$esq    = 55;
+	$dir    = 20;
+	$topo_y = 20;
+	$base_y = 210;
+	$area_l = $larg - $esq - $dir;
+	$area_h = $base_y - $topo_y;
+
+	$pontos = [];
+	$i      = 0;
+	foreach ( $serie as $dia => $valor ) {
+		$x        = $esq + ( $n > 1 ? $i * ( $area_l / ( $n - 1 ) ) : 0 );
+		$y        = $base_y - ( $valor / $topo ) * $area_h;
+		$pontos[] = [ 'x' => round( $x, 1 ), 'y' => round( $y, 1 ), 'dia' => $dia, 'valor' => $valor ];
+		$i++;
+	}
+
+	$linha = implode( ' ', array_map( static fn( $p ) => $p['x'] . ',' . $p['y'], $pontos ) );
+	$area  = $pontos[0]['x'] . ',' . $base_y . ' ' . $linha . ' ' . end( $pontos )['x'] . ',' . $base_y;
+
+	// No maximo ~12 datas no eixo X, senao os rotulos se sobrepoem.
+	$passo = (int) max( 1, ceil( $n / 12 ) );
+
+	echo '<h2 style="margin-top:8px;">Requisições por dia</h2>';
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:12px 16px;margin-bottom:24px;">';
+	printf( '<svg viewBox="0 0 %d %d" width="100%%" height="260" role="img" aria-label="Volume de requisições por dia no período selecionado" style="display:block;overflow:visible;">', $larg, $alt );
+
+	// Grade horizontal + escala do eixo Y
+	for ( $g = 0; $g <= 4; $g++ ) {
+		$y     = $base_y - ( $g / 4 ) * $area_h;
+		$valor = (int) round( $topo * $g / 4 );
+		printf(
+			'<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#e0e0e0" stroke-width="1"/>
+			 <text x="%d" y="%.1f" text-anchor="end" font-size="11" fill="#646970">%s</text>',
+			$esq,
+			$y,
+			$larg - $dir,
+			$y,
+			$esq - 8,
+			$y + 4,
+			esc_html( number_format_i18n( $valor ) )
+		);
+	}
+
+	printf( '<polygon points="%s" fill="#2271b1" fill-opacity="0.10"/>', esc_attr( $area ) );
+	printf( '<polyline points="%s" fill="none" stroke="#2271b1" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>', esc_attr( $linha ) );
+
+	foreach ( $pontos as $idx => $p ) {
+		printf(
+			'<circle cx="%.1f" cy="%.1f" r="3.5" fill="#fff" stroke="#2271b1" stroke-width="2"><title>%s — %s requisições</title></circle>',
+			$p['x'],
+			$p['y'],
+			esc_html( gmdate( 'd/m/Y', strtotime( $p['dia'] ) ) ),
+			esc_html( number_format_i18n( $p['valor'] ) )
+		);
+
+		if ( $idx % $passo === 0 || $idx === $n - 1 ) {
+			printf(
+				'<text x="%.1f" y="%d" text-anchor="middle" font-size="11" fill="#646970">%s</text>',
+				$p['x'],
+				$base_y + 22,
+				esc_html( gmdate( 'd/m', strtotime( $p['dia'] ) ) )
+			);
+		}
+	}
+
+	echo '</svg>';
 	echo '</div>';
 }
 
