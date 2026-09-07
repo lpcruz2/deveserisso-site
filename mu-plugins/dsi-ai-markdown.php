@@ -390,6 +390,36 @@ function dsi_agentmd_classify_bot( string $user_agent ): string {
 		return substr( $m[1], 0, 50 );
 	}
 
+	// Terceira camada: cliente HTTP generico. Nao e bot declarado, mas
+	// tambem nao e navegador -- e um script, um monitor ou uma sessao de
+	// debug. Juntar isso com User-Agent de navegador debaixo do mesmo
+	// "desconhecido" escondia dois fenomenos completamente diferentes:
+	// um curl batendo /index.md de hora em hora e um Chrome/48 reciclado
+	// em 35 IPs nao sao a mesma coisa, e so um deles parece scraper.
+	//
+	// O rotulo aqui e factual (o que o cliente disse ser), nao inferencia
+	// de identidade -- por isso "curl" e nao "bot de alguem".
+	$ferramentas = [
+		'curl', 'Wget', 'python-requests', 'python-urllib', 'aiohttp', 'httpx',
+		'node-fetch', 'undici', 'axios', 'Go-http-client', 'okhttp',
+		'Apache-HttpClient', 'libwww-perl', 'HTTPie', 'PostmanRuntime',
+		'GuzzleHttp', 'Scrapy', 'Java',
+	];
+
+	foreach ( $ferramentas as $ferramenta ) {
+		if ( preg_match( '/(?<![A-Za-z0-9])' . preg_quote( $ferramenta, '/' ) . '(?![A-Za-z0-9])/i', $user_agent ) ) {
+			return $ferramenta;
+		}
+	}
+
+	// "node" sozinho e o User-Agent do runtime do Node quando ninguem
+	// definiu um -- casa exato pra nao pegar "node" dentro de outra coisa.
+	if ( strcasecmp( trim( $user_agent ), 'node' ) === 0 ) {
+		return 'node';
+	}
+
+	// O que sobra e User-Agent de navegador: ou e gente, ou e scraper se
+	// passando por gente. "desconhecido" e o unico rotulo honesto pros dois.
 	return 'desconhecido';
 }
 
