@@ -373,6 +373,23 @@ function dsi_agentmd_classify_bot( string $user_agent ): string {
 		}
 	}
 
+	// Fallback heuristico: qualquer token que se autodeclare bot vira o
+	// proprio nome, mesmo sem estar na lista acima.
+	//
+	// Sem isso, todo bot novo caia em "desconhecido" ate alguem reparar e
+	// editar o array na mao -- foi exatamente o que aconteceu com o OraBot,
+	// que gerou 130 requisicoes rotuladas como "desconhecido" antes de ser
+	// notado. A lista explicita continua valendo primeiro (garante o nome
+	// canonico e a grafia certa); isto aqui so pega o que ela nao conhece.
+	//
+	// So casa quem carrega "bot", "crawler" ou "spider" no nome: sao
+	// autodeclaracoes, nao inferencia. Um curl, um "node" ou um User-Agent
+	// de navegador reciclado continuam "desconhecido" de proposito --
+	// rotula-los como bot conhecido seria errar na direcao oposta.
+	if ( preg_match( '/([A-Za-z0-9][A-Za-z0-9._-]{2,30}(?:bot|crawler|spider)[A-Za-z0-9._-]{0,20})/i', $user_agent, $m ) ) {
+		return substr( $m[1], 0, 50 );
+	}
+
 	return 'desconhecido';
 }
 
