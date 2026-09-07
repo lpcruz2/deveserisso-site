@@ -421,6 +421,17 @@ function dsi_agentmd_render_grafico_linha( string $table, string $where, array $
 	echo '<div style="font-size:13px;color:#646970;line-height:1.4;margin-bottom:6px;">Requisições por dia</div>';
 	printf( '<svg viewBox="0 0 %d %d" role="img" aria-label="Volume de requisições por dia no período selecionado" style="display:block;width:100%%;flex:1;overflow:visible;">', $larg, $alt );
 
+	// Tooltip em CSS puro -- o wp-admin serve style-src 'unsafe-inline'
+	// (conferido no header ao vivo), entao nao precisa de JS nem de lib.
+	// Substitui o <title> nativo do SVG, que demora ~1s pra abrir e so
+	// responde em cima do circulo de 4px: depois da escala do viewBox isso
+	// vira um alvo de ~2px, que na pratica ninguem acerta.
+	echo '<style>
+		.dsi-pt .dsi-tip, .dsi-pt .dsi-guia { opacity: 0; transition: opacity .08s ease; }
+		.dsi-pt:hover .dsi-tip, .dsi-pt:hover .dsi-guia { opacity: 1; }
+		.dsi-pt:hover .dsi-dot { r: 6; fill: #2271b1; }
+	</style>';
+
 	// Grade horizontal + escala do eixo Y
 	for ( $g = 0; $g <= 4; $g++ ) {
 		$y     = $base_y - ( $g / 4 ) * $area_h;
@@ -441,13 +452,46 @@ function dsi_agentmd_render_grafico_linha( string $table, string $where, array $
 	printf( '<polygon points="%s" fill="#2271b1" fill-opacity="0.10"/>', esc_attr( $area ) );
 	printf( '<polyline points="%s" fill="none" stroke="#2271b1" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>', esc_attr( $linha ) );
 
+	// Largura de um dia no eixo -- vira a area de hover de cada ponto, pra
+	// o tooltip abrir em qualquer lugar da coluna e nao so no circulo.
+	$passo_x = $n > 1 ? $area_l / ( $n - 1 ) : $area_l;
+
 	foreach ( $pontos as $idx => $p ) {
+		$rotulo = gmdate( 'd/m', strtotime( $p['dia'] ) ) . ' — ' . number_format_i18n( $p['valor'] );
+		$tw     = strlen( $rotulo ) * 8.4 + 20;
+		// Prende o balao dentro da caixa: nas pontas ele desloca em vez de
+		// vazar pra fora e ficar cortado pela borda do painel.
+		$tx     = min( max( $p['x'] - $tw / 2, 2 ), $larg - $tw - 2 );
+		// Ponto colado no topo nao tem espaco acima -- o balao vai pra baixo.
+		$ty     = $p['y'] > 52 ? $p['y'] - 36 : $p['y'] + 14;
+
 		printf(
-			'<circle cx="%.1f" cy="%.1f" r="4" fill="#fff" stroke="#2271b1" stroke-width="2.5"><title>%s — %s requisições</title></circle>',
+			'<g class="dsi-pt" role="img" aria-label="%s: %s requisições">
+				<rect x="%.1f" y="0" width="%.1f" height="%d" fill="transparent"/>
+				<line class="dsi-guia" x1="%.1f" y1="%d" x2="%.1f" y2="%.1f" stroke="#2271b1" stroke-width="1" stroke-dasharray="3 3"/>
+				<circle class="dsi-dot" cx="%.1f" cy="%.1f" r="4" fill="#fff" stroke="#2271b1" stroke-width="2.5"/>
+				<g class="dsi-tip">
+					<rect x="%.1f" y="%.1f" width="%.1f" height="27" rx="3" fill="#1d2327"/>
+					<text x="%.1f" y="%.1f" text-anchor="middle" font-size="15" fill="#fff">%s</text>
+				</g>
+			</g>',
+			esc_attr( gmdate( 'd/m/Y', strtotime( $p['dia'] ) ) ),
+			esc_attr( number_format_i18n( $p['valor'] ) ),
+			$p['x'] - $passo_x / 2,
+			$passo_x,
+			$alt,
+			$p['x'],
+			$base_y,
 			$p['x'],
 			$p['y'],
-			esc_html( gmdate( 'd/m/Y', strtotime( $p['dia'] ) ) ),
-			esc_html( number_format_i18n( $p['valor'] ) )
+			$p['x'],
+			$p['y'],
+			$tx,
+			$ty,
+			$tw,
+			$tx + $tw / 2,
+			$ty + 19,
+			esc_html( $rotulo )
 		);
 
 		if ( $idx % $passo === 0 || $idx === $n - 1 ) {
