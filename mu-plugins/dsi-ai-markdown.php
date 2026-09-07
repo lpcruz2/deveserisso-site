@@ -118,8 +118,12 @@ function dsi_agentmd_send_homepage_markdown(): void {
 	);
 	$body = $frontmatter . $body;
 
+	// O 200 vai explicito porque neste ponto o WP ainda acha que a query e
+	// 404: o parser de permalinks nao reconhece o sufixo .md (mesma quirk
+	// do LiteSpeed com REQUEST_URI comentada em serve_via_md_suffix). Sem
+	// isso o log gravava 404 numa resposta que sai 200.
 	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
-	dsi_agentmd_log_request( 0, $user_agent, 'md' );
+	dsi_agentmd_log_request( 0, $user_agent, 'md', null, 200 );
 
 	status_header( 200 );
 	header( 'Content-Type: text/markdown; charset=utf-8' );
@@ -191,7 +195,8 @@ function dsi_agentmd_send_markdown( WP_Post $post, string $user_agent ): void {
 		dsi_agentmd_yaml_escape( $description )
 	);
 
-	dsi_agentmd_log_request( $post->ID, $user_agent, 'md' );
+	// 200 explicito -- ver a nota em dsi_agentmd_send_homepage_markdown().
+	dsi_agentmd_log_request( $post->ID, $user_agent, 'md', null, 200 );
 
 	status_header( 200 );
 	header( 'Content-Type: text/markdown; charset=utf-8' );
