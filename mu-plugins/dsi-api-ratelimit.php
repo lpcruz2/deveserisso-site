@@ -18,8 +18,23 @@ function dsi_rl_is_target_route( string $route ): bool {
 	return str_starts_with( ltrim( $route, '/' ), DSI_RL_NAMESPACE );
 }
 
+/**
+ * Mesmo IP que o log de bots usa -- ver dsi_agentmd_client_ip() em
+ * dsi-ai-markdown.php pro porque de nao dar pra usar REMOTE_ADDR aqui.
+ * Ate 2026-09-07 esta funcao devolvia o IP do edge do Cloudflare, o que
+ * tornava o balde abaixo COLETIVO por edge em vez de por cliente: barrava
+ * agente legitimo por culpa de terceiro e era burlavel por quem caisse
+ * em outro edge.
+ */
 function dsi_rl_client_ip(): string {
-	return sanitize_text_field( $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['REMOTE_ADDR'] ?? 'desconhecido' );
+	if ( function_exists( 'dsi_agentmd_client_ip' ) ) {
+		$ip = dsi_agentmd_client_ip();
+		if ( $ip !== '' ) {
+			return $ip;
+		}
+	}
+
+	return sanitize_text_field( $_SERVER['REMOTE_ADDR'] ?? 'desconhecido' );
 }
 
 function dsi_rl_state_key( string $ip ): string {
@@ -53,13 +68,18 @@ function dsi_rl_hit( string $ip ): array {
  * Reaproveita dsi_agentmd_classify_bot()/dsi_agentmd_log_request(), definidas
  * em dsi-ai-markdown.php (carrega antes, ordem alfabetica de mu-plugins).
  */
-function dsi_rl_log( WP_REST_Request $request ): void {
+function dsi_rl_log( WP_REST_Request $request, int $http_status ): void {
 	if ( ! function_exists( 'dsi_agentmd_log_request' ) ) {
 		return;
 	}
 
+	// Sem isso toda chamada de tool caia em post_id=0 e ficava
+	// indistinguivel das outras no painel -- 263 chamadas colapsadas numa
+	// linha so, sem dizer qual tool foi chamada nem se deu certo.
+	$tool_name = preg_match( '#/tools/([^/?]+)#', $request->get_route(), $m ) ? $m[1] : null;
+
 	$post_id = 0;
-	if ( str_ends_with( $request->get_route(), '/tools/get_post' ) ) {
+	if ( $tool_name === 'get_post' ) {
 		$slug = (string) $request->get_param( 'slug' );
 		$post = $slug !== '' ? get_page_by_path( $slug, OBJECT, [ 'post', 'page' ] ) : null;
 		if ( $post instanceof WP_Post ) {
@@ -68,7 +88,7 @@ function dsi_rl_log( WP_REST_Request $request ): void {
 	}
 
 	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
-	dsi_agentmd_log_request( $post_id, $user_agent, 'mcp' );
+	dsi_agentmd_log_request( $post_id, $user_agent, 'mcp', $tool_name, $http_status );
 }
 
 /**
@@ -87,7 +107,8 @@ function dsi_rl_check( $result, $server, $request ) {
 
 	$GLOBALS['dsi_rl_state'] = $state;
 
-	dsi_rl_log( $request );
+	// O log acontece no rest_post_dispatch, nao aqui: so la o status HTTP
+	// final da chamada e conhecido (inclusive o 429 devolvido logo abaixo).
 
 	if ( $state['count'] > DSI_RL_LIMIT ) {
 		$response = new WP_REST_Response(
@@ -118,6 +139,8 @@ function dsi_rl_add_headers( $response, $server, $request ) {
 	if ( ! $state ) {
 		return $response;
 	}
+
+	dsi_rl_log( $request, $response->get_status() );
 
 	$remaining = max( 0, DSI_RL_LIMIT - $state['count'] );
 	$response->header( 'RateLimit-Limit', (string) DSI_RL_LIMIT );

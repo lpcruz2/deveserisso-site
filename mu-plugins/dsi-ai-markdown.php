@@ -224,31 +224,125 @@ function dsi_agentmd_yaml_escape( string $text ): string {
 // LOG — quem pediu Markdown ou visitou HTML como bot reconhecido (tabela
 // criada via script one-off, ver "Workflow de deploy padrão" no CLAUDE.md)
 // =============================================================================
-function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo ): void {
-	global $wpdb;
+/**
+ * IP real do cliente.
+ *
+ * Nao da pra usar REMOTE_ADDR nem CF-Connecting-IP aqui: o hcdn (CDN da
+ * Hostinger, entre o Cloudflare e a origem) nao repassa o CF-Connecting-IP,
+ * e o REMOTE_ADDR que sobra e o IP do edge do Cloudflare -- por isso ate
+ * 2026-09-07 o log gravava um mesmo "IP" servindo 7 bots diferentes, e
+ * "bot rotacionando IP" era, na verdade, edges diferentes.
+ *
+ * O valor real esta no X-Forwarded-For, mas NAO no primeiro elemento: o
+ * Cloudflare faz append ao XFF que o cliente mandar, entao qualquer um pode
+ * injetar entradas a esquerda. Confirmado ao vivo mandando
+ * "X-Forwarded-For: 1.2.3.4" e recebendo "1.2.3.4,<ip real>,<edge>" na
+ * origem. O unico elemento confiavel e o PENULTIMO -- o que o Cloudflare
+ * escreveu, logo antes de o hcdn anexar o edge. Tudo a esquerda dele e
+ * controlado pelo cliente e precisa ser ignorado.
+ */
+function dsi_agentmd_client_ip(): string {
+	$xff = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
 
-	$client_ip = sanitize_text_field( $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['REMOTE_ADDR'] ?? '' );
+	if ( $xff !== '' ) {
+		$partes = array_values( array_filter( array_map( 'trim', explode( ',', $xff ) ) ) );
+		if ( count( $partes ) >= 2 ) {
+			$candidato = $partes[ count( $partes ) - 2 ];
+			if ( filter_var( $candidato, FILTER_VALIDATE_IP ) ) {
+				return $candidato;
+			}
+		}
+	}
+
+	return sanitize_text_field( $_SERVER['REMOTE_ADDR'] ?? '' );
+}
+
+/** Pais do visitante -- vem de graca no header do Cloudflare (ex: "BR"). */
+function dsi_agentmd_country(): ?string {
+	$pais = strtoupper( sanitize_text_field( $_SERVER['HTTP_CF_IPCOUNTRY'] ?? '' ) );
+
+	return preg_match( '/^[A-Z]{2}$/', $pais ) ? $pais : null;
+}
+
+/**
+ * Corta no limite da coluna. url_path e referer sao varchar(255) e chegam
+ * do cliente sem limite -- em strict mode o INSERT inteiro falharia e a
+ * requisicao sumiria do log sem aviso nenhum.
+ */
+function dsi_agentmd_trunca( string $valor, int $limite = 255 ): string {
+	return mb_substr( $valor, 0, $limite );
+}
+
+/**
+ * NOTA SOBRE O QUE ESTE LOG *NAO* MEDE: so chega aqui requisicao que
+ * executou PHP, ou seja, que deu MISS nas tres camadas de cache. Medido em
+ * 2026-09-07: 3 requisicoes seguidas ao mesmo post com UA de bot geraram 1
+ * linha (a 3a voltou x-litespeed-cache: hit, sem tocar a origem). Nenhum
+ * numero daqui significa "quantas vezes o bot acessou" -- so "quantas vezes
+ * o bot forcou a origem". Contagem real exigiria o access log do servidor.
+ * Por isso nao existe coluna de cache_status: do lado do PHP ela seria
+ * sempre "miss", por construcao.
+ */
+function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo, ?string $tool_name = null, ?int $http_status = null ): void {
+	global $wpdb;
 
 	// Assinatura Web Bot Auth (RFC 9421), quando presente -- unico jeito de
 	// distinguir um agente verificado (ex: ChatGPT) de um User-Agent comum
 	// de navegador, ja que a chamada de tool do WebMCP nao carrega UA de bot.
+	// ATENCAO: inerte hoje -- a extensao sodium nao existe neste servidor,
+	// entao dsi_wba_verify_current_request() retorna null sempre. Ver
+	// CLAUDE.md, secao "Servidor e CDN".
 	$signed_agent = function_exists( 'dsi_wba_verify_current_request' )
 		? dsi_wba_verify_current_request()
 		: null;
+
+	$referer = dsi_agentmd_trunca( sanitize_text_field( $_SERVER['HTTP_REFERER'] ?? '' ) );
+	$status  = $http_status ?? ( http_response_code() ?: null );
 
 	$wpdb->insert(
 		$wpdb->prefix . 'ai_bot_requests',
 		[
 			'requested_at' => current_time( 'mysql' ),
 			'post_id'      => $post_id,
-			'url_path'     => esc_url_raw( $_SERVER['REQUEST_URI'] ?? '' ),
-			'user_agent'   => $user_agent,
-			'client_ip'    => $client_ip,
+			'url_path'     => dsi_agentmd_trunca( esc_url_raw( $_SERVER['REQUEST_URI'] ?? '' ) ),
+			'user_agent'   => dsi_agentmd_trunca( $user_agent ),
+			'client_ip'    => dsi_agentmd_client_ip(),
+			'country'      => dsi_agentmd_country(),
 			'bot_label'    => dsi_agentmd_classify_bot( $user_agent ),
 			'signed_agent' => $signed_agent,
 			'tipo'         => $tipo,
+			'http_status'  => $status,
+			'tool_name'    => $tool_name,
+			'referer'      => $referer !== '' ? $referer : null,
 		],
-		[ '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s' ]
+		[ '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s' ]
+	);
+}
+
+// =============================================================================
+// RETENCAO -- a tabela cresce ~1.000 linhas/dia (~500 B cada). Sem purga
+// seriam ~180 MB/ano de log que ninguem consulta depois de alguns meses.
+// =============================================================================
+const DSI_AGENTMD_RETENCAO_DIAS = 180;
+
+add_action( 'init', 'dsi_agentmd_agenda_purga' );
+add_action( 'dsi_agentmd_purga_event', 'dsi_agentmd_purga_log' );
+
+function dsi_agentmd_agenda_purga(): void {
+	if ( ! wp_next_scheduled( 'dsi_agentmd_purga_event' ) ) {
+		wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', 'dsi_agentmd_purga_event' );
+	}
+}
+
+function dsi_agentmd_purga_log(): void {
+	global $wpdb;
+
+	$tabela = $wpdb->prefix . 'ai_bot_requests';
+	$wpdb->query(
+		$wpdb->prepare(
+			"DELETE FROM {$tabela} WHERE requested_at < DATE_SUB(NOW(), INTERVAL %d DAY)",
+			DSI_AGENTMD_RETENCAO_DIAS
+		)
 	);
 }
 
@@ -260,6 +354,9 @@ function dsi_agentmd_classify_bot( string $user_agent ): string {
 		'Google-Extended', 'GoogleOther', 'Bytespider', 'Amazonbot', 'Applebot',
 		'meta-externalagent', 'FacebookBot', 'DuckAssistBot', 'YouBot', 'Diffbot',
 		'cohere-ai', 'AI2Bot', 'ImagesiftBot', 'omgili', 'Timpibot', 'MistralAI',
+		// Vistos no proprio log em 2026-09, caiam em "desconhecido" so por
+		// falta de entrada aqui (nao por falha de deteccao).
+		'OraBot', 'archive.org_bot', 'ShapBot',
 		// Buscadores tradicionais (tambem podem pedir a versao .md)
 		'Googlebot', 'bingbot', 'Bingbot', 'YandexBot', 'Baiduspider', 'DuckDuckBot',
 		'AhrefsBot', 'SemrushBot', 'MJ12bot', 'DotBot', 'PetalBot',

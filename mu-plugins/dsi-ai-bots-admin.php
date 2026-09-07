@@ -107,7 +107,7 @@ function dsi_agentmd_export_csv(): void {
 
 	$rows = $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT requested_at, bot_label, signed_agent, tipo, post_id, url_path, user_agent, client_ip
+			"SELECT requested_at, bot_label, signed_agent, tipo, tool_name, http_status, post_id, url_path, user_agent, client_ip, country, referer
 			 FROM {$table}
 			 WHERE {$where}
 			 ORDER BY requested_at DESC",
@@ -124,7 +124,7 @@ function dsi_agentmd_export_csv(): void {
 	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . $inicio_input . '-a-' . $fim_input . $sufixo_bot . $sufixo_tipo . $sufixo_assinado . '.csv"' );
 
 	$out = fopen( 'php://output', 'w' );
-	fputcsv( $out, [ 'data', 'bot', 'assinado_rfc9421', 'tipo', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip' ] );
+	fputcsv( $out, [ 'data', 'bot', 'assinado_rfc9421', 'tipo', 'tool_mcp', 'http_status', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip', 'pais', 'referer' ] );
 
 	foreach ( $rows as $row ) {
 		$post_title = $row->post_id ? get_the_title( (int) $row->post_id ) : '';
@@ -133,11 +133,15 @@ function dsi_agentmd_export_csv(): void {
 			$row->bot_label,
 			$row->signed_agent ?? '',
 			$row->tipo,
+			$row->tool_name ?? '',
+			$row->http_status ?? '',
 			$row->post_id,
 			$post_title,
 			$row->url_path,
 			$row->user_agent,
 			$row->client_ip,
+			$row->country ?? '',
+			$row->referer ?? '',
 		] );
 	}
 
@@ -205,7 +209,7 @@ function dsi_agentmd_admin_page(): void {
 
 	$detalhe = $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT requested_at, bot_label, signed_agent, tipo, post_id, url_path, client_ip
+			"SELECT requested_at, bot_label, signed_agent, tipo, tool_name, http_status, post_id, url_path, client_ip, country
 			 FROM {$table}
 			 WHERE {$where}
 			 ORDER BY requested_at DESC
@@ -302,24 +306,27 @@ function dsi_agentmd_admin_page(): void {
 		$total_paginas,
 		$total_periodo
 	);
-	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Bot</th><th title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado</th><th>Tipo</th><th>Post</th><th>URL</th><th>IP</th></tr></thead><tbody>';
+	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Bot</th><th title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado</th><th>Tipo</th><th title="Nome da tool chamada, quando o tipo e MCP">Tool</th><th>Status</th><th>Post</th><th>URL</th><th>IP</th><th>País</th></tr></thead><tbody>';
 	if ( $detalhe ) {
 		foreach ( $detalhe as $row ) {
 			$post_title = $row->post_id ? get_the_title( (int) $row->post_id ) : '—';
 			$assinado   = $row->signed_agent ? esc_html( $row->signed_agent ) : '—';
 			printf(
-				'<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+				'<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
 				esc_html( $row->requested_at ),
 				esc_html( $row->bot_label ),
 				$assinado,
 				esc_html( dsi_agentmd_tipo_label( $row->tipo ) ),
+				esc_html( $row->tool_name ?? '—' ),
+				esc_html( (string) ( $row->http_status ?? '—' ) ),
 				esc_html( $post_title ),
 				esc_html( $row->url_path ),
-				esc_html( $row->client_ip )
+				esc_html( $row->client_ip ),
+				esc_html( $row->country ?? '—' )
 			);
 		}
 	} else {
-		echo '<tr><td colspan="7">Nenhuma requisição nesse período.</td></tr>';
+		echo '<tr><td colspan="10">Nenhuma requisição nesse período.</td></tr>';
 	}
 	echo '</tbody></table>';
 
