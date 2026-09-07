@@ -269,8 +269,10 @@ function dsi_agentmd_admin_page(): void {
 	echo '<a href="' . esc_url( $export_url ) . '" class="button button-primary">Baixar CSV do período</a>';
 	echo '</form>';
 
-	// --- Overview ---
-	echo '<div style="display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;">';
+	// --- Overview: card do total e serie temporal lado a lado. O flex-wrap
+	// garante que em tela estreita o grafico desce pra baixo do card em vez
+	// de espremer os dois. ---
+	echo '<div style="display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;align-items:stretch;">';
 	printf(
 		'<div style="background:#fff;border:1px solid #ccd0d4;width:180px;height:180px;padding:20px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;">
 			<div style="font-size:13px;color:#646970;line-height:1.4;">Requisições no período</div>
@@ -282,9 +284,10 @@ function dsi_agentmd_admin_page(): void {
 		esc_html( $variacao_txt ),
 		$total_anterior
 	);
-	echo '</div>';
 
 	dsi_agentmd_render_grafico_linha( $table, $where, $params, $inicio_input, $fim_input );
+
+	echo '</div>';
 
 	echo '<h2>Principais bots que solicitaram</h2>';
 	echo '<table class="widefat striped"><thead><tr><th>Bot</th><th>Total</th><th>Última vez</th></tr></thead><tbody>';
@@ -384,13 +387,17 @@ function dsi_agentmd_render_grafico_linha( string $table, string $where, array $
 	$pico = max( $serie );
 	$topo = $pico > 0 ? $pico : 1;
 
-	// Sistema de coordenadas fixo -- o SVG escala sozinho pra largura da tela.
+	// Sistema de coordenadas fixo -- o SVG escala sozinho pra largura da
+	// caixa. Formato achatado (1000x150) porque ele divide a linha com o
+	// card de total, que tem 180px de altura. Fontes propositalmente
+	// grandes pra escala: o viewBox de 1000 costuma ser desenhado em ~650px
+	// reais, entao 14 aqui vira ~9px na tela.
 	$larg   = 1000;
-	$alt    = 260;
-	$esq    = 55;
-	$dir    = 20;
-	$topo_y = 20;
-	$base_y = 210;
+	$alt    = 150;
+	$esq    = 48;
+	$dir    = 14;
+	$topo_y = 12;
+	$base_y = 112;
 	$area_l = $larg - $esq - $dir;
 	$area_h = $base_y - $topo_y;
 
@@ -406,12 +413,13 @@ function dsi_agentmd_render_grafico_linha( string $table, string $where, array $
 	$linha = implode( ' ', array_map( static fn( $p ) => $p['x'] . ',' . $p['y'], $pontos ) );
 	$area  = $pontos[0]['x'] . ',' . $base_y . ' ' . $linha . ' ' . end( $pontos )['x'] . ',' . $base_y;
 
-	// No maximo ~12 datas no eixo X, senao os rotulos se sobrepoem.
-	$passo = (int) max( 1, ceil( $n / 12 ) );
+	// No maximo ~8 datas no eixo X: dividindo espaco com o card, mais que
+	// isso sobrepoe os rotulos.
+	$passo = (int) max( 1, ceil( $n / 8 ) );
 
-	echo '<h2 style="margin-top:8px;">Requisições por dia</h2>';
-	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:12px 16px;margin-bottom:24px;">';
-	printf( '<svg viewBox="0 0 %d %d" width="100%%" height="260" role="img" aria-label="Volume de requisições por dia no período selecionado" style="display:block;overflow:visible;">', $larg, $alt );
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:16px 18px;box-sizing:border-box;height:180px;flex:1;min-width:380px;display:flex;flex-direction:column;">';
+	echo '<div style="font-size:13px;color:#646970;line-height:1.4;margin-bottom:6px;">Requisições por dia</div>';
+	printf( '<svg viewBox="0 0 %d %d" role="img" aria-label="Volume de requisições por dia no período selecionado" style="display:block;width:100%%;flex:1;overflow:visible;">', $larg, $alt );
 
 	// Grade horizontal + escala do eixo Y
 	for ( $g = 0; $g <= 4; $g++ ) {
@@ -419,23 +427,23 @@ function dsi_agentmd_render_grafico_linha( string $table, string $where, array $
 		$valor = (int) round( $topo * $g / 4 );
 		printf(
 			'<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#e0e0e0" stroke-width="1"/>
-			 <text x="%d" y="%.1f" text-anchor="end" font-size="11" fill="#646970">%s</text>',
+			 <text x="%d" y="%.1f" text-anchor="end" font-size="13" fill="#646970">%s</text>',
 			$esq,
 			$y,
 			$larg - $dir,
 			$y,
 			$esq - 8,
-			$y + 4,
+			$y + 4.5,
 			esc_html( number_format_i18n( $valor ) )
 		);
 	}
 
 	printf( '<polygon points="%s" fill="#2271b1" fill-opacity="0.10"/>', esc_attr( $area ) );
-	printf( '<polyline points="%s" fill="none" stroke="#2271b1" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>', esc_attr( $linha ) );
+	printf( '<polyline points="%s" fill="none" stroke="#2271b1" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>', esc_attr( $linha ) );
 
 	foreach ( $pontos as $idx => $p ) {
 		printf(
-			'<circle cx="%.1f" cy="%.1f" r="3.5" fill="#fff" stroke="#2271b1" stroke-width="2"><title>%s — %s requisições</title></circle>',
+			'<circle cx="%.1f" cy="%.1f" r="4" fill="#fff" stroke="#2271b1" stroke-width="2.5"><title>%s — %s requisições</title></circle>',
 			$p['x'],
 			$p['y'],
 			esc_html( gmdate( 'd/m/Y', strtotime( $p['dia'] ) ) ),
@@ -444,9 +452,9 @@ function dsi_agentmd_render_grafico_linha( string $table, string $where, array $
 
 		if ( $idx % $passo === 0 || $idx === $n - 1 ) {
 			printf(
-				'<text x="%.1f" y="%d" text-anchor="middle" font-size="11" fill="#646970">%s</text>',
+				'<text x="%.1f" y="%d" text-anchor="middle" font-size="14" fill="#646970">%s</text>',
 				$p['x'],
-				$base_y + 22,
+				$base_y + 26,
 				esc_html( gmdate( 'd/m', strtotime( $p['dia'] ) ) )
 			);
 		}
