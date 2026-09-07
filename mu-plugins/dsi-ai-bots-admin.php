@@ -6,8 +6,12 @@
 
 defined( 'ABSPATH' ) || exit;
 
+const DSI_AGENTMD_POR_PAGINA      = 50; // linhas da tabela de requisições
+const DSI_AGENTMD_BOTS_POR_PAGINA = 10; // linhas da tabela de bots
+
 add_action( 'admin_menu', 'dsi_agentmd_admin_menu' );
 add_action( 'admin_post_dsi_agentmd_export_csv', 'dsi_agentmd_export_csv' );
+add_action( 'wp_ajax_dsi_agentmd_reqs', 'dsi_agentmd_ajax_reqs' );
 
 function dsi_agentmd_admin_menu(): void {
 	add_management_page(
@@ -202,21 +206,13 @@ function dsi_agentmd_admin_page(): void {
 		$variacao_txt = '—';
 	}
 
-	$per_page      = 50;
-	$paged         = max( 1, absint( $_GET['paged'] ?? 1 ) );
-	$offset        = ( $paged - 1 ) * $per_page;
+	// Sempre abre na primeira pagina: a navegacao acontece dentro do
+	// componente (AJAX), sem estado na URL.
+	$per_page      = DSI_AGENTMD_POR_PAGINA;
+	$paged         = 1;
 	$total_paginas = (int) max( 1, ceil( $total_periodo / $per_page ) );
 
-	$detalhe = $wpdb->get_results(
-		$wpdb->prepare(
-			"SELECT requested_at, bot_label, signed_agent, tipo, tool_name, http_status, post_id, url_path, client_ip, country
-			 FROM {$table}
-			 WHERE {$where}
-			 ORDER BY requested_at DESC
-			 LIMIT %d OFFSET %d",
-			array_merge( $params, [ $per_page, $offset ] )
-		)
-	);
+	$detalhe = dsi_agentmd_busca_detalhe( $table, $where, $params, $paged, $per_page );
 
 	$export_url = wp_nonce_url(
 		add_query_arg(
@@ -289,12 +285,17 @@ function dsi_agentmd_admin_page(): void {
 
 	echo '</div>';
 
+	// --- Bots: todas as linhas vao pro HTML e o JS mostra 10 por vez. Sao
+	// poucas dezenas de bots distintos, entao nao compensa ida ao servidor
+	// pra trocar de pagina. ---
+	$total_bots_paginas = (int) max( 1, ceil( count( $top_bots ) / DSI_AGENTMD_BOTS_POR_PAGINA ) );
+
 	echo '<h2>Principais bots que solicitaram</h2>';
-	echo '<table class="widefat striped"><thead><tr><th>Bot</th><th>Total</th><th>Última vez</th></tr></thead><tbody>';
+	echo '<table class="widefat striped"><thead><tr><th>Bot</th><th>Total</th><th>Última vez</th></tr></thead><tbody id="dsi-bots-tbody">';
 	if ( $top_bots ) {
 		foreach ( $top_bots as $row ) {
 			printf(
-				'<tr><td>%s</td><td>%d</td><td>%s</td></tr>',
+				'<tr class="dsi-bot-row"><td>%s</td><td>%d</td><td>%s</td></tr>',
 				esc_html( $row->bot_label ),
 				(int) $row->total,
 				esc_html( $row->ultima_vez )
@@ -304,40 +305,234 @@ function dsi_agentmd_admin_page(): void {
 		echo '<tr><td colspan="3">Nenhum acesso registrado nesse período.</td></tr>';
 	}
 	echo '</tbody></table>';
+	dsi_agentmd_render_nav( 'bots', 1, $total_bots_paginas, count( $top_bots ), 'bots' );
 
+	// --- Requisições: milhares de linhas, então a troca de página busca só
+	// o pedaço no servidor (AJAX) em vez de despejar tudo no HTML. ---
 	printf(
-		'<h2 style="margin-top:32px;">Requisições do período — página %d de %d (%d no total)</h2>',
+		'<h2 style="margin-top:32px;">Requisições do período — <span id="dsi-reqs-titulo">página %d de %d (%s no total)</span></h2>',
 		$paged,
 		$total_paginas,
-		$total_periodo
+		esc_html( number_format_i18n( $total_periodo ) )
 	);
-	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Bot</th><th title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado</th><th>Tipo</th><th title="Nome da tool chamada, quando o tipo e MCP">Tool</th><th>Status</th><th>Post</th><th>URL</th><th>IP</th><th>País</th></tr></thead><tbody>';
-	if ( $detalhe ) {
-		foreach ( $detalhe as $row ) {
-			$post_title = $row->post_id ? get_the_title( (int) $row->post_id ) : '—';
-			$assinado   = $row->signed_agent ? esc_html( $row->signed_agent ) : '—';
-			printf(
-				'<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
-				esc_html( $row->requested_at ),
-				esc_html( $row->bot_label ),
-				$assinado,
-				esc_html( dsi_agentmd_tipo_label( $row->tipo ) ),
-				esc_html( $row->tool_name ?? '—' ),
-				esc_html( (string) ( $row->http_status ?? '—' ) ),
-				esc_html( $post_title ),
-				esc_html( $row->url_path ),
-				esc_html( $row->client_ip ),
-				esc_html( $row->country ?? '—' )
-			);
-		}
-	} else {
-		echo '<tr><td colspan="10">Nenhuma requisição nesse período.</td></tr>';
-	}
-	echo '</tbody></table>';
-
-	dsi_agentmd_render_pagination( $paged, $total_paginas );
+	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Bot</th><th title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado</th><th>Tipo</th><th title="Nome da tool chamada, quando o tipo e MCP">Tool</th><th>Status</th><th>Post</th><th>URL</th><th>IP</th><th>País</th></tr></thead>';
+	echo '<tbody id="dsi-reqs-tbody">' . dsi_agentmd_linhas_detalhe( $detalhe ) . '</tbody></table>';
+	dsi_agentmd_render_nav( 'reqs', $paged, $total_paginas, $total_periodo, 'requisições' );
 
 	echo '</div>';
+
+	dsi_agentmd_render_script( $inicio_input, $fim_input, $bot, $tipo, $assinado, $total_paginas );
+}
+
+/**
+ * Controles de paginacao de um componente. Sao <button>, nao <a>: a
+ * navegacao acontece na propria tela, sem recarregar a pagina nem mexer
+ * na URL -- por isso tambem nao ha href de fallback pra quem estiver sem
+ * JS (nesse caso fica so a primeira pagina, que e o comportamento util).
+ */
+function dsi_agentmd_render_nav( string $id, int $paged, int $total_paginas, int $total_itens, string $unidade ): void {
+	if ( $total_paginas <= 1 ) {
+		return;
+	}
+
+	printf(
+		'<p class="tablenav-pages" style="margin:10px 0 0;display:flex;align-items:center;gap:8px;float:none;">
+			<button type="button" class="button" id="dsi-%1$s-ant" disabled>&laquo; Anterior</button>
+			<button type="button" class="button" id="dsi-%1$s-prox">Próxima &raquo;</button>
+			<span id="dsi-%1$s-info" style="color:#646970;">página %2$d de %3$d (%4$s %5$s)</span>
+		</p>',
+		esc_attr( $id ),
+		$paged,
+		$total_paginas,
+		esc_html( number_format_i18n( $total_itens ) ),
+		esc_html( $unidade )
+	);
+}
+
+/** Uma linha da tabela de requisições. Compartilhada entre a carga inicial e o AJAX, pra as duas nunca divergirem. */
+function dsi_agentmd_linhas_detalhe( array $rows ): string {
+	if ( ! $rows ) {
+		return '<tr><td colspan="10">Nenhuma requisição nesse período.</td></tr>';
+	}
+
+	$html = '';
+	foreach ( $rows as $row ) {
+		$post_title = $row->post_id ? get_the_title( (int) $row->post_id ) : '—';
+		$html      .= sprintf(
+			'<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+			esc_html( $row->requested_at ),
+			esc_html( $row->bot_label ),
+			$row->signed_agent ? esc_html( $row->signed_agent ) : '—',
+			esc_html( dsi_agentmd_tipo_label( $row->tipo ) ),
+			esc_html( $row->tool_name ?? '—' ),
+			esc_html( (string) ( $row->http_status ?? '—' ) ),
+			esc_html( $post_title ),
+			esc_html( $row->url_path ),
+			esc_html( $row->client_ip ),
+			esc_html( $row->country ?? '—' )
+		);
+	}
+
+	return $html;
+}
+
+function dsi_agentmd_busca_detalhe( string $table, string $where, array $params, int $paged, int $per_page ): array {
+	global $wpdb;
+
+	return (array) $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT requested_at, bot_label, signed_agent, tipo, tool_name, http_status, post_id, url_path, client_ip, country
+			 FROM {$table}
+			 WHERE {$where}
+			 ORDER BY requested_at DESC
+			 LIMIT %d OFFSET %d",
+			array_merge( $params, [ $per_page, ( $paged - 1 ) * $per_page ] )
+		)
+	);
+}
+
+/**
+ * Devolve uma pagina da tabela de requisicoes ja renderizada. Reaproveita
+ * os mesmos leitores de filtro da pagina, entao o recorte do AJAX e
+ * sempre identico ao que esta na tela.
+ */
+function dsi_agentmd_ajax_reqs(): void {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_send_json_error( [ 'message' => 'Sem permissão.' ], 403 );
+	}
+	check_ajax_referer( 'dsi_agentmd_reqs' );
+
+	global $wpdb;
+	$table = $wpdb->prefix . 'ai_bot_requests';
+
+	[ $inicio_sql, $fim_sql ] = dsi_agentmd_periodo_from_request();
+	[ $where, $params ]       = dsi_agentmd_where_and_params(
+		$inicio_sql,
+		$fim_sql,
+		dsi_agentmd_bot_from_request(),
+		dsi_agentmd_tipo_from_request(),
+		dsi_agentmd_assinado_from_request()
+	);
+
+	$total         = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE {$where}", $params ) );
+	$total_paginas = (int) max( 1, ceil( $total / DSI_AGENTMD_POR_PAGINA ) );
+	$paged         = min( max( 1, absint( $_REQUEST['paged'] ?? 1 ) ), $total_paginas );
+
+	wp_send_json_success(
+		[
+			'html'          => dsi_agentmd_linhas_detalhe( dsi_agentmd_busca_detalhe( $table, $where, $params, $paged, DSI_AGENTMD_POR_PAGINA ) ),
+			'paged'         => $paged,
+			'total_paginas' => $total_paginas,
+			'total'         => number_format_i18n( $total ),
+		]
+	);
+}
+
+/**
+ * JS da paginacao dos dois componentes. Inline porque o wp-admin serve
+ * script-src 'unsafe-inline' (conferido no header ao vivo) e sao ~40
+ * linhas -- nao vale um arquivo a parte pra isso.
+ */
+function dsi_agentmd_render_script( string $inicio_input, string $fim_input, string $bot, string $tipo, string $assinado, int $total_paginas ): void {
+	$cfg = [
+		'url'       => admin_url( 'admin-ajax.php' ),
+		'nonce'     => wp_create_nonce( 'dsi_agentmd_reqs' ),
+		'paginas'   => $total_paginas,
+		'porPagina' => DSI_AGENTMD_BOTS_POR_PAGINA,
+		'filtros'   => [
+			'data_inicio' => $inicio_input,
+			'data_fim'    => $fim_input,
+			'bot'         => $bot,
+			'tipo'        => $tipo,
+			'assinado'    => $assinado,
+		],
+	];
+	?>
+	<script>
+	(function () {
+		var cfg = <?php echo wp_json_encode( $cfg ); ?>;
+
+		function liga( id, aoTrocar, totalPaginas ) {
+			var ant  = document.getElementById( 'dsi-' + id + '-ant' );
+			var prox = document.getElementById( 'dsi-' + id + '-prox' );
+			if ( ! ant || ! prox ) { return null; }
+
+			var estado = { pagina: 1, paginas: totalPaginas };
+
+			function ir( destino ) {
+				if ( destino < 1 || destino > estado.paginas ) { return; }
+				aoTrocar( destino, estado );
+			}
+
+			ant.addEventListener( 'click', function () { ir( estado.pagina - 1 ); } );
+			prox.addEventListener( 'click', function () { ir( estado.pagina + 1 ); } );
+
+			estado.sincroniza = function () {
+				ant.disabled  = estado.pagina <= 1;
+				prox.disabled = estado.pagina >= estado.paginas;
+			};
+
+			return estado;
+		}
+
+		// --- Bots: mostra/esconde as linhas que ja estao no HTML ---
+		var linhas = [].slice.call( document.querySelectorAll( '.dsi-bot-row' ) );
+		var infoBots = document.getElementById( 'dsi-bots-info' );
+
+		var estadoBots = liga( 'bots', function ( destino, estado ) {
+			estado.pagina = destino;
+			pintaBots( estado );
+		}, Math.max( 1, Math.ceil( linhas.length / cfg.porPagina ) ) );
+
+		function pintaBots( estado ) {
+			var de   = ( estado.pagina - 1 ) * cfg.porPagina;
+			var ate  = de + cfg.porPagina;
+			linhas.forEach( function ( tr, i ) { tr.hidden = ( i < de || i >= ate ); } );
+			if ( infoBots ) {
+				infoBots.textContent = 'página ' + estado.pagina + ' de ' + estado.paginas +
+					' (' + linhas.length + ' bots)';
+			}
+			estado.sincroniza();
+		}
+
+		if ( estadoBots ) { pintaBots( estadoBots ); }
+
+		// --- Requisições: busca a página no servidor ---
+		var corpo    = document.getElementById( 'dsi-reqs-tbody' );
+		var titulo   = document.getElementById( 'dsi-reqs-titulo' );
+		var infoReqs = document.getElementById( 'dsi-reqs-info' );
+
+		var estadoReqs = liga( 'reqs', function ( destino, estado ) {
+			var q = new URLSearchParams( cfg.filtros );
+			q.set( 'action', 'dsi_agentmd_reqs' );
+			q.set( '_wpnonce', cfg.nonce );
+			q.set( 'paged', destino );
+
+			corpo.style.opacity = '0.45';
+
+			fetch( cfg.url + '?' + q.toString(), { credentials: 'same-origin' } )
+				.then( function ( r ) { return r.json(); } )
+				.then( function ( j ) {
+					corpo.style.opacity = '1';
+					if ( ! j || ! j.success ) { return; }
+
+					corpo.innerHTML = j.data.html;
+					estado.pagina   = j.data.paged;
+					estado.paginas  = j.data.total_paginas;
+
+					var texto = 'página ' + j.data.paged + ' de ' + j.data.total_paginas +
+						' (' + j.data.total + ' no total)';
+					if ( titulo ) { titulo.textContent = texto; }
+					if ( infoReqs ) { infoReqs.textContent = texto; }
+					estado.sincroniza();
+				} )
+				.catch( function () { corpo.style.opacity = '1'; } );
+		}, cfg.paginas );
+
+		if ( estadoReqs ) { estadoReqs.sincroniza(); }
+	})();
+	</script>
+	<?php
 }
 
 /**
@@ -508,28 +703,3 @@ function dsi_agentmd_render_grafico_linha( string $table, string $where, array $
 	echo '</div>';
 }
 
-function dsi_agentmd_render_pagination( int $paged, int $total_paginas ): void {
-	if ( $total_paginas <= 1 ) {
-		return;
-	}
-
-	$base_url = remove_query_arg( 'paged' );
-
-	echo '<p class="tablenav-pages" style="margin-top:12px;">';
-
-	if ( $paged > 1 ) {
-		printf(
-			'<a class="button" href="%s">&laquo; Anterior</a> ',
-			esc_url( add_query_arg( 'paged', $paged - 1, $base_url ) )
-		);
-	}
-
-	if ( $paged < $total_paginas ) {
-		printf(
-			'<a class="button" href="%s">Próxima &raquo;</a>',
-			esc_url( add_query_arg( 'paged', $paged + 1, $base_url ) )
-		);
-	}
-
-	echo '</p>';
-}
