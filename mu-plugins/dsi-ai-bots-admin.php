@@ -179,6 +179,43 @@ function dsi_agentmd_admin_page(): void {
 		)
 	);
 
+	// Bot cuja PRIMEIRA aparicao no log INTEIRO (nao so no periodo filtrado)
+	// cai dentro do periodo selecionado = novo. E assim que um OraBot da
+	// vida aparece destacado no dia 1, em vez de so ser notado semanas
+	// depois no meio da tabela.
+	$bots_novos = $wpdb->get_col(
+		$wpdb->prepare(
+			"SELECT bot_label FROM {$table} GROUP BY bot_label HAVING MIN(requested_at) >= %s",
+			$inicio_sql
+		)
+	);
+
+	$top_tools = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT tool_name, COUNT(*) AS total,
+			        SUM(http_status IS NOT NULL AND http_status <> 200) AS erros,
+			        COUNT(DISTINCT client_ip) AS ips,
+			        MAX(requested_at) AS ultima_vez
+			 FROM {$table}
+			 WHERE {$where} AND tool_name IS NOT NULL
+			 GROUP BY tool_name
+			 ORDER BY total DESC",
+			$params
+		)
+	);
+
+	$top_posts = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT post_id, COUNT(*) AS total, COUNT(DISTINCT bot_label) AS bots, SUM(tipo = 'md') AS md
+			 FROM {$table}
+			 WHERE {$where} AND post_id > 0
+			 GROUP BY post_id
+			 ORDER BY total DESC
+			 LIMIT 15",
+			$params
+		)
+	);
+
 	// Lista de bots pro dropdown: todos os ja vistos historicamente,
 	// independente do periodo filtrado, pra nao sumir opcao ao estreitar a data.
 	$bots_disponiveis = $wpdb->get_col( "SELECT DISTINCT bot_label FROM {$table} ORDER BY bot_label ASC" );
@@ -312,9 +349,13 @@ function dsi_agentmd_admin_page(): void {
 		foreach ( $top_bots as $row ) {
 			$categoria = dsi_agentmd_categoria_cliente( $row->bot_label );
 			$cor       = [ 'bot' => '#2271b1', 'ferramenta' => '#8c6d1f', 'nao_identificado' => '#646970' ][ $categoria ];
+			$etiqueta  = in_array( $row->bot_label, $bots_novos, true )
+				? ' <span title="Primeira vez que esse cliente aparece no log inteiro cai dentro do período selecionado" style="background:#00a32a;color:#fff;font-size:10px;padding:1px 6px;border-radius:9px;vertical-align:middle;">novo</span>'
+				: '';
 			printf(
-				'<tr class="dsi-bot-row"><td><strong>%s</strong></td><td><span style="color:%s;">%s</span></td><td>%d</td><td>%s</td></tr>',
+				'<tr class="dsi-bot-row"><td><strong>%s</strong>%s</td><td><span style="color:%s;">%s</span></td><td>%d</td><td>%s</td></tr>',
 				esc_html( $row->bot_label ),
+				$etiqueta,
 				esc_attr( $cor ),
 				esc_html( dsi_agentmd_categoria_label( $categoria ) ),
 				(int) $row->total,
@@ -326,6 +367,9 @@ function dsi_agentmd_admin_page(): void {
 	}
 	echo '</tbody></table>';
 	dsi_agentmd_render_nav( 'bots', 1, $total_bots_paginas, count( $top_bots ), 'clientes' );
+
+	dsi_agentmd_render_tools( $top_tools );
+	dsi_agentmd_render_top_posts( $top_posts );
 
 	// --- Requisições: milhares de linhas, então a troca de página busca só
 	// o pedaço no servidor (AJAX) em vez de despejar tudo no HTML. ---
@@ -367,6 +411,56 @@ function dsi_agentmd_render_nav( string $id, int $paged, int $total_paginas, int
 		esc_html( number_format_i18n( $total_itens ) ),
 		esc_html( $unidade )
 	);
+}
+
+/**
+ * As chamadas de tool MCP colapsavam todas em post_id=0 antes de
+ * 2026-09-07 -- sem essa tabela nao dava pra saber qual tool foi
+ * chamada, so que o endpoint respondia. So ocupa espaco quando ha
+ * chamada MCP no periodo.
+ */
+function dsi_agentmd_render_tools( array $tools ): void {
+	if ( ! $tools ) {
+		return;
+	}
+
+	echo '<h2 style="margin-top:32px;">Tools MCP chamadas</h2>';
+	echo '<table class="widefat striped"><thead><tr><th>Tool</th><th>Chamadas</th><th>Erros</th><th title="IPs de origem distintos">IPs</th><th>Última vez</th></tr></thead><tbody>';
+	foreach ( $tools as $t ) {
+		$erros = (int) $t->erros;
+		printf(
+			'<tr><td><code>%s</code></td><td>%d</td><td%s>%d</td><td>%d</td><td>%s</td></tr>',
+			esc_html( $t->tool_name ),
+			(int) $t->total,
+			$erros > 0 ? ' style="color:#d63638;font-weight:600;"' : '',
+			$erros,
+			(int) $t->ips,
+			esc_html( $t->ultima_vez )
+		);
+	}
+	echo '</tbody></table>';
+}
+
+/** Top 15 posts mais buscados por bots no período -- mesmo raciocínio: os dados já existiam no log, só não tinham tela. */
+function dsi_agentmd_render_top_posts( array $posts ): void {
+	if ( ! $posts ) {
+		return;
+	}
+
+	echo '<h2 style="margin-top:32px;">Conteúdo mais buscado por bots</h2>';
+	echo '<table class="widefat striped"><thead><tr><th>Post</th><th>Requisições</th><th>Bots distintos</th><th title="Quantas dessas requisições pediram a versão .md">Em Markdown</th></tr></thead><tbody>';
+	foreach ( $posts as $p ) {
+		$titulo = get_the_title( (int) $p->post_id );
+		printf(
+			'<tr><td><a href="%s">%s</a></td><td>%d</td><td>%d</td><td>%d</td></tr>',
+			esc_url( (string) get_permalink( (int) $p->post_id ) ),
+			esc_html( $titulo !== '' ? $titulo : '(sem título — ID ' . (int) $p->post_id . ')' ),
+			(int) $p->total,
+			(int) $p->bots,
+			(int) $p->md
+		);
+	}
+	echo '</tbody></table>';
 }
 
 /** Uma linha da tabela de requisições. Compartilhada entre a carga inicial e o AJAX, pra as duas nunca divergirem. */
