@@ -85,6 +85,18 @@ Header set Content-Type "text/plain; charset=utf-8"
 Header set Content-Type 'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"'
 </Files>
 
+# AI Catalog / ARD (Agentic Resource Discovery, agenticresourcediscovery.org)
+# -- mesmo proposito do api-catalog acima (listar APIs reais do site), em
+# formato diferente: especificacao multi-vendor (Microsoft/Google/Hugging
+# Face/Linux Foundation e outros) ainda pre-1.0, pensada pra registries de
+# agente indexarem via "representativeQueries" em vez de so seguir links.
+# CORS aberto porque o consumidor e um registry de terceiro, nao o
+# navegador do visitante -- nao ha dado sensivel nesse arquivo.
+<Files "ai-catalog.json">
+Header set Content-Type "application/json; charset=utf-8"
+Header set Access-Control-Allow-Origin "*"
+</Files>
+
 # BEGIN Link Discovery Header (RFC 8288)
 # "Header add" (nao "set") pra nao sobrescrever o Link rel="mcp" que o
 # mu-plugin do WebMCP ja envia via PHP -- convivem como linhas Link
@@ -94,6 +106,7 @@ Header set Content-Type 'application/linkset+json; profile="https://www.rfc-edit
 <IfModule mod_headers.c>
 Header add Link '<https://deveserisso.com.br/llms.txt>; rel="llms.txt"'
 Header add Link '</.well-known/api-catalog>; rel="api-catalog"'
+Header add Link '</.well-known/ai-catalog.json>; rel="ai-catalog"'
 </IfModule>
 # END Link Discovery Header
 

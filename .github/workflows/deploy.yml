@@ -71,7 +71,7 @@ jobs:
           curl -s https://deveserisso.com.br/fix-encoding-runner.php
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -X "DELE fix-encoding-runner.php" "ftp://45.151.121.68/" || true
 
-      - name: Deploy .htaccess, purge script, llms.txt, robots.txt, api-catalog (gateado por validação)
+      - name: Deploy .htaccess, purge script, llms.txt, robots.txt, api-catalog, ai-catalog (gateado por validação)
         env:
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
@@ -81,6 +81,7 @@ jobs:
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T llms.txt "ftp://45.151.121.68/llms.txt"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T robots.txt "ftp://45.151.121.68/robots.txt"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" --ftp-create-dirs -T ".well-known/api-catalog" "ftp://45.151.121.68/.well-known/api-catalog"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" --ftp-create-dirs -T ".well-known/ai-catalog.json" "ftp://45.151.121.68/.well-known/ai-catalog.json"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T openapi.json "ftp://45.151.121.68/openapi.json"
 
       - name: Deploy to staging
@@ -195,3 +196,10 @@ jobs:
           check "mode=agent tem campo api" 'curl -s "https://deveserisso.com.br/?mode=agent"' '"api"'
           check "api-catalog tem item" 'curl -s https://deveserisso.com.br/.well-known/api-catalog' '"item"'
           check "api-catalog profile no content-type (sem aspas escapadas)" 'curl -sI https://deveserisso.com.br/.well-known/api-catalog' 'profile="https'
+
+          # AI Catalog / ARD (agenticresourcediscovery.org)
+          check "Link rel=ai-catalog" 'curl -sI https://deveserisso.com.br/' 'rel="ai-catalog"'
+          check "ai-catalog.json 200" 'curl -sI https://deveserisso.com.br/.well-known/ai-catalog.json' "200"
+          check "ai-catalog.json CORS aberto" 'curl -sI https://deveserisso.com.br/.well-known/ai-catalog.json' "access-control-allow-origin: \*"
+          check "ai-catalog.json tem entries" 'curl -s https://deveserisso.com.br/.well-known/ai-catalog.json' '"entries"'
+          check "ai-catalog.json tem representativeQueries" 'curl -s https://deveserisso.com.br/.well-known/ai-catalog.json' "representativeQueries"

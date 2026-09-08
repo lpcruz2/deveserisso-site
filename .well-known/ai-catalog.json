@@ -1,0 +1,46 @@
+{
+  "specVersion": "1.0",
+  "host": {
+    "displayName": "Deveserisso"
+  },
+  "entries": [
+    {
+      "identifier": "urn:air:deveserisso.com.br:mcp:webmcp",
+      "displayName": "Deveserisso WebMCP — busca e conteúdo do site",
+      "description": "Servidor MCP público, somente leitura e sem custo: busca de artigos, categorias, posts recentes e cadastro de newsletter.",
+      "type": "application/mcp-server-card+json",
+      "url": "https://deveserisso.com.br/.well-known/mcp.json",
+      "tags": ["mcp", "filmes", "séries", "cultura-pop"],
+      "representativeQueries": [
+        "buscar artigos sobre filmes de terror na Netflix",
+        "quais as categorias de conteúdo do Deveserisso",
+        "pegar os posts mais recentes do Deveserisso",
+        "assinar a newsletter do Deveserisso"
+      ]
+    },
+    {
+      "identifier": "urn:air:deveserisso.com.br:api:webmcp-openapi",
+      "displayName": "OpenAPI 3.0 — Deveserisso WebMCP API",
+      "description": "Descrição OpenAPI da mesma API WebMCP, para agentes que consomem REST diretamente em vez de MCP.",
+      "type": "application/vnd.oai.openapi+json;version=3.0",
+      "url": "https://deveserisso.com.br/openapi.json",
+      "tags": ["openapi", "rest"],
+      "representativeQueries": [
+        "qual o schema da API de busca do Deveserisso",
+        "como integrar com a API do Deveserisso sem usar MCP"
+      ]
+    },
+    {
+      "identifier": "urn:air:deveserisso.com.br:api:wp-rest",
+      "displayName": "WordPress REST API — conteúdo do site",
+      "description": "Discovery document nativo do WordPress: posts, páginas, categorias e tags do Deveserisso.",
+      "type": "application/json",
+      "url": "https://deveserisso.com.br/wp-json/",
+      "tags": ["wordpress", "rest"],
+      "representativeQueries": [
+        "listar todos os posts do Deveserisso via API",
+        "quais rotas a API REST do WordPress do Deveserisso expõe"
+      ]
+    }
+  ]
+}
