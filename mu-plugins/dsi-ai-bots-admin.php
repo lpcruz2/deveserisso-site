@@ -128,7 +128,7 @@ function dsi_agentmd_export_csv(): void {
 	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . $inicio_input . '-a-' . $fim_input . $sufixo_bot . $sufixo_tipo . $sufixo_assinado . '.csv"' );
 
 	$out = fopen( 'php://output', 'w' );
-	fputcsv( $out, [ 'data', 'bot', 'assinado_rfc9421', 'tipo', 'tool_mcp', 'http_status', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip', 'pais', 'referer' ] );
+	fputcsv( $out, [ 'data', 'bot', 'assinado_rfc9421', 'tipo', 'categoria_cliente', 'tool_mcp', 'http_status', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip', 'pais', 'referer' ] );
 
 	foreach ( $rows as $row ) {
 		$post_title = $row->post_id ? get_the_title( (int) $row->post_id ) : '';
@@ -137,6 +137,7 @@ function dsi_agentmd_export_csv(): void {
 			$row->bot_label,
 			$row->signed_agent ?? '',
 			$row->tipo,
+			dsi_agentmd_categoria_label( dsi_agentmd_categoria_cliente( $row->bot_label ) ),
 			$row->tool_name ?? '',
 			$row->http_status ?? '',
 			$row->post_id,
@@ -237,14 +238,29 @@ function dsi_agentmd_admin_page(): void {
 	echo '<label>De <input type="date" name="data_inicio" value="' . esc_attr( $inicio_input ) . '"></label>';
 	echo '<label>Até <input type="date" name="data_fim" value="' . esc_attr( $fim_input ) . '"></label>';
 
-	echo '<label>Bot <select name="bot"><option value="">Todos</option>';
+	// Agrupado por categoria: sem isso a lista misturava "Baiduspider" com
+	// "curl" e "desconhecido" em ordem alfabetica, como se fossem a mesma
+	// coisa. Sao respostas a perguntas diferentes.
+	$por_categoria = [ 'bot' => [], 'ferramenta' => [], 'nao_identificado' => [] ];
 	foreach ( $bots_disponiveis as $opcao ) {
-		printf(
-			'<option value="%s"%s>%s</option>',
-			esc_attr( $opcao ),
-			selected( $bot, $opcao, false ),
-			esc_html( $opcao )
-		);
+		$por_categoria[ dsi_agentmd_categoria_cliente( $opcao ) ][] = $opcao;
+	}
+
+	echo '<label>Cliente <select name="bot"><option value="">Todos</option>';
+	foreach ( $por_categoria as $categoria => $opcoes ) {
+		if ( ! $opcoes ) {
+			continue;
+		}
+		printf( '<optgroup label="%s">', esc_attr( dsi_agentmd_categoria_label( $categoria ) ) );
+		foreach ( $opcoes as $opcao ) {
+			printf(
+				'<option value="%s"%s>%s</option>',
+				esc_attr( $opcao ),
+				selected( $bot, $opcao, false ),
+				esc_html( $opcao )
+			);
+		}
+		echo '</optgroup>';
 	}
 	echo '</select></label>';
 
@@ -290,22 +306,26 @@ function dsi_agentmd_admin_page(): void {
 	// pra trocar de pagina. ---
 	$total_bots_paginas = (int) max( 1, ceil( count( $top_bots ) / DSI_AGENTMD_BOTS_POR_PAGINA ) );
 
-	echo '<h2>Principais bots que solicitaram</h2>';
-	echo '<table class="widefat striped"><thead><tr><th>Bot</th><th>Total</th><th>Última vez</th></tr></thead><tbody id="dsi-bots-tbody">';
+	echo '<h2>Principais clientes que solicitaram</h2>';
+	echo '<table class="widefat striped"><thead><tr><th>Cliente</th><th title="Bot declarado se anuncia no User-Agent; ferramenta HTTP é script/monitor; não identificado é User-Agent de navegador">O que é</th><th>Total</th><th>Última vez</th></tr></thead><tbody id="dsi-bots-tbody">';
 	if ( $top_bots ) {
 		foreach ( $top_bots as $row ) {
+			$categoria = dsi_agentmd_categoria_cliente( $row->bot_label );
+			$cor       = [ 'bot' => '#2271b1', 'ferramenta' => '#8c6d1f', 'nao_identificado' => '#646970' ][ $categoria ];
 			printf(
-				'<tr class="dsi-bot-row"><td>%s</td><td>%d</td><td>%s</td></tr>',
+				'<tr class="dsi-bot-row"><td><strong>%s</strong></td><td><span style="color:%s;">%s</span></td><td>%d</td><td>%s</td></tr>',
 				esc_html( $row->bot_label ),
+				esc_attr( $cor ),
+				esc_html( dsi_agentmd_categoria_label( $categoria ) ),
 				(int) $row->total,
 				esc_html( $row->ultima_vez )
 			);
 		}
 	} else {
-		echo '<tr><td colspan="3">Nenhum acesso registrado nesse período.</td></tr>';
+		echo '<tr><td colspan="4">Nenhum acesso registrado nesse período.</td></tr>';
 	}
 	echo '</tbody></table>';
-	dsi_agentmd_render_nav( 'bots', 1, $total_bots_paginas, count( $top_bots ), 'bots' );
+	dsi_agentmd_render_nav( 'bots', 1, $total_bots_paginas, count( $top_bots ), 'clientes' );
 
 	// --- Requisições: milhares de linhas, então a troca de página busca só
 	// o pedaço no servidor (AJAX) em vez de despejar tudo no HTML. ---

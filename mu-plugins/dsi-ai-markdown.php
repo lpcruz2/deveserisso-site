@@ -351,8 +351,9 @@ function dsi_agentmd_purga_log(): void {
 	);
 }
 
-function dsi_agentmd_classify_bot( string $user_agent ): string {
-	$known = [
+/** Bots que se anunciam e tem nome canonico conhecido. */
+function dsi_agentmd_bots_conhecidos(): array {
+	return [
 		// Bots de IA
 		'GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'ClaudeBot', 'Claude-Web', 'Claude-User',
 		'Claude-SearchBot', 'anthropic-ai', 'PerplexityBot', 'Perplexity-User', 'CCBot',
@@ -366,8 +367,50 @@ function dsi_agentmd_classify_bot( string $user_agent ): string {
 		'Googlebot', 'bingbot', 'Bingbot', 'YandexBot', 'Baiduspider', 'DuckDuckBot',
 		'AhrefsBot', 'SemrushBot', 'MJ12bot', 'DotBot', 'PetalBot',
 	];
+}
 
-	foreach ( $known as $bot ) {
+/**
+ * Clientes HTTP genericos: um script, um monitor, uma sessao de debug.
+ * Nao sao bots (nao se anunciam como tal) nem navegadores.
+ */
+function dsi_agentmd_ferramentas_http(): array {
+	return [
+		'curl', 'Wget', 'python-requests', 'python-urllib', 'aiohttp', 'httpx',
+		'node-fetch', 'undici', 'axios', 'Go-http-client', 'okhttp',
+		'Apache-HttpClient', 'libwww-perl', 'HTTPie', 'PostmanRuntime',
+		'GuzzleHttp', 'Scrapy', 'Java', 'node',
+	];
+}
+
+/**
+ * Categoria do rotulo -- o painel usa pra nao listar "Baiduspider" e
+ * "curl" lado a lado como se fossem a mesma coisa. Sao respostas a
+ * perguntas diferentes: um e crawler indexando o site, o outro e alguem
+ * rodando um script contra ele.
+ */
+function dsi_agentmd_categoria_cliente( string $label ): string {
+	if ( $label === 'desconhecido' ) {
+		return 'nao_identificado';
+	}
+
+	if ( in_array( $label, dsi_agentmd_ferramentas_http(), true ) ) {
+		return 'ferramenta';
+	}
+
+	// Sobra o que veio da lista canonica ou do fallback bot|crawler|spider.
+	return 'bot';
+}
+
+function dsi_agentmd_categoria_label( string $categoria ): string {
+	return [
+		'bot'              => 'Bot declarado',
+		'ferramenta'       => 'Ferramenta HTTP',
+		'nao_identificado' => 'Não identificado',
+	][ $categoria ] ?? $categoria;
+}
+
+function dsi_agentmd_classify_bot( string $user_agent ): string {
+	foreach ( dsi_agentmd_bots_conhecidos() as $bot ) {
 		if ( stripos( $user_agent, $bot ) !== false ) {
 			return $bot;
 		}
@@ -379,41 +422,28 @@ function dsi_agentmd_classify_bot( string $user_agent ): string {
 	// Sem isso, todo bot novo caia em "desconhecido" ate alguem reparar e
 	// editar o array na mao -- foi exatamente o que aconteceu com o OraBot,
 	// que gerou 130 requisicoes rotuladas como "desconhecido" antes de ser
-	// notado. A lista explicita continua valendo primeiro (garante o nome
-	// canonico e a grafia certa); isto aqui so pega o que ela nao conhece.
+	// notado. Ja se provou em producao: capturou LinkupBot,
+	// SERankingBacklinksBot e Pinterestbot sozinho.
 	//
 	// So casa quem carrega "bot", "crawler" ou "spider" no nome: sao
-	// autodeclaracoes, nao inferencia. Um curl, um "node" ou um User-Agent
-	// de navegador reciclado continuam "desconhecido" de proposito --
-	// rotula-los como bot conhecido seria errar na direcao oposta.
+	// autodeclaracoes, nao inferencia.
 	if ( preg_match( '/([A-Za-z0-9][A-Za-z0-9._-]{2,30}(?:bot|crawler|spider)[A-Za-z0-9._-]{0,20})/i', $user_agent, $m ) ) {
 		return substr( $m[1], 0, 50 );
 	}
 
-	// Terceira camada: cliente HTTP generico. Nao e bot declarado, mas
-	// tambem nao e navegador -- e um script, um monitor ou uma sessao de
-	// debug. Juntar isso com User-Agent de navegador debaixo do mesmo
-	// "desconhecido" escondia dois fenomenos completamente diferentes:
-	// um curl batendo /index.md de hora em hora e um Chrome/48 reciclado
-	// em 35 IPs nao sao a mesma coisa, e so um deles parece scraper.
-	//
-	// O rotulo aqui e factual (o que o cliente disse ser), nao inferencia
-	// de identidade -- por isso "curl" e nao "bot de alguem".
-	$ferramentas = [
-		'curl', 'Wget', 'python-requests', 'python-urllib', 'aiohttp', 'httpx',
-		'node-fetch', 'undici', 'axios', 'Go-http-client', 'okhttp',
-		'Apache-HttpClient', 'libwww-perl', 'HTTPie', 'PostmanRuntime',
-		'GuzzleHttp', 'Scrapy', 'Java',
-	];
-
-	foreach ( $ferramentas as $ferramenta ) {
+	// Cliente HTTP generico. O rotulo e factual (o que o cliente disse
+	// ser), nao inferencia de identidade -- por isso "curl", e nao "bot de
+	// alguem". "node" fica de fora do loop porque e palavra curta demais
+	// pra casar por substring com seguranca: exige igualdade exata.
+	foreach ( dsi_agentmd_ferramentas_http() as $ferramenta ) {
+		if ( $ferramenta === 'node' ) {
+			continue;
+		}
 		if ( preg_match( '/(?<![A-Za-z0-9])' . preg_quote( $ferramenta, '/' ) . '(?![A-Za-z0-9])/i', $user_agent ) ) {
 			return $ferramenta;
 		}
 	}
 
-	// "node" sozinho e o User-Agent do runtime do Node quando ninguem
-	// definiu um -- casa exato pra nao pegar "node" dentro de outra coisa.
 	if ( strcasecmp( trim( $user_agent ), 'node' ) === 0 ) {
 		return 'node';
 	}
