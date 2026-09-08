@@ -97,6 +97,18 @@ Header set Content-Type "application/json; charset=utf-8"
 Header set Access-Control-Allow-Origin "*"
 </Files>
 
+# Agent Skills Discovery (agentskills.io / RFC draft v0.2.0) -- indice de
+# skills reais publicadas em /.well-known/agent-skills/. SKILL.md e
+# arquivo estatico servido direto pelo webserver (nao passa pelo
+# dsi-ai-markdown.php, que so cobre post/pagina do WordPress), entao
+# precisa do Content-Type explicito aqui, mesmo padrao do llms.txt.
+<Files "SKILL.md">
+Header set Content-Type "text/markdown; charset=utf-8"
+</Files>
+<Files "index.json">
+Header set Access-Control-Allow-Origin "*"
+</Files>
+
 # BEGIN Link Discovery Header (RFC 8288)
 # "Header add" (nao "set") pra nao sobrescrever o Link rel="mcp" que o
 # mu-plugin do WebMCP ja envia via PHP -- convivem como linhas Link

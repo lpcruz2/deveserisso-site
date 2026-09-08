@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "deveserisso-webmcp",
+      "type": "skill-md",
+      "description": "Buscar, listar e ler conteúdo do Deveserisso (filmes, séries, cultura pop em português) via API pública sem autenticação, e assinar a newsletter do site.",
+      "url": "/.well-known/agent-skills/deveserisso-webmcp/SKILL.md",
+      "digest": "sha256:ce198400e274dfd016983eacb49950f6f8718e32d002a100fe00c8343a08d35b"
+    }
+  ]
+}

@@ -82,6 +82,8 @@ jobs:
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T robots.txt "ftp://45.151.121.68/robots.txt"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" --ftp-create-dirs -T ".well-known/api-catalog" "ftp://45.151.121.68/.well-known/api-catalog"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" --ftp-create-dirs -T ".well-known/ai-catalog.json" "ftp://45.151.121.68/.well-known/ai-catalog.json"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" --ftp-create-dirs -T ".well-known/agent-skills/index.json" "ftp://45.151.121.68/.well-known/agent-skills/index.json"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" --ftp-create-dirs -T ".well-known/agent-skills/deveserisso-webmcp/SKILL.md" "ftp://45.151.121.68/.well-known/agent-skills/deveserisso-webmcp/SKILL.md"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T openapi.json "ftp://45.151.121.68/openapi.json"
 
       - name: Deploy to staging
@@ -203,3 +205,8 @@ jobs:
           check "ai-catalog.json CORS aberto" 'curl -sI https://deveserisso.com.br/.well-known/ai-catalog.json' "access-control-allow-origin: \*"
           check "ai-catalog.json tem entries" 'curl -s https://deveserisso.com.br/.well-known/ai-catalog.json' '"entries"'
           check "ai-catalog.json tem representativeQueries" 'curl -s https://deveserisso.com.br/.well-known/ai-catalog.json' "representativeQueries"
+
+          # Agent Skills Discovery (agentskills.io)
+          check "agent-skills index.json 200" 'curl -sI https://deveserisso.com.br/.well-known/agent-skills/index.json' "200"
+          check "agent-skills index.json tem skills" 'curl -s https://deveserisso.com.br/.well-known/agent-skills/index.json' '"skills"'
+          check "SKILL.md 200 text/markdown" 'curl -sI https://deveserisso.com.br/.well-known/agent-skills/deveserisso-webmcp/SKILL.md' "text/markdown"
