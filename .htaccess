@@ -109,6 +109,14 @@ Header set Content-Type "text/markdown; charset=utf-8"
 Header set Access-Control-Allow-Origin "*"
 </Files>
 
+# WebMCP Server Card -- arquivos sem extensao (repo deveserisso-webmcp,
+# deploy via FTP direto na raiz de .well-known/) nao tem MIME automatico
+# de servidor pra JSON, entao a resposta saia sem nenhum Content-Type.
+# Achado em 2026-09-07 ao avaliar observabilidade/legibilidade do site.
+<FilesMatch "^(mcp|webmcp)$">
+Header set Content-Type "application/json; charset=utf-8"
+</FilesMatch>
+
 # BEGIN Link Discovery Header (RFC 8288)
 # "Header add" (nao "set") pra nao sobrescrever o Link rel="mcp" que o
 # mu-plugin do WebMCP ja envia via PHP -- convivem como linhas Link
@@ -119,6 +127,7 @@ Header set Access-Control-Allow-Origin "*"
 Header add Link '<https://deveserisso.com.br/llms.txt>; rel="llms.txt"'
 Header add Link '</.well-known/api-catalog>; rel="api-catalog"'
 Header add Link '</.well-known/ai-catalog.json>; rel="ai-catalog"'
+Header add Link '</.well-known/agent-skills/index.json>; rel="agent-skills"'
 </IfModule>
 # END Link Discovery Header
 

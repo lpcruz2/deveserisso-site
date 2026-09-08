@@ -210,3 +210,5 @@ jobs:
           check "agent-skills index.json 200" 'curl -sI https://deveserisso.com.br/.well-known/agent-skills/index.json' "200"
           check "agent-skills index.json tem skills" 'curl -s https://deveserisso.com.br/.well-known/agent-skills/index.json' '"skills"'
           check "SKILL.md 200 text/markdown" 'curl -sI https://deveserisso.com.br/.well-known/agent-skills/deveserisso-webmcp/SKILL.md' "text/markdown"
+          check "Link rel=agent-skills" 'curl -sI https://deveserisso.com.br/' 'rel="agent-skills"'
+          check ".well-known/mcp com Content-Type" 'curl -sI https://deveserisso.com.br/.well-known/mcp' "application/json"
