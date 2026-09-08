@@ -39,6 +39,16 @@ RewriteRule ^privacy/?$ https://deveserisso.com.br/politicas-de-privacidade/ [R=
 </IfModule>
 # END 404 Fix - Pages
 
+# BEGIN 301 - Slug sem ano (2026-09-08)
+# post_title ja tinha o ano trocado pra 2026 (evergreen), slug antigo mantinha
+# "-em-2020" -- removido pra ficar consistente com os outros posts da mesma
+# serie (ex: melhores-series-de-acao-para-ver-na-netflix, sem ano no slug).
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^melhores-series-policiais-para-ver-na-netflix-em-2020/?$ https://deveserisso.com.br/melhores-series-policiais-para-ver-na-netflix/ [R=301,L]
+</IfModule>
+# END 301 - Slug sem ano
+
 # BEGIN WebP Serve
 <IfModule mod_rewrite.c>
 RewriteEngine On
