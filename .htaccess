@@ -141,6 +141,39 @@ Header add Link '</.well-known/agent-skills/index.json>; rel="agent-skills"'
 </IfModule>
 # END Link Discovery Header
 
+# BEGIN 301 - Posts sem audiencia removidos (2026-09-08)
+# 22 posts com 0 cliques/impressoes no GSC nos ultimos 30 dias (06/08-05/09/2026),
+# a maioria conteudo de evento datado e nao-recorrente (festivais GRLS/TUDUM 2020,
+# eleicao Pixbet 2022, iGaming Summit 2022) ou fora do nicho editorial do site
+# (viagens corporativas, plano de saude, redes de protecao). Redirecionados pra
+# categoria tematica mais proxima quando existe; sem categoria correspondente, home.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^olympikus-corre-4/?$ https://deveserisso.com.br/tag/esportes/ [R=301,L]
+RewriteRule ^promocao-black-friday-smartphones-com-descontos-especiais/?$ https://deveserisso.com.br/tag/tecnologia/ [R=301,L]
+RewriteRule ^como-comparar-plano-de-saude/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^cinema-na-era-da-ia-e-do-seo-entre-algoritmos-autenticidade-e-ruido-digital/?$ https://deveserisso.com.br/filmes-e-seriados/ [R=301,L]
+RewriteRule ^como-fotos-de-banco-de-imagens-podem-elevar-suas-campanhas-de-marrketing/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^pesquisa-mostra-que-brasileiros-confiam-na-classificacao-da-selecao-para-a-copa-do-mundo/?$ https://deveserisso.com.br/futebol/ [R=301,L]
+RewriteRule ^ataque-de-tubarao-brasil-e-o-4o-pais-com-mais-ataques/?$ https://deveserisso.com.br/tag/curiosidades/ [R=301,L]
+RewriteRule ^redes-de-protecao-residenciais-dicas-para-contratar-o-servico-de-instalacao/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^brasileiros-conquistadores-panorama-dos-craques-no-exterior/?$ https://deveserisso.com.br/futebol/ [R=301,L]
+RewriteRule ^cinema-na-sala-de-aula-como-ele-pode-impactar-a-formacao-dos-alunos/?$ https://deveserisso.com.br/filmes-e-seriados/ [R=301,L]
+RewriteRule ^como-se-planejar-estadia-prolongada-viagens-corporativas/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^gestao-de-viagens-corporativas/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^brazilian-igaming-summit-o-maior-evento-de-apostas-do-brasil/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^como-apostar-no-seu-candidato-a-presidencia-do-brasil-na-pixbet-entenda/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^onde-jogar-poker-online/?$ https://deveserisso.com.br/jogos/ [R=301,L]
+RewriteRule ^20-atividades-para-distrair-as-criancas-em-epoca-de-quarentena/?$ https://deveserisso.com.br/dicas-e-tutoriais/ [R=301,L]
+RewriteRule ^festival-grls-conheca-a-programacao-completa-do-espaco-gnt-talks/?$ https://deveserisso.com.br/tag/musica/ [R=301,L]
+RewriteRule ^grls-tudo-que-voce-precisa-saber-para-aproveitar-o-festival-ao-maximo/?$ https://deveserisso.com.br/tag/musica/ [R=301,L]
+RewriteRule ^vivo-celular-tudo-o-que-voce-precisa-saber-antes-de-contratar/?$ https://deveserisso.com.br/tag/tecnologia/ [R=301,L]
+RewriteRule ^tudum-festival-saiba-todos-os-artistas-confirmados-para-o-evento/?$ https://deveserisso.com.br/filmes-e-seriados/netflix/ [R=301,L]
+RewriteRule ^grls-venda-de-ingressos-do-festival-iniciam-na-proxima-semana/?$ https://deveserisso.com.br/tag/musica/ [R=301,L]
+RewriteRule ^tudo-que-sabemos-e-como-garantir-ingressos-para-o-tudum-festival/?$ https://deveserisso.com.br/filmes-e-seriados/netflix/ [R=301,L]
+</IfModule>
+# END 301 - Posts sem audiencia removidos
+
 # BEGIN Markdown for Agents
 <IfModule mod_rewrite.c>
 RewriteEngine On
