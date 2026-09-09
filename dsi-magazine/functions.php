@@ -1353,10 +1353,37 @@ function dsi_faq_meta_box_render( WP_Post $post ): void {
 	wp_nonce_field( 'dsi_faq_save', 'dsi_faq_nonce' );
 	$raw = get_post_meta( $post->ID, '_dsi_faq_raw', true );
 	?>
-	<p style="margin-top:0">Cole o texto bruto, no formato de sempre: pergunta terminada em "?" numa linha, resposta no parágrafo seguinte. Aparece automaticamente como acordeão no fim do artigo e vira dados estruturados (FAQPage) — não precisa colar HTML nem preencher o bloco "FAQ Schema" campo por campo.</p>
-	<textarea name="dsi_faq_raw" rows="10" style="width:100%;font-family:inherit" placeholder="Qual é a mensagem do filme?&#10;&#10;A mensagem central é...&#10;&#10;O filme é baseado em um livro?&#10;&#10;Sim, o filme é baseado..."><?php echo esc_textarea( $raw ); ?></textarea>
+	<p style="margin-top:0">Cole o texto bruto (pergunta terminada em "?", resposta no parágrafo seguinte) na caixa "Colar texto bruto" e clique em "Transformar em boxes" — cada pergunta vira um box próprio, título e resposta separados, fácil de editar depois sem mexer em texto corrido. Dá pra colar mais texto depois pra acrescentar novas perguntas, ou usar "+ Adicionar pergunta" pra criar uma do zero.</p>
+
+	<div id="dsi-faq-cards"></div>
+
+	<p><button type="button" class="button" id="dsi-faq-add">+ Adicionar pergunta</button></p>
+
+	<details style="margin-top:8px"<?php echo trim( $raw ) === '' ? ' open' : ''; ?>>
+		<summary style="cursor:pointer;font-weight:600">Colar texto bruto</summary>
+		<textarea id="dsi-faq-paste" rows="8" style="width:100%;font-family:inherit;margin-top:8px" placeholder="Qual é a mensagem do filme?&#10;&#10;A mensagem central é...&#10;&#10;O filme é baseado em um livro?&#10;&#10;Sim, o filme é baseado..."></textarea>
+		<p><button type="button" class="button button-primary" id="dsi-faq-convert">Transformar em boxes</button></p>
+	</details>
+
+	<textarea name="dsi_faq_raw" id="dsi-faq-raw-hidden" style="display:none"><?php echo esc_textarea( $raw ); ?></textarea>
 	<?php
 }
+
+// Boxes de pergunta/resposta são só uma camada de UX em JS por cima do mesmo
+// textarea de sempre (dsi-faq-raw-hidden, name="dsi_faq_raw") — o parse/save
+// no PHP não muda nada. Só carrega nas telas de edição de post.
+add_action( 'admin_enqueue_scripts', function ( string $hook ): void {
+	if ( ! in_array( $hook, [ 'post.php', 'post-new.php' ], true ) ) {
+		return;
+	}
+	wp_enqueue_script(
+		'dsi-faq-admin',
+		get_stylesheet_directory_uri() . '/assets/js/faq-admin.js',
+		[],
+		'1.0.0',
+		true
+	);
+} );
 
 add_action( 'save_post', function ( int $post_id ): void {
 	if ( ! isset( $_POST['dsi_faq_nonce'] ) || ! wp_verify_nonce( $_POST['dsi_faq_nonce'], 'dsi_faq_save' ) ) {
