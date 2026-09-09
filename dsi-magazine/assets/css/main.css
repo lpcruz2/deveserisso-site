@@ -131,6 +131,13 @@ details summary::-webkit-details-marker{display:none}
 details summary::marker{content:""}
 details[open] summary{margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(156,63,20,.3)!important}
 details *{font-family:"Manrope",system-ui,sans-serif!important}
+/* === Dados Técnicos: ficha técnica do filme (box estático, não colapsável) === */
+.dsi-dados-tecnicos{background:#f4eee2;border-left:3px solid #9c3f14;border-radius:8px;padding:16px 20px;margin:20px 0}
+.dsi-dados-tecnicos__titulo{margin:0 0 10px!important;font-weight:800!important;font-size:15px!important;letter-spacing:.05em;text-transform:uppercase;color:#9c3f14!important}
+.dsi-dados-tecnicos ul{list-style:none;margin:0!important;padding:0!important}
+.dsi-dados-tecnicos li{font-family:"Manrope",system-ui,sans-serif;font-size:15px;line-height:1.7;margin:0!important}
+.dsi-dados-tecnicos li strong{font-weight:700;color:#1d1a14}
+.dsi-dados-tecnicos a{color:#9c3f14;text-decoration:underline}
 /* === Prose: evitar overflow horizontal no mobile (iframes, tabelas, URLs longas) === */
 .dsi-prose img{max-width:100%!important;height:auto}
 /* Caption shortcode: WP gera style="width:Npx" inline no container — override obrigatório */

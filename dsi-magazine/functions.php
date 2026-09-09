@@ -1075,3 +1075,217 @@ function dsi_render_resumo_box( int $post_id ): string {
 		. '<ul style="margin-top: 15px;">' . $items . '</ul></details></aside></section>';
 }
 
+// =============================================================================
+// 28. DADOS TÉCNICOS (ficha técnica do filme) — colar texto bruto → box + schema.org
+// =============================================================================
+// Mesmo padrão editorial de sempre ("* Campo: valor", um por linha, formato usado
+// manualmente em todo post de filme individual) — o autor só cola o texto bruto
+// no meta box, sem editar HTML. O tema faz o parse, monta o box visual (igual ao
+// Resumo, seção 27) e gera JSON-LD Movie automaticamente a partir dos mesmos
+// dados — sem exigir um formulário com campo por campo.
+add_action( 'add_meta_boxes', function (): void {
+	add_meta_box(
+		'dsi_dados_tecnicos',
+		'Dados Técnicos (ficha técnica)',
+		'dsi_dados_tecnicos_meta_box_render',
+		'post',
+		'normal',
+		'high'
+	);
+} );
+
+function dsi_dados_tecnicos_meta_box_render( WP_Post $post ): void {
+	wp_nonce_field( 'dsi_dados_tecnicos_save', 'dsi_dados_tecnicos_nonce' );
+	$raw = get_post_meta( $post->ID, '_dsi_dados_tecnicos_raw', true );
+	?>
+	<p style="margin-top:0">Cole o texto bruto da ficha técnica, no mesmo formato de sempre ("* Campo: valor", um por linha). Aparece automaticamente como box no topo do artigo e vira dados estruturados (schema.org) — não precisa colar HTML no corpo do post.</p>
+	<textarea name="dsi_dados_tecnicos_raw" rows="8" style="width:100%;font-family:inherit" placeholder="Dados Técnicos&#10;&#10;* Nome: ...&#10;* Direção: ...&#10;* Elenco principal: ...&#10;* Ano: ...&#10;* Duração: ...&#10;* Gênero: ..."><?php echo esc_textarea( $raw ); ?></textarea>
+	<?php
+}
+
+add_action( 'save_post', function ( int $post_id ): void {
+	if ( ! isset( $_POST['dsi_dados_tecnicos_nonce'] ) || ! wp_verify_nonce( $_POST['dsi_dados_tecnicos_nonce'], 'dsi_dados_tecnicos_save' ) ) {
+		return;
+	}
+	if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+		return;
+	}
+	if ( ! current_user_can( 'edit_post', $post_id ) ) {
+		return;
+	}
+	$raw = isset( $_POST['dsi_dados_tecnicos_raw'] ) ? sanitize_textarea_field( wp_unslash( $_POST['dsi_dados_tecnicos_raw'] ) ) : '';
+	update_post_meta( $post_id, '_dsi_dados_tecnicos_raw', $raw );
+} );
+
+// Remove acentos e caixa pra casar "Direção"/"direcao"/"DIREÇÃO" com a mesma chave.
+function dsi_dt_normalize_key( string $label ): string {
+	return trim( strtolower( remove_accents( $label ) ) );
+}
+
+// "[Terror](https://...)" -> "Terror" (schema.org e comparações não podem carregar markdown).
+function dsi_dt_markdown_link_to_plain( string $value ): string {
+	return preg_replace( '/\[([^\[\]]+)\]\(https?:\/\/[^\s()]+\)/', '$1', $value );
+}
+
+// "[Terror](https://...)" -> <a href="...">Terror</a>, escapando o restante do texto.
+// Escapa por segmento (não a string inteira antes) pra não escapar a URL duas vezes.
+function dsi_dt_render_value_html( string $raw_value ): string {
+	$pattern = '/\[([^\[\]]+)\]\((https?:\/\/[^\s()]+)\)/';
+	if ( ! preg_match_all( $pattern, $raw_value, $matches, PREG_OFFSET_CAPTURE ) ) {
+		return esc_html( $raw_value );
+	}
+	$html = '';
+	$cursor = 0;
+	foreach ( $matches[0] as $i => $full_match ) {
+		$start = $full_match[1];
+		$html .= esc_html( substr( $raw_value, $cursor, $start - $cursor ) );
+		$html .= '<a href="' . esc_url( $matches[2][ $i ][0] ) . '">' . esc_html( $matches[1][ $i ][0] ) . '</a>';
+		$cursor = $start + strlen( $full_match[0] );
+	}
+	$html .= esc_html( substr( $raw_value, $cursor ) );
+	return $html;
+}
+
+// "2h14min" / "2h" / "45min" -> "PT2H14M" (ISO 8601, formato exigido pelo schema.org).
+function dsi_dt_parse_duration_iso8601( string $raw ): string {
+	$hours = 0;
+	$minutes = 0;
+	if ( preg_match( '/(\d+)\s*h/i', $raw, $m ) ) {
+		$hours = (int) $m[1];
+	}
+	if ( preg_match( '/(\d+)\s*min/i', $raw, $m ) ) {
+		$minutes = (int) $m[1];
+	}
+	if ( $hours === 0 && $minutes === 0 ) {
+		return '';
+	}
+	return 'PT' . ( $hours > 0 ? $hours . 'H' : '' ) . ( $minutes > 0 ? $minutes . 'M' : '' );
+}
+
+// Parse do texto bruto ("* Campo: valor" por linha) em campos estruturados.
+// Linhas sem ":" (ex: o título "Dados Técnicos" colado junto) são ignoradas.
+// Campos com rótulo reconhecido alimentam o schema; rótulos novos/inesperados
+// ainda aparecem no box visual (via 'fields'), só não entram no JSON-LD.
+function dsi_parse_dados_tecnicos( string $raw ): array {
+	$lines = array_filter( array_map( 'trim', explode( "\n", $raw ) ) );
+	$fields = [];
+	foreach ( $lines as $line ) {
+		$line = preg_replace( '/^[\*\-•]\s*/', '', $line );
+		if ( strpos( $line, ':' ) === false ) {
+			continue;
+		}
+		[ $label, $value ] = array_map( 'trim', explode( ':', $line, 2 ) );
+		if ( $label === '' || $value === '' ) {
+			continue;
+		}
+		$fields[] = [
+			'label' => $label,
+			'key'   => dsi_dt_normalize_key( $label ),
+			'value' => $value,
+		];
+	}
+
+	$data = [ 'fields' => $fields ];
+
+	foreach ( $fields as $f ) {
+		switch ( $f['key'] ) {
+			case 'nome':
+			case 'titulo':
+				if ( preg_match( '/^(.*?)\s*\(([^()]+)\)\s*$/', $f['value'], $m ) ) {
+					$data['titulo'] = trim( $m[1] );
+					$data['titulo_original'] = trim( $m[2] );
+				} else {
+					$data['titulo'] = $f['value'];
+				}
+				break;
+			case 'direcao':
+				$data['direcao'] = array_map( 'trim', explode( ',', dsi_dt_markdown_link_to_plain( $f['value'] ) ) );
+				break;
+			case 'elenco principal':
+			case 'elenco':
+				$data['elenco'] = array_map( 'trim', explode( ',', dsi_dt_markdown_link_to_plain( $f['value'] ) ) );
+				break;
+			case 'ano':
+				if ( preg_match( '/\d{4}/', $f['value'], $m ) ) {
+					$data['ano'] = $m[0];
+				}
+				break;
+			case 'duracao':
+				$data['duracao_iso'] = dsi_dt_parse_duration_iso8601( $f['value'] );
+				break;
+			case 'genero':
+			case 'generos':
+				$data['genero'] = array_map( 'trim', explode( ',', dsi_dt_markdown_link_to_plain( $f['value'] ) ) );
+				break;
+		}
+	}
+
+	return $data;
+}
+
+function dsi_render_dados_tecnicos_box( int $post_id ): string {
+	$raw = get_post_meta( $post_id, '_dsi_dados_tecnicos_raw', true );
+	if ( ! is_string( $raw ) || trim( $raw ) === '' ) {
+		return '';
+	}
+	$parsed = dsi_parse_dados_tecnicos( $raw );
+	if ( empty( $parsed['fields'] ) ) {
+		return '';
+	}
+	$rows = '';
+	foreach ( $parsed['fields'] as $f ) {
+		$rows .= '<li><strong>' . esc_html( $f['label'] ) . ':</strong> ' . dsi_dt_render_value_html( $f['value'] ) . '</li>';
+	}
+	return '<aside class="dsi-dados-tecnicos" aria-label="Dados técnicos do filme">'
+		. '<p class="dsi-dados-tecnicos__titulo">Dados Técnicos</p>'
+		. '<ul>' . $rows . '</ul></aside>';
+}
+
+// JSON-LD Movie a partir dos mesmos dados do box — mesmo hook/padrão do FAQPage (seção 23).
+// Sem reviewRating/author coletados aqui, então schema fica em "Movie" solto, não
+// dentro de "Review" — evitar declarar um Review incompleto (Google exige
+// reviewRating+author em Review, o que geraria erro no Search Console à toa).
+add_action( 'wp_head', function (): void {
+	if ( ! is_singular( 'post' ) ) {
+		return;
+	}
+	$raw = get_post_meta( get_the_ID(), '_dsi_dados_tecnicos_raw', true );
+	if ( ! is_string( $raw ) || trim( $raw ) === '' ) {
+		return;
+	}
+	$d = dsi_parse_dados_tecnicos( $raw );
+	if ( empty( $d['titulo'] ) ) {
+		return;
+	}
+
+	$schema = [
+		'@context' => 'https://schema.org',
+		'@type'    => 'Movie',
+		'name'     => $d['titulo'],
+	];
+	if ( ! empty( $d['titulo_original'] ) ) {
+		$schema['alternateName'] = $d['titulo_original'];
+	}
+	if ( ! empty( $d['direcao'] ) ) {
+		$schema['director'] = array_map( function ( string $nome ): array {
+			return [ '@type' => 'Person', 'name' => $nome ];
+		}, $d['direcao'] );
+	}
+	if ( ! empty( $d['elenco'] ) ) {
+		$schema['actor'] = array_map( function ( string $nome ): array {
+			return [ '@type' => 'Person', 'name' => $nome ];
+		}, $d['elenco'] );
+	}
+	if ( ! empty( $d['ano'] ) ) {
+		$schema['dateCreated'] = $d['ano'];
+	}
+	if ( ! empty( $d['duracao_iso'] ) ) {
+		$schema['duration'] = $d['duracao_iso'];
+	}
+	if ( ! empty( $d['genero'] ) ) {
+		$schema['genre'] = $d['genero'];
+	}
+
+	echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . '</script>' . "\n";
+} );
+
