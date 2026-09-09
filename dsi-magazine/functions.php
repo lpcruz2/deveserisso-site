@@ -1289,3 +1289,161 @@ add_action( 'wp_head', function (): void {
 	echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . '</script>' . "\n";
 } );
 
+// =============================================================================
+// 29. FAQ (Perguntas Frequentes) — colar texto bruto → acordeão <details> + FAQPage schema
+// =============================================================================
+// Mesmo padrão editorial de Resumo (seção 27) e Dados Técnicos (seção 28): o
+// autor cola o texto bruto no formato de sempre — uma linha terminada em "?"
+// é a pergunta, o(s) parágrafo(s) seguinte(s) são a resposta — neste meta box.
+// O tema faz o parse, monta o acordeão nativo <details>/<summary> (pesquisável
+// e indexável por padrão, sem JS) no fim do artigo e gera o FAQPage schema a
+// partir dos mesmos dados. Não depende do bloco "FAQ Schema" do plugin SASWP
+// (preenchimento campo-a-campo manual) nem da convenção H2+H3 da seção 23
+// (específica de /filmes-com-letra-q/). Quando o post também tiver o bloco
+// genérico do SASWP, dsi-jsonld-fixer.php (dsi_jfix_is_generic_faq) já
+// descarta o placeholder dele em favor deste FAQPage real — não precisa
+// remover o bloco SASWP manualmente, só parar de preenchê-lo.
+add_action( 'add_meta_boxes', function (): void {
+	add_meta_box(
+		'dsi_faq',
+		'FAQ (Perguntas Frequentes)',
+		'dsi_faq_meta_box_render',
+		'post',
+		'normal',
+		'high'
+	);
+} );
+
+function dsi_faq_meta_box_render( WP_Post $post ): void {
+	wp_nonce_field( 'dsi_faq_save', 'dsi_faq_nonce' );
+	$raw = get_post_meta( $post->ID, '_dsi_faq_raw', true );
+	?>
+	<p style="margin-top:0">Cole o texto bruto, no formato de sempre: pergunta terminada em "?" numa linha, resposta no parágrafo seguinte. Aparece automaticamente como acordeão no fim do artigo e vira dados estruturados (FAQPage) — não precisa colar HTML nem preencher o bloco "FAQ Schema" campo por campo.</p>
+	<textarea name="dsi_faq_raw" rows="10" style="width:100%;font-family:inherit" placeholder="Qual é a mensagem do filme?&#10;&#10;A mensagem central é...&#10;&#10;O filme é baseado em um livro?&#10;&#10;Sim, o filme é baseado..."><?php echo esc_textarea( $raw ); ?></textarea>
+	<?php
+}
+
+add_action( 'save_post', function ( int $post_id ): void {
+	if ( ! isset( $_POST['dsi_faq_nonce'] ) || ! wp_verify_nonce( $_POST['dsi_faq_nonce'], 'dsi_faq_save' ) ) {
+		return;
+	}
+	if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+		return;
+	}
+	if ( ! current_user_can( 'edit_post', $post_id ) ) {
+		return;
+	}
+	$raw = isset( $_POST['dsi_faq_raw'] ) ? sanitize_textarea_field( wp_unslash( $_POST['dsi_faq_raw'] ) ) : '';
+	update_post_meta( $post_id, '_dsi_faq_raw', $raw );
+} );
+
+// Parse do texto bruto colado pelo autor: cada linha terminada em "?" abre uma
+// pergunta nova; tudo depois (até a próxima linha terminada em "?") é a
+// resposta, com blocos separados por linha em branco virando parágrafos <p>
+// distintos. Texto antes da 1ª pergunta (ex: o título "Perguntas frequentes"
+// colado junto, como no texto de origem) é ignorado — o box já renderiza seu
+// próprio <h2>.
+function dsi_parse_faq( string $raw ): array {
+	$lines = array_map( 'trim', explode( "\n", str_replace( "\r\n", "\n", $raw ) ) );
+
+	$pairs      = [];
+	$question   = null;
+	$paragraphs = [];
+	$buffer     = [];
+
+	foreach ( $lines as $line ) {
+		if ( $line !== '' && substr( $line, -1 ) === '?' ) {
+			if ( $buffer ) {
+				$paragraphs[] = implode( ' ', $buffer );
+				$buffer = [];
+			}
+			if ( $question !== null && $paragraphs ) {
+				$pairs[] = [ 'question' => $question, 'answer_paragraphs' => $paragraphs ];
+			}
+			$question   = $line;
+			$paragraphs = [];
+			continue;
+		}
+		if ( $question === null ) {
+			continue;
+		}
+		if ( $line === '' ) {
+			if ( $buffer ) {
+				$paragraphs[] = implode( ' ', $buffer );
+				$buffer = [];
+			}
+			continue;
+		}
+		$buffer[] = $line;
+	}
+	if ( $buffer ) {
+		$paragraphs[] = implode( ' ', $buffer );
+	}
+	if ( $question !== null && $paragraphs ) {
+		$pairs[] = [ 'question' => $question, 'answer_paragraphs' => $paragraphs ];
+	}
+
+	return $pairs;
+}
+
+function dsi_render_faq_box( int $post_id ): string {
+	$raw = get_post_meta( $post_id, '_dsi_faq_raw', true );
+	if ( ! is_string( $raw ) || trim( $raw ) === '' ) {
+		return '';
+	}
+	$pairs = dsi_parse_faq( $raw );
+	if ( empty( $pairs ) ) {
+		return '';
+	}
+
+	$items = '';
+	foreach ( $pairs as $p ) {
+		$answer_html = '';
+		foreach ( $p['answer_paragraphs'] as $para ) {
+			$answer_html .= '<p>' . esc_html( $para ) . '</p>';
+		}
+		$items .= '<details name="dsi-faq-' . $post_id . '">'
+			. '<summary>' . esc_html( $p['question'] ) . '</summary>'
+			. $answer_html
+			. '</details>';
+	}
+
+	return '<section class="dsi-faq" aria-labelledby="dsi-faq-heading-' . $post_id . '">'
+		. '<h2 id="dsi-faq-heading-' . $post_id . '">Perguntas frequentes</h2>'
+		. $items
+		. '</section>';
+}
+
+// JSON-LD FAQPage a partir dos mesmos dados do box — mesmo hook/padrão do
+// Movie (seção 28).
+add_action( 'wp_head', function (): void {
+	if ( ! is_singular( 'post' ) ) {
+		return;
+	}
+	$raw = get_post_meta( get_the_ID(), '_dsi_faq_raw', true );
+	if ( ! is_string( $raw ) || trim( $raw ) === '' ) {
+		return;
+	}
+	$pairs = dsi_parse_faq( $raw );
+	if ( empty( $pairs ) ) {
+		return;
+	}
+
+	$schema = [
+		'@context'   => 'https://schema.org',
+		'@type'      => 'FAQPage',
+		'mainEntity' => array_map( function ( array $p ): array {
+			return [
+				'@type'          => 'Question',
+				'name'           => $p['question'],
+				'acceptedAnswer' => [
+					'@type' => 'Answer',
+					'text'  => implode( ' ', $p['answer_paragraphs'] ),
+				],
+			];
+		}, $pairs ),
+	];
+
+	echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . '</script>' . "\n";
+}, 20 );
+

@@ -118,6 +118,8 @@ $related = new WP_Query( [
             <?php echo dsi_render_dados_tecnicos_box( $post_id ); ?>
             <?php the_content(); ?>
 
+            <?php echo dsi_render_faq_box( $post_id ); ?>
+
             <?php
             wp_link_pages( [
                 'before' => '<div class="dsi-single__pages"><span class="dsi-single__pages-label">Páginas:</span>',
