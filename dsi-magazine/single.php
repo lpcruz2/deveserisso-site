@@ -115,8 +115,11 @@ $related = new WP_Query( [
         <!-- Conteúdo do post -->
         <article class="dsi-prose" id="dsi-post-content">
             <?php echo dsi_render_resumo_box( $post_id ); ?>
-            <?php echo dsi_render_dados_tecnicos_box( $post_id ); ?>
-            <?php the_content(); ?>
+            <?php
+            ob_start();
+            the_content();
+            echo dsi_insert_before_aval_widget( ob_get_clean(), dsi_render_dados_tecnicos_box( $post_id ) );
+            ?>
 
             <?php echo dsi_render_faq_box( $post_id ); ?>
 

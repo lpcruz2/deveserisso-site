@@ -1241,6 +1241,27 @@ function dsi_render_dados_tecnicos_box( int $post_id ): string {
 		. '<ul>' . $rows . '</ul></aside>';
 }
 
+// Insere $insert_html imediatamente antes do widget "O que você achou?" (dsi-avaliacoes,
+// mu-plugin externo — não vive nesse repo, injeta o próprio HTML dentro do the_content()
+// já processado, sem deixar marca no post_content bruto). Não dá pra usar prioridade de
+// hook em 'the_content' porque não temos a prioridade exata do filtro externo — em vez
+// disso, o conteúdo já renderizado é vasculhado pela classe estável do widget
+// (.dsi-aval-titulo, definida no CSS do próprio plugin) e recua até o <div> que o envolve,
+// pra inserir como irmão anterior, não como filho. Sem o widget no post (ex: post sem
+// avaliação), cai no fallback de anexar no fim do conteúdo.
+function dsi_insert_before_aval_widget( string $content_html, string $insert_html ): string {
+	if ( $insert_html === '' ) {
+		return $content_html;
+	}
+	$anchor_pos = strpos( $content_html, '<h2 class="dsi-aval-titulo"' );
+	if ( $anchor_pos === false ) {
+		return $content_html . $insert_html;
+	}
+	$div_pos = strrpos( substr( $content_html, 0, $anchor_pos ), '<div' );
+	$split_pos = $div_pos !== false ? $div_pos : $anchor_pos;
+	return substr( $content_html, 0, $split_pos ) . $insert_html . substr( $content_html, $split_pos );
+}
+
 // JSON-LD Movie a partir dos mesmos dados do box — mesmo hook/padrão do FAQPage (seção 23).
 // Sem reviewRating/author coletados aqui, então schema fica em "Movie" solto, não
 // dentro de "Review" — evitar declarar um Review incompleto (Google exige
