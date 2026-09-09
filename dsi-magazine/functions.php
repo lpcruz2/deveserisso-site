@@ -1290,19 +1290,30 @@ add_action( 'wp_head', function (): void {
 } );
 
 // =============================================================================
-// 29. FAQ (Perguntas Frequentes) — colar texto bruto → acordeão <details> + FAQPage schema
+// 29. FAQ (Perguntas Frequentes) — colar texto bruto → acordeão <details>
 // =============================================================================
 // Mesmo padrão editorial de Resumo (seção 27) e Dados Técnicos (seção 28): o
 // autor cola o texto bruto no formato de sempre — uma linha terminada em "?"
 // é a pergunta, o(s) parágrafo(s) seguinte(s) são a resposta — neste meta box.
-// O tema faz o parse, monta o acordeão nativo <details>/<summary> (pesquisável
-// e indexável por padrão, sem JS) no fim do artigo e gera o FAQPage schema a
-// partir dos mesmos dados. Não depende do bloco "FAQ Schema" do plugin SASWP
-// (preenchimento campo-a-campo manual) nem da convenção H2+H3 da seção 23
-// (específica de /filmes-com-letra-q/). Quando o post também tiver o bloco
-// genérico do SASWP, dsi-jsonld-fixer.php (dsi_jfix_is_generic_faq) já
-// descarta o placeholder dele em favor deste FAQPage real — não precisa
-// remover o bloco SASWP manualmente, só parar de preenchê-lo.
+// O tema faz o parse e monta o acordeão nativo <details>/<summary>
+// (pesquisável e indexável por padrão, sem JS) no fim do artigo.
+//
+// O JSON-LD FAQPage NÃO é gerado aqui. O site já tem um mecanismo canônico pra
+// isso: o plugin próprio /wp-content/plugins/dsi-faqpage/ (fora deste repo —
+// existia só no servidor, não versionado; achado em 2026-09-09 tentando
+// resolver esta mesma tarefa), que expõe o meta box "FAQ Schema" (auto-detecta
+// H2/H3 terminados em "?" no post_content, ou usa perguntas editadas
+// manualmente, com opt-out). Esse plugin nunca veria o conteúdo deste box —
+// ele é injetado em single.php DEPOIS de the_content(), fora do post_content
+// que o plugin varre. Por isso, ao salvar, este hook também escreve
+// diretamente nas meta keys do plugin (_dsi_faq_active/_dsi_faq_items),
+// tornando este textarea a superfície única de autoria e o plugin a única
+// fonte do schema — sem os dois lados competindo por qual FAQPage sai no ar
+// (foi exatamente esse race que produziu schema desatualizado/errado no post
+// 76905 antes deste ajuste: o plugin publicava perguntas antigas enquanto
+// este box já mostrava as novas). Continuar usando o box "FAQ Schema" pra
+// edição manual campo-a-campo funciona, mas será sobrescrito no próximo save
+// deste box — trate este textarea como a fonte de verdade a partir de agora.
 add_action( 'add_meta_boxes', function (): void {
 	add_meta_box(
 		'dsi_faq',
@@ -1335,6 +1346,23 @@ add_action( 'save_post', function ( int $post_id ): void {
 	}
 	$raw = isset( $_POST['dsi_faq_raw'] ) ? sanitize_textarea_field( wp_unslash( $_POST['dsi_faq_raw'] ) ) : '';
 	update_post_meta( $post_id, '_dsi_faq_raw', $raw );
+
+	// Alimenta o plugin dsi-faqpage (fonte única do FAQPage schema) com os
+	// mesmos pares — ver nota da seção 29 acima.
+	$pairs = dsi_parse_faq( $raw );
+	if ( empty( $pairs ) ) {
+		update_post_meta( $post_id, '_dsi_faq_active', '0' );
+		update_post_meta( $post_id, '_dsi_faq_items', [] );
+		return;
+	}
+	$items = array_map( function ( array $p ): array {
+		return [
+			'question' => $p['question'],
+			'answer'   => mb_substr( implode( ' ', $p['answer_paragraphs'] ), 0, 600 ),
+		];
+	}, $pairs );
+	update_post_meta( $post_id, '_dsi_faq_active', '1' );
+	update_post_meta( $post_id, '_dsi_faq_items', $items );
 } );
 
 // Parse do texto bruto colado pelo autor: cada linha terminada em "?" abre uma
@@ -1414,36 +1442,6 @@ function dsi_render_faq_box( int $post_id ): string {
 		. '</section>';
 }
 
-// JSON-LD FAQPage a partir dos mesmos dados do box — mesmo hook/padrão do
-// Movie (seção 28).
-add_action( 'wp_head', function (): void {
-	if ( ! is_singular( 'post' ) ) {
-		return;
-	}
-	$raw = get_post_meta( get_the_ID(), '_dsi_faq_raw', true );
-	if ( ! is_string( $raw ) || trim( $raw ) === '' ) {
-		return;
-	}
-	$pairs = dsi_parse_faq( $raw );
-	if ( empty( $pairs ) ) {
-		return;
-	}
-
-	$schema = [
-		'@context'   => 'https://schema.org',
-		'@type'      => 'FAQPage',
-		'mainEntity' => array_map( function ( array $p ): array {
-			return [
-				'@type'          => 'Question',
-				'name'           => $p['question'],
-				'acceptedAnswer' => [
-					'@type' => 'Answer',
-					'text'  => implode( ' ', $p['answer_paragraphs'] ),
-				],
-			];
-		}, $pairs ),
-	];
-
-	echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . '</script>' . "\n";
-}, 20 );
+// Sem hook de wp_head aqui — o schema é responsabilidade do plugin
+// dsi-faqpage, alimentado acima no save_post. Ver nota no topo da seção 29.
 
