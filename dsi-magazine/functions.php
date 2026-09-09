@@ -1236,8 +1236,11 @@ function dsi_render_dados_tecnicos_box( int $post_id ): string {
 	foreach ( $parsed['fields'] as $f ) {
 		$rows .= '<li><strong>' . esc_html( $f['label'] ) . ':</strong> ' . dsi_dt_render_value_html( $f['value'] ) . '</li>';
 	}
-	return '<aside class="dsi-dados-tecnicos" aria-label="Dados técnicos do filme">'
-		. '<p class="dsi-dados-tecnicos__titulo">Dados Técnicos</p>'
+	// H2 real (não <p> dentro do box) pra virar seção no fluxo do artigo — mesmo nível de
+	// "Sobre o que é o filme?"/"Curiosidades" — e ser capturado pelo índice (post-toc.js
+	// varre h2 dentro de #dsi-post-content).
+	return '<h2>Dados Técnicos</h2>'
+		. '<aside class="dsi-dados-tecnicos" aria-label="Dados técnicos do filme">'
 		. '<ul>' . $rows . '</ul></aside>';
 }
 

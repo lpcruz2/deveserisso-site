@@ -136,7 +136,6 @@ details *{font-family:"Manrope",system-ui,sans-serif!important}
    .filmbox-pessoa-card): fundo bege claro #faf6ef + borda esquerda laranja #d4552a — consistência
    visual entre os dois boxes de "ficha técnica" que aparecem no mesmo post. */
 .dsi-dados-tecnicos{background:#faf6ef;border-left:3px solid #d4552a;border-radius:10px;padding:16px 20px;margin:20px 0}
-.dsi-dados-tecnicos__titulo{margin:0 0 10px!important;font-weight:700!important;font-size:16px!important;color:#333!important}
 .dsi-dados-tecnicos ul{list-style:none;margin:0!important;padding:0!important}
 .dsi-dados-tecnicos li{font-family:"Manrope",system-ui,sans-serif;font-size:15px;line-height:1.7;margin:0!important}
 .dsi-dados-tecnicos li strong{font-weight:700;color:#1d1a14}
