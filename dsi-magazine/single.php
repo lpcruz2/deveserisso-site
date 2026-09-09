@@ -64,10 +64,9 @@ $related = new WP_Query( [
                         $s_updated = $s_mod && $s_mod !== $s_pub;
                         ?>
                         <span class="dsi-single__dates">
+                            Publicado em <time datetime="<?php echo esc_attr( get_the_date( 'c' ) ); ?>"><?php echo get_the_date( 'j M Y' ); ?></time>
                             <?php if ( $s_updated ) : ?>
-                                <time datetime="<?php echo esc_attr( get_the_modified_date( 'c' ) ); ?>"><?php echo get_the_modified_date( 'j M Y' ); ?></time>
-                            <?php else : ?>
-                                <time datetime="<?php echo esc_attr( get_the_date( 'c' ) ); ?>"><?php echo get_the_date( 'j M Y' ); ?></time>
+                                · Atualizado em <time datetime="<?php echo esc_attr( get_the_modified_date( 'c' ) ); ?>"><?php echo get_the_modified_date( 'j M Y' ); ?></time>
                             <?php endif; ?>
                         </span>
                         <span class="dsi-single__readtime">⏱ <?php echo esc_html( $read_time ); ?> de leitura</span>

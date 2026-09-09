@@ -14,6 +14,7 @@ $more_posts = [];
 $recent = new WP_Query( [
     'posts_per_page' => 22,
     'post_status'    => 'publish',
+    'orderby'        => 'modified',
 ] );
 
 if ( $recent->have_posts() ) {
