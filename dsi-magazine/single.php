@@ -118,10 +118,9 @@ $related = new WP_Query( [
             <?php
             ob_start();
             the_content();
-            echo dsi_insert_before_aval_widget( ob_get_clean(), dsi_render_dados_tecnicos_box( $post_id ) );
+            $dsi_faq_e_dados_tecnicos = dsi_render_faq_box( $post_id ) . dsi_render_dados_tecnicos_box( $post_id );
+            echo dsi_insert_before_aval_widget( ob_get_clean(), $dsi_faq_e_dados_tecnicos );
             ?>
-
-            <?php echo dsi_render_faq_box( $post_id ); ?>
 
             <?php
             wp_link_pages( [
