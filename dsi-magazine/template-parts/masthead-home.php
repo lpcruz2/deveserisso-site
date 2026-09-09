@@ -18,12 +18,6 @@ $nav_items = [
 ?>
 <header class="dsi-masthead dsi-masthead--home" role="banner">
 
-    <!-- Topbar: data / tagline -->
-    <div class="dsi-masthead__topbar">
-        <span class="dsi-masthead__date"><?php echo esc_html( $data ); ?></span>
-        <span class="dsi-masthead__tagline">Portal de cultura pop e entretenimento</span>
-    </div>
-
     <!-- Wordmark -->
     <div class="dsi-masthead__brand">
         <p class="dsi-masthead__established">Desde 2009</p>
