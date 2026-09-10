@@ -111,7 +111,7 @@ function dsi_agentmd_export_csv(): void {
 
 	$rows = $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT requested_at, bot_label, signed_agent, tipo, tool_name, http_status, post_id, url_path, user_agent, client_ip, country, referer
+			"SELECT requested_at, bot_label, signed_agent, tipo, tool_name, http_method, http_status, post_id, url_path, user_agent, client_ip, country, referer
 			 FROM {$table}
 			 WHERE {$where}
 			 ORDER BY requested_at DESC",
@@ -128,7 +128,7 @@ function dsi_agentmd_export_csv(): void {
 	header( 'Content-Disposition: attachment; filename="ai-bot-requests-' . $inicio_input . '-a-' . $fim_input . $sufixo_bot . $sufixo_tipo . $sufixo_assinado . '.csv"' );
 
 	$out = fopen( 'php://output', 'w' );
-	fputcsv( $out, [ 'data', 'bot', 'assinado_rfc9421', 'tipo', 'categoria_cliente', 'tool_mcp', 'http_status', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip', 'pais', 'referer' ] );
+	fputcsv( $out, [ 'data', 'bot', 'assinado_rfc9421', 'tipo', 'categoria_cliente', 'tool_mcp', 'http_method', 'http_status', 'post_id', 'post_titulo', 'url', 'user_agent', 'ip', 'pais', 'referer' ] );
 
 	foreach ( $rows as $row ) {
 		$post_title = $row->post_id ? get_the_title( (int) $row->post_id ) : '';
@@ -139,6 +139,7 @@ function dsi_agentmd_export_csv(): void {
 			$row->tipo,
 			dsi_agentmd_categoria_label( dsi_agentmd_categoria_cliente( $row->bot_label ) ),
 			$row->tool_name ?? '',
+			$row->http_method ?? '',
 			$row->http_status ?? '',
 			$row->post_id,
 			$post_title,

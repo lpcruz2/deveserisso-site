@@ -249,7 +249,7 @@ function dsi_webmcp_admin_page(): void {
 		$total_paginas,
 		esc_html( number_format_i18n( $total_periodo ) )
 	);
-	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Tool</th><th>Status</th><th>Cliente</th><th title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado</th><th>IP</th><th>País</th><th>Resposta devolvida</th></tr></thead>';
+	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Tool</th><th>Método</th><th>Status</th><th>Cliente</th><th title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado</th><th>IP</th><th>País</th><th>Resposta devolvida</th></tr></thead>';
 	echo '<tbody id="dsi-webmcp-tbody">' . dsi_webmcp_linhas_detalhe( $detalhe ) . '</tbody></table>';
 	dsi_agentmd_render_nav( 'webmcp', $paged, $total_paginas, $total_periodo, 'chamadas' );
 
@@ -295,7 +295,7 @@ function dsi_webmcp_render_clientes( array $clientes ): void {
  */
 function dsi_webmcp_linhas_detalhe( array $rows ): string {
 	if ( ! $rows ) {
-		return '<tr><td colspan="8">Nenhuma chamada nesse período.</td></tr>';
+		return '<tr><td colspan="9">Nenhuma chamada nesse período.</td></tr>';
 	}
 
 	$html = '';
@@ -315,9 +315,10 @@ function dsi_webmcp_linhas_detalhe( array $rows ): string {
 		);
 
 		$html .= sprintf(
-			'<tr><td>%s</td><td><code>%s</code></td><td style="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+			'<tr><td>%s</td><td><code>%s</code></td><td><code>%s</code></td><td style="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
 			esc_html( $row->requested_at ),
 			esc_html( $row->tool_name ?? '—' ),
+			esc_html( $row->http_method ?? '—' ),
 			esc_attr( $cor ),
 			esc_html( (string) ( $row->http_status ?? '—' ) ),
 			$cliente,
@@ -336,7 +337,7 @@ function dsi_webmcp_busca_detalhe( string $table, string $where, array $params, 
 
 	return (array) $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT requested_at, tool_name, http_status, bot_label, user_agent, signed_agent, client_ip, country, response_body
+			"SELECT requested_at, tool_name, http_method, http_status, bot_label, user_agent, signed_agent, client_ip, country, response_body
 			 FROM {$table}
 			 WHERE {$where}
 			 ORDER BY requested_at DESC

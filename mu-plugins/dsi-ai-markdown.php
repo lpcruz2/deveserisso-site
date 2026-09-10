@@ -303,6 +303,7 @@ function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo
 
 	$referer = dsi_agentmd_trunca( sanitize_text_field( $_SERVER['HTTP_REFERER'] ?? '' ) );
 	$status  = $http_status ?? ( http_response_code() ?: null );
+	$metodo  = sanitize_text_field( $_SERVER['REQUEST_METHOD'] ?? '' );
 
 	$wpdb->insert(
 		$wpdb->prefix . 'ai_bot_requests',
@@ -318,10 +319,11 @@ function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo
 			'tipo'          => $tipo,
 			'http_status'   => $status,
 			'tool_name'     => $tool_name,
+			'http_method'   => $metodo !== '' ? $metodo : null,
 			'referer'       => $referer !== '' ? $referer : null,
 			'response_body' => $response_body,
 		],
-		[ '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s' ]
+		[ '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s' ]
 	);
 }
 
