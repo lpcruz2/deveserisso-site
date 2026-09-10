@@ -225,10 +225,23 @@ function dsi_jfix_video( array $node ): array {
 	return $node;
 }
 
-/** NewsArticle: wordCount → int, remove mainEntity circular, desdup imagens */
+/**
+ * NewsArticle: wordCount → int, remove mainEntity circular, desdup imagens,
+ * limpa lixo de UI do plugin FilmBox que escapa pro articleBody.
+ *
+ * O SASWP (plugin que gera esse node) lê $post->post_content bruto pra
+ * montar articleBody, sem passar pelo filtro 'the_content' que o FilmBox usa
+ * (filmbox.php) pra esconder seus botões de editor ("🔄 Regenerar dados",
+ * "✏️ Editar configurações") da página visível — por isso o texto desses
+ * botões, que nunca aparece pro visitante, ainda vazava pro schema.
+ */
 function dsi_jfix_article( array $node ): array {
 	if ( isset( $node['wordCount'] ) ) {
 		$node['wordCount'] = (int) $node['wordCount'];
+	}
+
+	if ( isset( $node['articleBody'] ) && is_string( $node['articleBody'] ) ) {
+		$node['articleBody'] = dsi_jfix_clean_article_body( $node['articleBody'] );
 	}
 
 	// mainEntity apontando para a própria página é circular e inútil
@@ -253,6 +266,13 @@ function dsi_jfix_article( array $node ): array {
 	}
 
 	return $node;
+}
+
+/** Remove strings de botões do editor do FilmBox e normaliza espaços sobrando */
+function dsi_jfix_clean_article_body( string $body ): string {
+	$junk = [ '🔄 Regenerar dados', '✏️ Editar configurações' ];
+	$body = str_replace( $junk, '', $body );
+	return trim( preg_replace( '/\s+/', ' ', $body ) );
 }
 
 /** Person: filtrar sameAs que não são URLs válidas e normalizar /blog */
