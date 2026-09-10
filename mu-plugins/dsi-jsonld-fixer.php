@@ -126,6 +126,7 @@ function dsi_jfix_end(): void {
 			case 'VideoObject':
 				$node = dsi_jfix_video( $node );
 				break;
+			case 'Article':
 			case 'NewsArticle':
 			case 'BlogPosting':
 				$node = dsi_jfix_article( $node );
