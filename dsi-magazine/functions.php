@@ -1349,6 +1349,18 @@ add_action( 'add_meta_boxes', function (): void {
 	);
 } );
 
+// Remove o box "FAQ Schema" do plugin dsi-faqpage do editor de posts — desde
+// o ajuste acima ele é só uma UI órfã: qualquer edição feita nele é
+// sobrescrita no próximo save deste box (mesmas meta keys). O plugin continua
+// ativo e intacto só como emissor do JSON-LD (output_schema, hook wp_head),
+// que já tem fallback de auto-detecção em tempo real quando não há itens
+// salvos — então remover esta UI não tira nenhuma função do schema, só a
+// tela duplicada e a armadilha de edição perdida. Prioridade 20 (depois do
+// registro do plugin, que usa a prioridade padrão 10).
+add_action( 'add_meta_boxes', function (): void {
+	remove_meta_box( 'dsi-faqpage', 'post', 'normal' );
+}, 20 );
+
 function dsi_faq_meta_box_render( WP_Post $post ): void {
 	wp_nonce_field( 'dsi_faq_save', 'dsi_faq_nonce' );
 	$raw = get_post_meta( $post->ID, '_dsi_faq_raw', true );
