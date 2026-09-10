@@ -35,9 +35,6 @@ $form_action = apply_filters( 'dsi_newsletter_action', home_url( '/newsletter-si
         <form class="dsi-newsletter__form"
               id="dsi-nl-form"
               aria-label="Formulário de newsletter"
-              toolname="assinar_newsletter"
-              tooldescription="Assina a newsletter semanal do Deveserisso com recomendações de filmes, séries e programação de TV"
-              toolautosubmit
               novalidate>
             <label for="dsi-nl-email" class="screen-reader-text">Seu endereço de email</label>
             <input type="email"
@@ -46,8 +43,7 @@ $form_action = apply_filters( 'dsi_newsletter_action', home_url( '/newsletter-si
                    class="dsi-newsletter__input"
                    placeholder="seu@email.com"
                    required
-                   autocomplete="email"
-                   toolparamdescription="Endereço de email para receber a newsletter semanal com recomendações editoriais">
+                   autocomplete="email">
             <button type="submit" class="dsi-newsletter__btn">
                 <?php echo esc_html( $btn_text ); ?>
             </button>
