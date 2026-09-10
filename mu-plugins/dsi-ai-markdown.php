@@ -288,7 +288,7 @@ function dsi_agentmd_trunca( string $valor, int $limite = 255 ): string {
  * Por isso nao existe coluna de cache_status: do lado do PHP ela seria
  * sempre "miss", por construcao.
  */
-function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo, ?string $tool_name = null, ?int $http_status = null ): void {
+function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo, ?string $tool_name = null, ?int $http_status = null, ?string $response_body = null ): void {
 	global $wpdb;
 
 	// Assinatura Web Bot Auth (RFC 9421), quando presente -- unico jeito de
@@ -307,20 +307,21 @@ function dsi_agentmd_log_request( int $post_id, string $user_agent, string $tipo
 	$wpdb->insert(
 		$wpdb->prefix . 'ai_bot_requests',
 		[
-			'requested_at' => current_time( 'mysql' ),
-			'post_id'      => $post_id,
-			'url_path'     => dsi_agentmd_trunca( esc_url_raw( $_SERVER['REQUEST_URI'] ?? '' ) ),
-			'user_agent'   => dsi_agentmd_trunca( $user_agent ),
-			'client_ip'    => dsi_agentmd_client_ip(),
-			'country'      => dsi_agentmd_country(),
-			'bot_label'    => dsi_agentmd_classify_bot( $user_agent ),
-			'signed_agent' => $signed_agent,
-			'tipo'         => $tipo,
-			'http_status'  => $status,
-			'tool_name'    => $tool_name,
-			'referer'      => $referer !== '' ? $referer : null,
+			'requested_at'  => current_time( 'mysql' ),
+			'post_id'       => $post_id,
+			'url_path'      => dsi_agentmd_trunca( esc_url_raw( $_SERVER['REQUEST_URI'] ?? '' ) ),
+			'user_agent'    => dsi_agentmd_trunca( $user_agent ),
+			'client_ip'     => dsi_agentmd_client_ip(),
+			'country'       => dsi_agentmd_country(),
+			'bot_label'     => dsi_agentmd_classify_bot( $user_agent ),
+			'signed_agent'  => $signed_agent,
+			'tipo'          => $tipo,
+			'http_status'   => $status,
+			'tool_name'     => $tool_name,
+			'referer'       => $referer !== '' ? $referer : null,
+			'response_body' => $response_body,
 		],
-		[ '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s' ]
+		[ '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s' ]
 	);
 }
 

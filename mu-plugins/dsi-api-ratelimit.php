@@ -68,7 +68,7 @@ function dsi_rl_hit( string $ip ): array {
  * Reaproveita dsi_agentmd_classify_bot()/dsi_agentmd_log_request(), definidas
  * em dsi-ai-markdown.php (carrega antes, ordem alfabetica de mu-plugins).
  */
-function dsi_rl_log( WP_REST_Request $request, int $http_status ): void {
+function dsi_rl_log( WP_REST_Request $request, WP_REST_Response $response ): void {
 	if ( ! function_exists( 'dsi_agentmd_log_request' ) ) {
 		return;
 	}
@@ -88,7 +88,30 @@ function dsi_rl_log( WP_REST_Request $request, int $http_status ): void {
 	}
 
 	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
-	dsi_agentmd_log_request( $post_id, $user_agent, 'mcp', $tool_name, $http_status );
+	dsi_agentmd_log_request( $post_id, $user_agent, 'mcp', $tool_name, $response->get_status(), dsi_rl_response_body_for_log( $response ) );
+}
+
+/**
+ * Serializa o corpo devolvido ao agente pra registro no log. Truncado pra
+ * nao inflar a tabela -- get_post/list_posts devolvem conteudo inteiro de
+ * post, e gravar isso sem limite multiplicaria o tamanho da tabela varias
+ * vezes so pra chamadas de sucesso, que raramente precisam de auditoria
+ * detalhada. Erro (4xx/5xx) ganha um limite maior porque e exatamente o
+ * caso em que vale entender o que a API devolveu pro agente.
+ */
+function dsi_rl_response_body_for_log( WP_REST_Response $response ): ?string {
+	$data = $response->get_data();
+	if ( $data === null ) {
+		return null;
+	}
+
+	$json = wp_json_encode( $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+	if ( $json === false ) {
+		return null;
+	}
+
+	$limite = $response->get_status() >= 400 ? 2000 : 500;
+	return mb_substr( $json, 0, $limite );
 }
 
 /**
@@ -140,7 +163,7 @@ function dsi_rl_add_headers( $response, $server, $request ) {
 		return $response;
 	}
 
-	dsi_rl_log( $request, $response->get_status() );
+	dsi_rl_log( $request, $response );
 
 	$remaining = max( 0, DSI_RL_LIMIT - $state['count'] );
 	$response->header( 'RateLimit-Limit', (string) DSI_RL_LIMIT );
