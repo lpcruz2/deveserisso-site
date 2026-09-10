@@ -95,7 +95,21 @@ jobs:
           password: ${{ secrets.FTP_PASS }}
           server-dir: /staging/wp-content/themes/dsi-magazine/
           local-dir: ./dsi-magazine/
+          state-name: .ftp-deploy-sync-state-dsi-magazine-theme.json
 
+      # server-dir compartilhado com o repo deveserisso-webmcp (mesmo caminho
+      # /wp-content/mu-plugins/, cada repo deploya seu proprio subconjunto de
+      # arquivos). Sem um state-name proprio, os dois pipelines escrevem no
+      # MESMO arquivo de estado padrao (.ftp-deploy-sync-state.json) -- o
+      # deploy mais recente de qualquer um dos dois conclui que os arquivos do
+      # OUTRO repo "sumiram" do seu local-dir e os apaga do servidor. Foi
+      # exatamente isso que derrubou dsi-ai-markdown.php, dsi-api-ratelimit.php,
+      # dsi-ai-bots-admin.php e dsi-webmcp-analytics.php em produção em
+      # 2026-09-10 (achado ao vivo: FTP LIST mostrou só os arquivos do outro
+      # repo + o .ftp-deploy-sync-state.json dele). O mesmo state-name precisa
+      # ser aplicado no deploy.yml de deveserisso-webmcp pra isolar os dois
+      # lados -- sem isso o proximo deploy de la ainda pode apagar os arquivos
+      # deste repo de novo, independente do que mudar aqui.
       - name: Deploy mu-plugins to staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -105,6 +119,7 @@ jobs:
           password: ${{ secrets.FTP_PASS }}
           server-dir: /staging/wp-content/mu-plugins/
           local-dir: ./mu-plugins/
+          state-name: .ftp-deploy-sync-state-dsi-magazine-muplugins.json
 
       - name: Test critical URLs on staging
         run: |
@@ -120,7 +135,11 @@ jobs:
           password: ${{ secrets.FTP_PASS }}
           server-dir: /blog/wp-content/themes/dsi-magazine/
           local-dir: ./dsi-magazine/
+          state-name: .ftp-deploy-sync-state-dsi-magazine-theme.json
 
+      # Mesmo motivo do passo de staging acima: server-dir compartilhado com
+      # deveserisso-webmcp, state-name proprio pra parar de apagar os arquivos
+      # um do outro.
       - name: Deploy mu-plugins (produção)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -130,6 +149,7 @@ jobs:
           password: ${{ secrets.FTP_PASS }}
           server-dir: /blog/wp-content/mu-plugins/
           local-dir: ./mu-plugins/
+          state-name: .ftp-deploy-sync-state-dsi-magazine-muplugins.json
 
       - name: Purge cache
         run: curl -s https://deveserisso.com.br/purge_ls.php
