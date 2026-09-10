@@ -27,6 +27,10 @@ function dsi_webmcp_tool_from_request(): string {
 	return isset( $_GET['tool'] ) ? sanitize_text_field( wp_unslash( $_GET['tool'] ) ) : '';
 }
 
+function dsi_webmcp_bot_from_request(): string {
+	return isset( $_GET['bot'] ) ? sanitize_text_field( wp_unslash( $_GET['bot'] ) ) : '';
+}
+
 /** '' = todos, 'erro' = so http_status != 200, 'sucesso' = so 200 */
 function dsi_webmcp_status_from_request(): string {
 	$status = isset( $_GET['status'] ) ? sanitize_text_field( wp_unslash( $_GET['status'] ) ) : '';
@@ -35,11 +39,11 @@ function dsi_webmcp_status_from_request(): string {
 
 /**
  * Sempre restrita a tipo='mcp' -- essa aba e so sobre chamadas de tool, o
- * resto do trafego (Markdown/HTML) ja tem a tela "Bots de IA".
+ * resto do trafego (Markdown/HTML) ja tem a tela "Bots".
  *
  * @return array{0: string, 1: array<int, string>}
  */
-function dsi_webmcp_where_and_params( string $inicio_sql, string $fim_sql, string $tool, string $status ): array {
+function dsi_webmcp_where_and_params( string $inicio_sql, string $fim_sql, string $tool, string $status, string $bot = '' ): array {
 	$where  = "tipo = 'mcp' AND requested_at BETWEEN %s AND %s";
 	$params = [ $inicio_sql, $fim_sql ];
 
@@ -54,6 +58,11 @@ function dsi_webmcp_where_and_params( string $inicio_sql, string $fim_sql, strin
 		$where .= ' AND http_status = 200';
 	}
 
+	if ( $bot !== '' ) {
+		$where   .= ' AND bot_label = %s';
+		$params[] = $bot;
+	}
+
 	return [ $where, $params ];
 }
 
@@ -64,7 +73,8 @@ function dsi_webmcp_admin_page(): void {
 	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_agentmd_periodo_from_request();
 	$tool               = dsi_webmcp_tool_from_request();
 	$status             = dsi_webmcp_status_from_request();
-	[ $where, $params ] = dsi_webmcp_where_and_params( $inicio_sql, $fim_sql, $tool, $status );
+	$bot                = dsi_webmcp_bot_from_request();
+	[ $where, $params ] = dsi_webmcp_where_and_params( $inicio_sql, $fim_sql, $tool, $status, $bot );
 
 	$total_periodo = (int) $wpdb->get_var(
 		$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE {$where}", $params )
@@ -92,9 +102,28 @@ function dsi_webmcp_admin_page(): void {
 	);
 
 	// Dropdown de tools: todas as ja vistas historicamente, independente do
-	// periodo filtrado -- mesmo raciocinio da lista de bots em "Bots de IA".
+	// periodo filtrado -- mesmo raciocinio da lista de bots em "Bots".
 	$tools_disponiveis = $wpdb->get_col(
 		"SELECT DISTINCT tool_name FROM {$table} WHERE tipo = 'mcp' AND tool_name IS NOT NULL ORDER BY tool_name ASC"
+	);
+
+	// Idem pra clientes -- quem esta de fato chamando a API, nao so quais tools.
+	$bots_disponiveis = $wpdb->get_col(
+		"SELECT DISTINCT bot_label FROM {$table} WHERE tipo = 'mcp' ORDER BY bot_label ASC"
+	);
+
+	// A chamada de tool raramente carrega UA de bot -- client_ip e o dado que
+	// realmente diferencia quem esta por tras de cada rotulo (varios IPs no
+	// mesmo rotulo "node"/"curl" sao agentes distintos rodando a mesma stack).
+	$top_clientes = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT bot_label, COUNT(*) AS total, COUNT(DISTINCT client_ip) AS ips, MAX(requested_at) AS ultima_vez
+			 FROM {$table}
+			 WHERE {$where}
+			 GROUP BY bot_label
+			 ORDER BY total DESC",
+			$params
+		)
 	);
 
 	// --- Período imediatamente anterior, mesma duração, pra comparação ---
@@ -104,7 +133,7 @@ function dsi_webmcp_admin_page(): void {
 	$anterior_ini_sql   = $anterior_ini_input . ' 00:00:00';
 	$anterior_fim_sql   = $anterior_fim_input . ' 23:59:59';
 
-	[ $where_anterior, $params_anterior ] = dsi_webmcp_where_and_params( $anterior_ini_sql, $anterior_fim_sql, $tool, $status );
+	[ $where_anterior, $params_anterior ] = dsi_webmcp_where_and_params( $anterior_ini_sql, $anterior_fim_sql, $tool, $status, $bot );
 	$total_anterior = (int) $wpdb->get_var(
 		$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE {$where_anterior}", $params_anterior )
 	);
@@ -127,7 +156,7 @@ function dsi_webmcp_admin_page(): void {
 	$detalhe       = dsi_webmcp_busca_detalhe( $table, $where, $params, $paged, $per_page );
 
 	echo '<div class="wrap"><h1>WebMCP — chamadas de tool</h1>';
-	echo '<p style="color:#646970;max-width:70ch;">Cada chamada feita por um agente na API pública (<code>/wp-json/webmcp/v1/</code>), com o corpo da resposta devolvida. Tráfego de Markdown/HTML fica na tela <a href="' . esc_url( admin_url( 'tools.php?page=dsi-ai-bots' ) ) . '">Bots de IA</a>.</p>';
+	echo '<p style="color:#646970;max-width:70ch;">Cada chamada feita por um agente na API pública (<code>/wp-json/webmcp/v1/</code>), com o corpo da resposta devolvida. Tráfego de Markdown/HTML fica na tela <a href="' . esc_url( admin_url( 'tools.php?page=dsi-ai-bots' ) ) . '">Bots</a>.</p>';
 
 	// --- Filtros ---
 	echo '<form method="get" style="margin:16px 0;display:flex;gap:8px;align-items:end;flex-wrap:wrap;">';
@@ -150,6 +179,32 @@ function dsi_webmcp_admin_page(): void {
 	printf( '<option value=""%s>Todos</option>', selected( $status, '', false ) );
 	printf( '<option value="sucesso"%s>Só sucesso (200)</option>', selected( $status, 'sucesso', false ) );
 	printf( '<option value="erro"%s>Só erro</option>', selected( $status, 'erro', false ) );
+	echo '</select></label>';
+
+	// Agrupado por categoria, mesmo padrão da tela "Bots" -- sem isso a lista
+	// mistura "node"/"curl" (ferramenta HTTP) com "Claude-User"/"OraBot" (bot
+	// declarado) em ordem alfabetica, como se fossem a mesma coisa de resposta.
+	$por_categoria = [ 'bot' => [], 'ferramenta' => [], 'nao_identificado' => [] ];
+	foreach ( $bots_disponiveis as $opcao ) {
+		$por_categoria[ dsi_agentmd_categoria_cliente( $opcao ) ][] = $opcao;
+	}
+
+	echo '<label>Cliente <select name="bot"><option value="">Todos</option>';
+	foreach ( $por_categoria as $categoria => $opcoes ) {
+		if ( ! $opcoes ) {
+			continue;
+		}
+		printf( '<optgroup label="%s">', esc_attr( dsi_agentmd_categoria_label( $categoria ) ) );
+		foreach ( $opcoes as $opcao ) {
+			printf(
+				'<option value="%s"%s>%s</option>',
+				esc_attr( $opcao ),
+				selected( $bot, $opcao, false ),
+				esc_html( $opcao )
+			);
+		}
+		echo '</optgroup>';
+	}
 	echo '</select></label>';
 
 	echo '<button type="submit" class="button">Filtrar</button>';
@@ -184,6 +239,7 @@ function dsi_webmcp_admin_page(): void {
 
 	echo '</div>';
 
+	dsi_webmcp_render_clientes( $top_clientes );
 	dsi_agentmd_render_tools( $top_tools );
 
 	// --- Chamadas: paginadas via AJAX, corpo da resposta expansível por linha ---
@@ -193,13 +249,43 @@ function dsi_webmcp_admin_page(): void {
 		$total_paginas,
 		esc_html( number_format_i18n( $total_periodo ) )
 	);
-	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Tool</th><th>Status</th><th title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado</th><th>IP</th><th>País</th><th>Resposta devolvida</th></tr></thead>';
+	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>Tool</th><th>Status</th><th>Cliente</th><th title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado</th><th>IP</th><th>País</th><th>Resposta devolvida</th></tr></thead>';
 	echo '<tbody id="dsi-webmcp-tbody">' . dsi_webmcp_linhas_detalhe( $detalhe ) . '</tbody></table>';
 	dsi_agentmd_render_nav( 'webmcp', $paged, $total_paginas, $total_periodo, 'chamadas' );
 
 	echo '</div>';
 
-	dsi_webmcp_render_script( $inicio_input, $fim_input, $tool, $status, $total_paginas );
+	dsi_webmcp_render_script( $inicio_input, $fim_input, $tool, $status, $bot, $total_paginas );
+}
+
+/**
+ * Quem esta de fato chamando a API -- pergunta distinta de "quais tools
+ * foram chamadas" (dsi_agentmd_render_tools). Mesmas cores/categorias da
+ * tela "Bots" (bot declarado / ferramenta HTTP / não identificado), porque
+ * a maioria das chamadas de tool não carrega User-Agent de bot -- ver nota
+ * em dsi_agentmd_log_request().
+ */
+function dsi_webmcp_render_clientes( array $clientes ): void {
+	if ( ! $clientes ) {
+		return;
+	}
+
+	echo '<h2 style="margin-top:32px;">Quem está chamando</h2>';
+	echo '<table class="widefat striped"><thead><tr><th>Cliente</th><th title="Bot declarado se anuncia no User-Agent; ferramenta HTTP é script/monitor; não identificado é User-Agent de navegador">O que é</th><th>Chamadas</th><th title="IPs de origem distintos">IPs</th><th>Última vez</th></tr></thead><tbody>';
+	foreach ( $clientes as $c ) {
+		$categoria = dsi_agentmd_categoria_cliente( $c->bot_label );
+		$cor       = [ 'bot' => '#2271b1', 'ferramenta' => '#8c6d1f', 'nao_identificado' => '#646970' ][ $categoria ];
+		printf(
+			'<tr><td><strong>%s</strong></td><td><span style="color:%s;">%s</span></td><td>%d</td><td>%d</td><td>%s</td></tr>',
+			esc_html( $c->bot_label ),
+			esc_attr( $cor ),
+			esc_html( dsi_agentmd_categoria_label( $categoria ) ),
+			(int) $c->total,
+			(int) $c->ips,
+			esc_html( $c->ultima_vez )
+		);
+	}
+	echo '</tbody></table>';
 }
 
 /**
@@ -209,7 +295,7 @@ function dsi_webmcp_admin_page(): void {
  */
 function dsi_webmcp_linhas_detalhe( array $rows ): string {
 	if ( ! $rows ) {
-		return '<tr><td colspan="7">Nenhuma chamada nesse período.</td></tr>';
+		return '<tr><td colspan="8">Nenhuma chamada nesse período.</td></tr>';
 	}
 
 	$html = '';
@@ -219,12 +305,22 @@ function dsi_webmcp_linhas_detalhe( array $rows ): string {
 		$resposta  = $row->response_body ?? null;
 		$resumo    = $resposta ? '<details><summary style="cursor:pointer;">ver resposta</summary><pre style="white-space:pre-wrap;word-break:break-all;max-width:520px;background:#f6f7f7;padding:8px;margin-top:6px;font-size:12px;">' . esc_html( $resposta ) . '</pre></details>' : '—';
 
+		$categoria = dsi_agentmd_categoria_cliente( $row->bot_label );
+		$cor_bot   = [ 'bot' => '#2271b1', 'ferramenta' => '#8c6d1f', 'nao_identificado' => '#646970' ][ $categoria ];
+		$cliente   = sprintf(
+			'<span style="color:%s;" title="%s">%s</span>',
+			esc_attr( $cor_bot ),
+			esc_attr( $row->user_agent ?? '' ),
+			esc_html( $row->bot_label )
+		);
+
 		$html .= sprintf(
-			'<tr><td>%s</td><td><code>%s</code></td><td style="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+			'<tr><td>%s</td><td><code>%s</code></td><td style="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
 			esc_html( $row->requested_at ),
 			esc_html( $row->tool_name ?? '—' ),
 			esc_attr( $cor ),
 			esc_html( (string) ( $row->http_status ?? '—' ) ),
+			$cliente,
 			$row->signed_agent ? esc_html( $row->signed_agent ) : '—',
 			esc_html( $row->client_ip ),
 			esc_html( $row->country ?? '—' ),
@@ -240,7 +336,7 @@ function dsi_webmcp_busca_detalhe( string $table, string $where, array $params, 
 
 	return (array) $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT requested_at, tool_name, http_status, signed_agent, client_ip, country, response_body
+			"SELECT requested_at, tool_name, http_status, bot_label, user_agent, signed_agent, client_ip, country, response_body
 			 FROM {$table}
 			 WHERE {$where}
 			 ORDER BY requested_at DESC
@@ -264,7 +360,8 @@ function dsi_webmcp_ajax_reqs(): void {
 		$inicio_sql,
 		$fim_sql,
 		dsi_webmcp_tool_from_request(),
-		dsi_webmcp_status_from_request()
+		dsi_webmcp_status_from_request(),
+		dsi_webmcp_bot_from_request()
 	);
 
 	$total         = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE {$where}", $params ) );
@@ -282,7 +379,7 @@ function dsi_webmcp_ajax_reqs(): void {
 }
 
 /** Mesmo padrão de paginação AJAX de dsi-ai-bots-admin.php, endpoint próprio. */
-function dsi_webmcp_render_script( string $inicio_input, string $fim_input, string $tool, string $status, int $total_paginas ): void {
+function dsi_webmcp_render_script( string $inicio_input, string $fim_input, string $tool, string $status, string $bot, int $total_paginas ): void {
 	$cfg = [
 		'url'     => admin_url( 'admin-ajax.php' ),
 		'nonce'   => wp_create_nonce( 'dsi_webmcp_reqs' ),
@@ -292,6 +389,7 @@ function dsi_webmcp_render_script( string $inicio_input, string $fim_input, stri
 			'data_fim'    => $fim_input,
 			'tool'        => $tool,
 			'status'      => $status,
+			'bot'         => $bot,
 		],
 	];
 	?>

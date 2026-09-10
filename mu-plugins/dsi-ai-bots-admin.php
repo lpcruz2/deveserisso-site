@@ -15,8 +15,8 @@ add_action( 'wp_ajax_dsi_agentmd_reqs', 'dsi_agentmd_ajax_reqs' );
 
 function dsi_agentmd_admin_menu(): void {
 	add_management_page(
-		'Bots de IA',
-		'Bots de IA',
+		'Bots',
+		'Bots',
 		'manage_options',
 		'dsi-ai-bots',
 		'dsi_agentmd_admin_page'
