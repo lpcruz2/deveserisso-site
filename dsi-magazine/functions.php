@@ -1508,14 +1508,3 @@ function dsi_render_faq_box( int $post_id ): string {
 // Sem hook de wp_head aqui — o schema é responsabilidade do plugin
 // dsi-faqpage, alimentado acima no save_post. Ver nota no topo da seção 29.
 
-// =============================================================================
-// 30. AGENTLANE — telemetria de tráfego de agentes de IA (script de terceiro)
-// =============================================================================
-// async: script independente, não manipula DOM nem depende de outro script —
-// não há motivo pra esperar o parser terminar antes de rodar. Domínios
-// liberados no CSP (.htaccess): script-src cdn.agentlane.com,
-// connect-src api.agentlane.com + ingest.agentlane.com.
-add_action( 'wp_footer', function (): void {
-	echo '<script src="https://cdn.agentlane.com/v1/snippet.js" data-domain="dom-tl0e7n41nl1o" async></script>' . "\n";
-} );
-
