@@ -1098,8 +1098,8 @@ function dsi_dados_tecnicos_meta_box_render( WP_Post $post ): void {
 	wp_nonce_field( 'dsi_dados_tecnicos_save', 'dsi_dados_tecnicos_nonce' );
 	$raw = get_post_meta( $post->ID, '_dsi_dados_tecnicos_raw', true );
 	?>
-	<p style="margin-top:0">Cole o texto bruto da ficha técnica, no mesmo formato de sempre ("* Campo: valor", um por linha). Aparece automaticamente como box no topo do artigo e vira dados estruturados (schema.org) — não precisa colar HTML no corpo do post.</p>
-	<textarea name="dsi_dados_tecnicos_raw" rows="8" style="width:100%;font-family:inherit" placeholder="Dados Técnicos&#10;&#10;* Nome: ...&#10;* Direção: ...&#10;* Elenco principal: ...&#10;* Ano: ...&#10;* Duração: ...&#10;* Gênero: ..."><?php echo esc_textarea( $raw ); ?></textarea>
+	<p style="margin-top:0">Cole o texto bruto da ficha técnica, no mesmo formato de sempre ("* Campo: valor", um por linha). Aparece automaticamente como box no topo do artigo e vira dados estruturados (schema.org) — não precisa colar HTML no corpo do post. "Tipo", "Emoção principal" e "Baseado em fatos reais" são opcionais — usados pelo CineQuiz, não aparecem no schema.org.</p>
+	<textarea name="dsi_dados_tecnicos_raw" rows="10" style="width:100%;font-family:inherit" placeholder="Dados Técnicos&#10;&#10;* Nome: ...&#10;* Tipo: Filme&#10;* Direção: ...&#10;* Elenco principal: ...&#10;* Ano: ...&#10;* Duração: ...&#10;* Gênero: ...&#10;* Emoção principal: rir, medo, chorar, adrenalina ou paixão&#10;* Baseado em fatos reais: Sim ou Não"><?php echo esc_textarea( $raw ); ?></textarea>
 	<?php
 }
 
@@ -1217,6 +1217,26 @@ function dsi_parse_dados_tecnicos( string $raw ): array {
 			case 'generos':
 				$data['genero'] = array_map( 'trim', explode( ',', dsi_dt_markdown_link_to_plain( $f['value'] ) ) );
 				break;
+			// "Tipo: Série" -> 'serie' (default 'filme' quando o campo não existe, ver uso
+			// no JSON-LD — todo o histórico de posts preenchidos antes desse campo existir
+			// continua saindo como Movie, sem precisar de retrabalho).
+			case 'tipo':
+				$tipo_normalizado = dsi_dt_normalize_key( $f['value'] );
+				$data['tipo'] = ( strpos( $tipo_normalizado, 'serie' ) !== false ) ? 'serie' : 'filme';
+				break;
+			// Vocabulário fechado, mesmo da pergunta 2 do CineQuiz (rir/medo/chorar/adrenalina/
+			// paixão) — usado pelo endpoint de recomendação do quiz pra casar resposta com
+			// filme sem depender só de Gênero (Drama pode ser "chorar" ou não, por exemplo).
+			case 'emocao principal':
+			case 'emocao':
+				$data['emocao'] = array_map( 'trim', explode( ',', $f['value'] ) );
+				break;
+			// Não entra no JSON-LD (schema.org não tem propriedade equivalente pra "baseado
+			// em fatos reais" em Movie/TVSeries — inventar uma custom quebraria validação);
+			// fica só como dado estruturado pro endpoint do quiz filtrar a pergunta 9.
+			case 'baseado em fatos reais':
+				$data['baseado_fatos_reais'] = ( strpos( dsi_dt_normalize_key( $f['value'] ), 'sim' ) === 0 );
+				break;
 		}
 	}
 
@@ -1284,7 +1304,7 @@ add_action( 'wp_head', function (): void {
 
 	$schema = [
 		'@context' => 'https://schema.org',
-		'@type'    => 'Movie',
+		'@type'    => ( isset( $d['tipo'] ) && $d['tipo'] === 'serie' ) ? 'TVSeries' : 'Movie',
 		'name'     => $d['titulo'],
 	];
 	if ( ! empty( $d['titulo_original'] ) ) {
