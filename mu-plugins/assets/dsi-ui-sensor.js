@@ -39,6 +39,18 @@
 	var firstClickHadMouseMove = null;
 	var flushed              = false;
 
+	// Caminho do mouse desde o ultimo clique -- zerado a cada clique. Serve
+	// pra distinguir movimento humano (dezenas de pontos, trajetoria curva,
+	// tremor motor) de movimento sintetico (poucos pontos, quase uma linha
+	// reta) que ferramentas "educadas" de automacao geram pra simular
+	// mousemove sem serem realmente humanas. So guarda coordenadas, nunca
+	// conteudo da pagina.
+	var MAX_PATH_POINTS = 200;
+	var pathPoints = [];
+	var firstClickPathPoints = null;
+	var firstClickStraightness = null;
+	var firstClickStraightLineDist = null;
+
 	function markEvent() {
 		var now = performance.now();
 		if ( firstActionAt === null ) { firstActionAt = now - startedAt; }
@@ -48,14 +60,41 @@
 		lastEventAt = now;
 	}
 
-	window.addEventListener( 'mousemove', function () {
+	window.addEventListener( 'mousemove', function ( e ) {
 		mouseMoved = true;
+		if ( pathPoints.length < MAX_PATH_POINTS ) {
+			pathPoints.push( { x: e.clientX, y: e.clientY } );
+		}
 	}, { passive: true } );
+
+	function pathLength( pts ) {
+		var total = 0;
+		for ( var i = 1; i < pts.length; i++ ) {
+			total += Math.hypot( pts[ i ].x - pts[ i - 1 ].x, pts[ i ].y - pts[ i - 1 ].y );
+		}
+		return total;
+	}
 
 	window.addEventListener( 'click', function ( e ) {
 		markEvent();
 		totalClicks++;
-		if ( firstClickHadMouseMove === null ) { firstClickHadMouseMove = mouseMoved; }
+		if ( firstClickHadMouseMove === null ) {
+			firstClickHadMouseMove = mouseMoved;
+
+			// So calcula pra quem realmente teve mousemove -- senao ja cai em
+			// clique_sem_mousemove, sinal mais forte e mais barato.
+			if ( mouseMoved && pathPoints.length >= 2 ) {
+				var reta = Math.hypot(
+					pathPoints[ pathPoints.length - 1 ].x - pathPoints[ 0 ].x,
+					pathPoints[ pathPoints.length - 1 ].y - pathPoints[ 0 ].y
+				);
+				firstClickPathPoints      = pathPoints.length;
+				firstClickStraightLineDist = reta;
+				firstClickStraightness    = reta > 0 ? pathLength( pathPoints ) / reta : null;
+			}
+		}
+		pathPoints = []; // reinicia o caminho pro proximo clique
+
 		if ( clicksX.length < MAX_EVENTS ) {
 			clicksX.push( e.clientX );
 			clicksY.push( e.clientY );
@@ -124,6 +163,21 @@
 			motivos.push( 'clique_sem_mousemove' );
 		}
 
+		// Pega o caso "educado": a ferramenta simula mousemove (nao cai no
+		// motivo acima), mas o caminho e sintetico -- poucos pontos ou quase
+		// uma linha reta ate o alvo, cobrindo distancia grande demais pra
+		// ser coincidencia. Mouse humano de verdade tem dezenas de pontos
+		// (a maioria dos navegadores reporta mousemove em alta frequencia) e
+		// trajetoria com curvatura (tremor motor), raramente perto de 1.0.
+		if ( firstClickHadMouseMove === true && firstClickPathPoints !== null &&
+			firstClickStraightLineDist !== null && firstClickStraightLineDist >= 60 ) {
+			var poucosPontos = firstClickPathPoints <= 3;
+			var quaseReta    = firstClickStraightness !== null && firstClickStraightness < 1.03;
+			if ( poucosPontos || quaseReta ) {
+				motivos.push( 'movimento_mouse_sintetico' );
+			}
+		}
+
 		var m = mean( ieis );
 		var s = std( ieis, m );
 		if ( m !== null && s !== null && m > 0 && ( s / m ) < 0.05 && ieis.length >= 5 ) {
@@ -180,7 +234,9 @@
 				: null,
 			max_scroll_pct: scrollDepths.length ? Math.max.apply( null, scrollDepths ) : null,
 			mean_scroll_pct: mean( scrollDepths ),
-			had_mousemove_before_first_click: firstClickHadMouseMove
+			had_mousemove_before_first_click: firstClickHadMouseMove,
+			first_click_path_points: firstClickPathPoints,
+			first_click_straightness: firstClickStraightness
 		};
 	}
 

@@ -118,6 +118,7 @@ const DSI_UISENSOR_MOTIVOS_VALIDOS = [
 	'timing_regular_demais',
 	'viewport_automacao_sem_plugins',
 	'sem_idiomas',
+	'movimento_mouse_sintetico',
 ];
 
 /**
@@ -191,6 +192,8 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 			'had_mousemove_before_first_click'  => array_key_exists( 'had_mousemove_before_first_click', $dados )
 				? ( $dados['had_mousemove_before_first_click'] === null ? null : ( $dados['had_mousemove_before_first_click'] ? 1 : 0 ) )
 				: null,
+			'first_click_path_points'          => dsi_uisensor_int( $dados['first_click_path_points'] ?? null, 0, 1000 ),
+			'first_click_straightness'         => dsi_uisensor_float( $dados['first_click_straightness'] ?? null, 0, 1000 ),
 		],
 		[
 			'%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s',
@@ -198,6 +201,7 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 			'%d', '%d', '%d', '%d', '%d',
 			'%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f',
 			'%d',
+			'%d', '%f',
 		]
 	);
 
@@ -248,6 +252,7 @@ function dsi_uisensor_motivo_label( string $motivo ): string {
 		'timing_regular_demais'           => 'timing regular demais',
 		'viewport_automacao_sem_plugins'  => 'viewport de automação + sem plugins',
 		'sem_idiomas'                     => 'sem idiomas declarados',
+		'movimento_mouse_sintetico'       => 'movimento de mouse sintético (poucos pontos/reto demais)',
 	][ $motivo ] ?? $motivo;
 }
 
@@ -310,10 +315,10 @@ function dsi_uisensor_admin_page(): void {
 	}
 
 	echo '<h2 style="margin-top:32px;">Sessões flagradas (' . (int) DSI_UISENSOR_POR_PAGINA . ' mais recentes)</h2>';
-	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>URL</th><th>Motivos</th><th>Cliente (UA)</th><th>IP</th><th>País</th><th>Cliques</th><th>Scrolls</th><th>Teclas</th><th>Viewport</th><th title="navigator.webdriver">WebDriver</th><th title="Houve mousemove antes do 1º clique?">Mousemove antes</th></tr></thead><tbody>';
+	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>URL</th><th>Motivos</th><th>Cliente (UA)</th><th>IP</th><th>País</th><th>Cliques</th><th>Scrolls</th><th>Teclas</th><th>Viewport</th><th title="navigator.webdriver">WebDriver</th><th title="Houve mousemove antes do 1º clique?">Mousemove antes</th><th title="Pontos no caminho do mouse até o 1º clique">Pontos mouse</th><th title="Comprimento do caminho / distância em linha reta -- perto de 1.0 = trajetória sintética">Retidão</th></tr></thead><tbody>';
 
 	if ( ! $linhas ) {
-		echo '<tr><td colspan="12">Nenhuma sessão flagrada nesse período.</td></tr>';
+		echo '<tr><td colspan="14">Nenhuma sessão flagrada nesse período.</td></tr>';
 	}
 
 	foreach ( $linhas as $row ) {
@@ -322,7 +327,7 @@ function dsi_uisensor_admin_page(): void {
 		$rotulos = implode( ', ', array_map( 'dsi_uisensor_motivo_label', explode( ',', $row->heuristic_reasons ) ) );
 
 		printf(
-			'<tr><td>%s</td><td><code>%s</code></td><td>%s</td><td title="%s">%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%s×%s</td><td>%s</td><td>%s</td></tr>',
+			'<tr><td>%s</td><td><code>%s</code></td><td>%s</td><td title="%s">%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%s×%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
 			esc_html( $row->recorded_at ),
 			esc_html( $row->url_path ),
 			esc_html( $rotulos ),
@@ -336,7 +341,9 @@ function dsi_uisensor_admin_page(): void {
 			esc_html( (string) ( $row->viewport_w ?? '—' ) ),
 			esc_html( (string) ( $row->viewport_h ?? '—' ) ),
 			$row->navigator_webdriver ? 'sim' : 'não',
-			esc_html( $mousemove_txt )
+			esc_html( $mousemove_txt ),
+			esc_html( (string) ( $row->first_click_path_points ?? '—' ) ),
+			$row->first_click_straightness !== null ? esc_html( number_format( (float) $row->first_click_straightness, 3 ) ) : '—'
 		);
 	}
 
