@@ -1215,6 +1215,7 @@ function dsi_parse_dados_tecnicos( string $raw ): array {
 				break;
 			case 'genero':
 			case 'generos':
+			case 'genero(s)':
 				$data['genero'] = array_map( 'trim', explode( ',', dsi_dt_markdown_link_to_plain( $f['value'] ) ) );
 				break;
 			// "Tipo: Série" -> 'serie' (default 'filme' quando o campo não existe, ver uso
