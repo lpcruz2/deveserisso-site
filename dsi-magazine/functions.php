@@ -1561,6 +1561,12 @@ add_action( 'rest_api_init', function (): void {
 // fatos reais só somam pontuação: com poucos posts preenchidos, um filtro
 // rígido demais devolveria lista vazia com frequência.
 function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
+	// CORS aberto (mesmo padrão já usado no .well-known/ai-catalog.json): dado
+	// público e read-only, chamado tanto pelo JS do próprio site (mesma
+	// origem, não precisaria) quanto pelo protótipo do CineQuiz rodando fora
+	// do domínio (preview local, Artifact) antes de virar template do tema.
+	header( 'Access-Control-Allow-Origin: *' );
+
 	$limite = (int) $req->get_param( 'limite' );
 	$limite = $limite > 0 ? min( $limite, 10 ) : 5;
 
