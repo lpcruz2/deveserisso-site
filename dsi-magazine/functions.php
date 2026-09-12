@@ -1644,6 +1644,22 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	}
 
 	usort( $candidatos, fn( array $a, array $b ): int => $b['pontos'] <=> $a['pontos'] );
+
+	// Emoção/Gênero/Baseado em fatos reais só pontuam, não desclassificam (ver
+	// comentário no topo da função) -- o que evita usar isso pra decidir "não
+	// achamos nada" quando pelo menos um candidato bate. Mas se NENHUM
+	// candidato pontuou em nenhum critério pedido, mostrar o 1º colocado
+	// mesmo assim engana o quiz: ele não tem nada a ver com o que a pessoa
+	// pediu, só sobrou por ter passado no filtro rígido de Plataforma/Tipo.
+	// Achado ao vivo: Netflix + "Rir" devolvia Margarita com Canudinho (Drama)
+	// como se fosse a recomendação, só porque era o único post com Netflix +
+	// ficha técnica -- nenhuma comédia do site tem essa categoria ainda.
+	// Tratar como "sem recomendação" é mais honesto que forçar um palpite.
+	$pediu_algum_soft = ( $filtro_emocao !== null || $filtro_genero !== null || $filtro_fatos !== null );
+	if ( $pediu_algum_soft && ! empty( $candidatos ) && $candidatos[0]['pontos'] === 0 ) {
+		$candidatos = [];
+	}
+
 	$candidatos = array_slice( $candidatos, 0, $limite );
 
 	$resultados = array_map( function ( array $c ): array {
