@@ -322,4 +322,14 @@
 		if ( document.visibilityState === 'hidden' ) { flush(); }
 	} );
 	window.addEventListener( 'pagehide', flush );
+
+	// 'beforeunload' como terceiro gatilho -- achado ao vivo em 2026-09-12:
+	// navegacao disparada pela extensao Claude no Chrome (via clique real
+	// num link OU via troca de URL programatica) NAO dispara 'pagehide' nem
+	// 'visibilitychange' no documento que sai, mas 'beforeunload' dispara
+	// sempre (confirmado com probes via Image() em 3 repeticoes seguidas).
+	// Sem isso, exatamente o trafego que o sensor existe pra medir era o
+	// que mais escapava da captura. flush() ja e idempotente (guarda
+	// `flushed`), entao ter 3 gatilhos nao gera beacon duplicado.
+	window.addEventListener( 'beforeunload', flush );
 })();
