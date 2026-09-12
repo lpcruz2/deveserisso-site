@@ -1528,3 +1528,140 @@ function dsi_render_faq_box( int $post_id ): string {
 // Sem hook de wp_head aqui — o schema é responsabilidade do plugin
 // dsi-faqpage, alimentado acima no save_post. Ver nota no topo da seção 29.
 
+// =============================================================================
+// 30. RECOMENDAÇÃO DO CINEQUIZ — endpoint REST dsi/v1/recomendar-filme
+// =============================================================================
+// O tema é dono do dado (Dados Técnicos, seção 28) e do endpoint — o projeto
+// WebMCP-deveserisso só registra uma tool que aponta pra cá (mesmo padrão já
+// usado pelo formulário de newsletter, ver CLAUDE.md daquele projeto). Só
+// posts com _dsi_dados_tecnicos_raw preenchido entram na busca: sem ficha
+// técnica não há campo estruturado nenhum pra casar com a resposta do quiz.
+// Cobertura atual é baixa (poucos posts preenchidos) — ver CLAUDE.md do
+// projeto CineQuiz.
+add_action( 'rest_api_init', function (): void {
+	register_rest_route( 'dsi/v1', '/recomendar-filme', [
+		'methods'             => 'GET',
+		'callback'            => 'dsi_recomendar_filme',
+		'permission_callback' => '__return_true',
+		'args'                => [
+			'plataforma'          => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+			'tipo'                => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+			'emocao'              => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+			'genero'              => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+			'baseado_fatos_reais' => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+			'q'                   => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+			'limite'              => [ 'required' => false, 'sanitize_callback' => 'absint' ],
+		],
+	] );
+} );
+
+// "Filtro real" só pra Plataforma (categoria, na WP_Query) e Tipo (filme/série
+// desclassifica quem não bate — mesmo espírito da pergunta 1/3 do quiz, que já
+// são as únicas com filtro de banco de verdade). Emoção/Gênero/Baseado em
+// fatos reais só somam pontuação: com poucos posts preenchidos, um filtro
+// rígido demais devolveria lista vazia com frequência.
+function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
+	$limite = (int) $req->get_param( 'limite' );
+	$limite = $limite > 0 ? min( $limite, 10 ) : 5;
+
+	$query_args = [
+		'post_type'      => 'post',
+		'post_status'    => 'publish',
+		'posts_per_page' => 30,
+		'meta_query'     => [
+			[
+				'key'     => '_dsi_dados_tecnicos_raw',
+				'value'   => '',
+				'compare' => '!=',
+			],
+		],
+	];
+
+	$plataforma = $req->get_param( 'plataforma' );
+	if ( $plataforma ) {
+		$query_args['category_name'] = sanitize_title( $plataforma );
+	}
+
+	$q = $req->get_param( 'q' );
+	if ( $q ) {
+		$query_args['s'] = $q;
+	}
+
+	$query = new WP_Query( $query_args );
+
+	$filtro_tipo   = $req->get_param( 'tipo' ) ? dsi_dt_normalize_key( $req->get_param( 'tipo' ) ) : null;
+	$filtro_emocao = $req->get_param( 'emocao' ) ? dsi_dt_normalize_key( $req->get_param( 'emocao' ) ) : null;
+	$filtro_genero = $req->get_param( 'genero' ) ? dsi_dt_normalize_key( $req->get_param( 'genero' ) ) : null;
+	$filtro_fatos  = $req->get_param( 'baseado_fatos_reais' ) ? dsi_dt_normalize_key( $req->get_param( 'baseado_fatos_reais' ) ) : null;
+
+	$candidatos = [];
+	foreach ( $query->posts as $post ) {
+		$raw = get_post_meta( $post->ID, '_dsi_dados_tecnicos_raw', true );
+		$d   = dsi_parse_dados_tecnicos( $raw );
+		if ( empty( $d['titulo'] ) ) {
+			continue;
+		}
+
+		if ( $filtro_tipo !== null ) {
+			$tipo_pedido = ( strpos( $filtro_tipo, 'serie' ) !== false ) ? 'serie' : 'filme';
+			if ( ( $d['tipo'] ?? 'filme' ) !== $tipo_pedido ) {
+				continue;
+			}
+		}
+
+		$pontos = 0;
+		if ( $filtro_emocao !== null && ! empty( $d['emocao'] ) ) {
+			foreach ( $d['emocao'] as $e ) {
+				if ( strpos( dsi_dt_normalize_key( $e ), $filtro_emocao ) !== false ) {
+					$pontos++;
+					break;
+				}
+			}
+		}
+		if ( $filtro_genero !== null && ! empty( $d['genero'] ) ) {
+			foreach ( $d['genero'] as $g ) {
+				if ( strpos( dsi_dt_normalize_key( $g ), $filtro_genero ) !== false ) {
+					$pontos++;
+					break;
+				}
+			}
+		}
+		if ( $filtro_fatos !== null && isset( $d['baseado_fatos_reais'] ) ) {
+			$quer_sim = strpos( $filtro_fatos, 'sim' ) === 0;
+			if ( $d['baseado_fatos_reais'] === $quer_sim ) {
+				$pontos++;
+			}
+		}
+
+		$candidatos[] = [ 'pontos' => $pontos, 'post' => $post, 'dados' => $d ];
+	}
+
+	usort( $candidatos, fn( array $a, array $b ): int => $b['pontos'] <=> $a['pontos'] );
+	$candidatos = array_slice( $candidatos, 0, $limite );
+
+	$resultados = array_map( function ( array $c ): array {
+		$post = $c['post'];
+		$d    = $c['dados'];
+		return [
+			'titulo'              => $d['titulo'],
+			'titulo_original'     => $d['titulo_original'] ?? null,
+			'tipo'                => $d['tipo'] ?? 'filme',
+			'direcao'             => $d['direcao'] ?? [],
+			'elenco'              => $d['elenco'] ?? [],
+			'ano'                 => $d['ano'] ?? null,
+			'genero'              => $d['genero'] ?? [],
+			'emocao'              => $d['emocao'] ?? [],
+			'baseado_fatos_reais' => $d['baseado_fatos_reais'] ?? null,
+			'poster'              => get_the_post_thumbnail_url( $post->ID, 'dsi-poster' ) ?: null,
+			'link'                => get_permalink( $post ),
+		];
+	}, $candidatos );
+
+	return new WP_REST_Response( [
+		'@context'         => 'https://schema.org',
+		'@type'            => 'ItemList',
+		'numberOfItems'    => count( $resultados ),
+		'itemListElement'  => array_values( $resultados ),
+	] );
+}
+
