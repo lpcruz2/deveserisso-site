@@ -19,13 +19,27 @@
  * sem mousemove antes, timing regular demais etc.) -- pageview normal de
  * humano nunca gera requisição nem linha nesta tabela. Nunca captura o
  * caractere digitado, só classificação estrutural/imprimível e timing.
+ *
+ * Rate limit subido de 20 pra 90 beacons/60s em 2026-09-12: teste ao vivo com
+ * Claude no Chrome navegando 20 páginas reais (clique real em cada uma, não
+ * headless) mostrou só 1 de 20 beacons chegando na tabela -- não é bug do
+ * sensor (o 1 que chegou foi corretamente flagrado via clique_sem_mousemove),
+ * é o limite antigo (20/60s) descartando o resto. A chave do balde
+ * (dsi_uisensor_client_ip -> dsi_agentmd_client_ip) é o IP do EDGE da
+ * Cloudflare, compartilhado por qualquer tráfego que caia no mesmo edge no
+ * mesmo minuto (mesma limitação já documentada pro rate limit da API de bots
+ * no CLAUDE.md) -- então uma sessão só de navegação rápida (exatamente o
+ * padrão de um agente tipo Claude no Chrome/Comet visitando várias páginas em
+ * sequência) já esgota o balde sozinha, sem nenhum abuso de verdade
+ * acontecendo. 90/60s ainda protege contra flood malicioso (site tem <100
+ * visitas/dia) mas dá folga real pra sessão agêntica legítima.
  */
 
 defined( 'ABSPATH' ) || exit;
 
 const DSI_UISENSOR_NAMESPACE     = 'dsi/v1';
 const DSI_UISENSOR_ROUTE         = '/uitrace';
-const DSI_UISENSOR_RL_LIMITE     = 20;  // beacons
+const DSI_UISENSOR_RL_LIMITE     = 90;  // beacons -- ver nota 2026-09-12 abaixo
 const DSI_UISENSOR_RL_JANELA     = 60;  // segundos
 const DSI_UISENSOR_RETENCAO_DIAS = 90;
 const DSI_UISENSOR_POR_PAGINA    = 100;
