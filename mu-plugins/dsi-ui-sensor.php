@@ -39,8 +39,17 @@ const DSI_UISENSOR_POR_PAGINA    = 100;
  * sessionStorage: amostrar pagina a pagina deixaria buracos no meio da
  * sessao e destruiria as features de ritmo entre paginas, que sao
  * justamente a assinatura de navegador agentico.
+ *
+ * 100% (bootstrap) -- decisao de 2026-09-12: com <100 visitas/dia no site,
+ * 20% levaria >1 mes pra juntar amostra com margem de erro utilizavel
+ * (~35-40 dias pra n=400). Em 100%, ~50-60 sessoes/dia com interacao viram
+ * amostra -- ainda assim so estatistica agregada e anonima, sem PII, 90
+ * dias de retencao (mesmo padrao do resto do projeto), bem menos invasivo
+ * que GA4 (cookie entre sessoes, fingerprint de device) se o site ja
+ * rodar isso. Revisitar depois de 2-3 semanas de baseline acumulada e
+ * considerar baixar -- a amostra já coletada continua valendo, não se perde.
  */
-const DSI_UISENSOR_BASELINE_RATE = 0.20;
+const DSI_UISENSOR_BASELINE_RATE = 1.0;
 
 // =============================================================================
 // FRONT-END — injeta o sensor em toda visita pública (não em wp-admin, feed
