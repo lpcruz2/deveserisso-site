@@ -30,6 +30,18 @@ const DSI_UISENSOR_RL_JANELA     = 60;  // segundos
 const DSI_UISENSOR_RETENCAO_DIAS = 90;
 const DSI_UISENSOR_POR_PAGINA    = 100;
 
+/**
+ * Fracao das SESSOES (nao dos pageviews) sorteada como baseline de
+ * comparacao. Sem esse denominador nao existe "% do trafego que e
+ * agentico" -- so contagem bruta de deteccoes, que nao responde nada.
+ *
+ * Sorteio por sessao e decidido no cliente uma unica vez e guardado em
+ * sessionStorage: amostrar pagina a pagina deixaria buracos no meio da
+ * sessao e destruiria as features de ritmo entre paginas, que sao
+ * justamente a assinatura de navegador agentico.
+ */
+const DSI_UISENSOR_BASELINE_RATE = 0.20;
+
 // =============================================================================
 // FRONT-END — injeta o sensor em toda visita pública (não em wp-admin, feed
 // ou visitante logado -- o alvo é quem visita de fora, não a própria equipe).
@@ -52,8 +64,9 @@ function dsi_uisensor_enqueue(): void {
 	// trace_id por pageview (não por sessão multi-página -- granularidade
 	// escolhida pra manter o MVP simples; ver nota de arquitetura no topo).
 	wp_localize_script( 'dsi-ui-sensor', 'dsiUiSensor', [
-		'endpoint' => rest_url( DSI_UISENSOR_NAMESPACE . DSI_UISENSOR_ROUTE ),
-		'traceId'  => wp_generate_uuid4(),
+		'endpoint'     => rest_url( DSI_UISENSOR_NAMESPACE . DSI_UISENSOR_ROUTE ),
+		'traceId'      => wp_generate_uuid4(),
+		'baselineRate' => DSI_UISENSOR_BASELINE_RATE,
 	] );
 }
 
@@ -142,10 +155,13 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 		DSI_UISENSOR_MOTIVOS_VALIDOS
 	) );
 
-	// Sem motivo válido -- cliente adulterado ou beacon de outra origem.
-	// Nunca deveria acontecer vindo do sensor real (ele só chama flush()
-	// quando já tem pelo menos 1 motivo), então trata como ruído.
-	if ( ! $motivos ) {
+	$sampled = ! empty( $dados['sampled'] );
+
+	// Linha sem motivo só é aceita se vier da amostra de baseline -- é
+	// exatamente o "tráfego normal" que forma o denominador. Sem motivo e
+	// sem ser amostra significa cliente adulterado ou beacon de outra
+	// origem: descarta.
+	if ( ! $motivos && ! $sampled ) {
 		return new WP_REST_Response( null, 204 );
 	}
 
@@ -194,6 +210,11 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 				: null,
 			'first_click_path_points'          => dsi_uisensor_int( $dados['first_click_path_points'] ?? null, 0, 1000 ),
 			'first_click_straightness'         => dsi_uisensor_float( $dados['first_click_straightness'] ?? null, 0, 1000 ),
+			'session_id'                       => mb_substr( sanitize_text_field( (string) ( $dados['session_id'] ?? '' ) ), 0, 36 ),
+			'page_index'                       => dsi_uisensor_int( $dados['page_index'] ?? null, 0, 10000 ),
+			'ms_since_prev_page'               => dsi_uisensor_int( $dados['ms_since_prev_page'] ?? null, 0, 86400000 ),
+			'sampled'                          => $sampled ? 1 : 0,
+			'session_degradada'                => ! empty( $dados['session_degradada'] ) ? 1 : 0,
 		],
 		[
 			'%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s',
@@ -202,6 +223,7 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 			'%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f',
 			'%d',
 			'%d', '%f',
+			'%s', '%d', '%d', '%d', '%d',
 		]
 	);
 
@@ -256,20 +278,162 @@ function dsi_uisensor_motivo_label( string $motivo ): string {
 	][ $motivo ] ?? $motivo;
 }
 
+/**
+ * Prevalência estimada -- a resposta pra "quantas pessoas chegam via
+ * navegador agêntico".
+ *
+ * CALCULADA SÓ SOBRE A AMOSTRA, de propósito. As sessões flagradas fora da
+ * amostra entram no banco 100%, então têm viés de seleção por construção:
+ * dividir por elas daria um número inventado. Dentro do grupo sorteado às
+ * cegas não há esse viés -- é o único recorte em que "quantas dispararam
+ * sobre o total" significa alguma coisa.
+ */
+function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
+
+	$r = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT
+			   COUNT(DISTINCT session_id) amostradas,
+			   COUNT(DISTINCT CASE WHEN heuristic_reasons IS NOT NULL AND heuristic_reasons <> '' THEN session_id END) flagradas
+			 FROM {$table}
+			 WHERE sampled = 1 AND session_id <> '' AND recorded_at BETWEEN %s AND %s",
+			$inicio_sql,
+			$fim_sql
+		)
+	);
+
+	$amostradas = (int) ( $r->amostradas ?? 0 );
+	$flagradas  = (int) ( $r->flagradas ?? 0 );
+
+	// Margem de erro binomial (95%) -- sem isso um "12%" vindo de 8 sessões
+	// parece a mesma coisa que um "12%" vindo de 800, e não é.
+	$pct    = $amostradas > 0 ? ( $flagradas / $amostradas ) * 100 : null;
+	$margem = $amostradas > 0
+		? 1.96 * sqrt( ( ( $flagradas / $amostradas ) * ( 1 - $flagradas / $amostradas ) ) / $amostradas ) * 100
+		: null;
+
+	$confiavel = $amostradas >= 100;
+
+	echo '<div style="display:flex;gap:16px;margin:20px 0;flex-wrap:wrap;">';
+	printf(
+		'<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;min-width:260px;box-sizing:border-box;">
+			<div style="font-size:13px;color:#646970;">Sessões agênticas (estimativa)</div>
+			<div style="font-size:36px;font-weight:600;line-height:1.2;color:%s;">%s</div>
+			<div style="font-size:13px;color:#646970;">%s</div>
+		</div>',
+		$confiavel ? '#1d2327' : '#8c6d1f',
+		$pct === null ? '—' : esc_html( sprintf( '%.1f%%', $pct ) ),
+		$pct === null
+			? 'sem amostra no período'
+			: esc_html( sprintf( '±%.1f p.p. · %d de %d sessões sorteadas', $margem, $flagradas, $amostradas ) )
+	);
+
+	if ( ! $confiavel ) {
+		printf(
+			'<div style="background:#fcf9e8;border:1px solid #dba617;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;">
+				<strong>Amostra ainda pequena (%d sessões).</strong> Abaixo de ~100 sessões sorteadas a margem de erro é maior que a própria diferença que se quer medir. Trate como sinal de que a coleta está funcionando, não como número para decidir nada.
+			</div>',
+			$amostradas
+		);
+	}
+	echo '</div>';
+}
+
+/**
+ * Visão por sessão. A assinatura de navegador agêntico descrita pela
+ * literatura (e visível nos nossos próprios testes) é "muitas páginas em
+ * janela curta, ritmo constante, poucas ações por página" -- nada disso
+ * aparece olhando pageview isolado, só agregando a sessão inteira.
+ */
+function dsi_uisensor_render_sessoes( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
+
+	$sessoes = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT session_id,
+			        MIN(recorded_at) inicio,
+			        COUNT(*) paginas,
+			        TIMESTAMPDIFF(SECOND, MIN(recorded_at), MAX(recorded_at)) duracao_s,
+			        SUM(n_clicks) cliques, SUM(n_scrolls) scrolls,
+			        AVG(ms_since_prev_page) intervalo_medio,
+			        STDDEV_POP(ms_since_prev_page) intervalo_desvio,
+			        MAX(sampled) sampled,
+			        GROUP_CONCAT(DISTINCT NULLIF(heuristic_reasons, '')) motivos,
+			        MAX(user_agent) ua, MAX(client_ip) ip, MAX(country) pais
+			 FROM {$table}
+			 WHERE session_id <> '' AND recorded_at BETWEEN %s AND %s
+			 GROUP BY session_id
+			 HAVING paginas > 1
+			 ORDER BY inicio DESC
+			 LIMIT 100",
+			$inicio_sql,
+			$fim_sql
+		)
+	);
+
+	echo '<h2 style="margin-top:32px;">Sessões multipágina</h2>';
+	echo '<p style="color:#646970;max-width:80ch;">Só sessões com 2+ páginas — é onde o ritmo entre páginas existe e pode ser medido. <strong>Ritmo</strong> é o desvio do intervalo dividido pela média: perto de zero significa cadência de máquina (humano varia muito mais).</p>';
+	echo '<table class="widefat striped"><thead><tr><th>Início</th><th>Páginas</th><th>Duração</th><th title="Páginas por minuto">Pág/min</th><th title="Desvio do intervalo entre páginas / média. Baixo = cadência constante">Ritmo</th><th title="(cliques + scrolls) por página">Ações/pág</th><th>Motivos</th><th>Amostra</th><th>IP</th><th>País</th></tr></thead><tbody>';
+
+	if ( ! $sessoes ) {
+		echo '<tr><td colspan="10">Nenhuma sessão multipágina nesse período.</td></tr>';
+	}
+
+	foreach ( $sessoes as $s ) {
+		$paginas   = (int) $s->paginas;
+		$duracao   = (int) $s->duracao_s;
+		$pag_min   = $duracao > 0 ? $paginas / ( $duracao / 60 ) : null;
+		$media     = (float) $s->intervalo_medio;
+		$cv        = $media > 0 ? (float) $s->intervalo_desvio / $media : null;
+		$acoes     = ( (int) $s->cliques + (int) $s->scrolls ) / max( 1, $paginas );
+
+		// Só destaca cadência robótica quando há amostra suficiente pra
+		// isso significar algo -- com 2 páginas, 1 intervalo, CV é ruído.
+		$cv_suspeito = $cv !== null && $cv < 0.35 && $paginas >= 3;
+
+		printf(
+			'<tr><td>%s</td><td>%d</td><td>%s</td><td>%s</td><td%s>%s</td><td>%.1f</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+			esc_html( $s->inicio ),
+			$paginas,
+			$duracao > 0 ? esc_html( sprintf( '%dm%02ds', intdiv( $duracao, 60 ), $duracao % 60 ) ) : '—',
+			$pag_min !== null ? esc_html( number_format( $pag_min, 1 ) ) : '—',
+			$cv_suspeito ? ' style="color:#d63638;font-weight:600;"' : '',
+			$cv !== null ? esc_html( number_format( $cv, 2 ) ) : '—',
+			$acoes,
+			$s->motivos ? esc_html( implode( ', ', array_map( 'dsi_uisensor_motivo_label', array_unique( explode( ',', $s->motivos ) ) ) ) ) : '—',
+			$s->sampled ? 'sim' : '—',
+			esc_html( (string) $s->ip ),
+			esc_html( $s->pais ?? '—' )
+		);
+	}
+
+	echo '</tbody></table>';
+}
+
 function dsi_uisensor_admin_page(): void {
 	global $wpdb;
 	$table = $wpdb->prefix . 'dsi_ui_flagged_traces';
 
 	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_agentmd_periodo_from_request();
 
+	// As três consultas abaixo excluem linha de baseline (heuristic_reasons
+	// vazio) de propósito -- esta tela e a tabela "Sessões flagradas" são
+	// sobre DETECÇÃO. A linha de baseline sem motivo só entra no cálculo de
+	// prevalência (dsi_uisensor_render_prevalencia) e na visão por sessão.
 	$total_periodo = (int) $wpdb->get_var(
-		$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE recorded_at BETWEEN %s AND %s", $inicio_sql, $fim_sql )
+		$wpdb->prepare(
+			"SELECT COUNT(*) FROM {$table}
+			 WHERE heuristic_reasons <> '' AND recorded_at BETWEEN %s AND %s",
+			$inicio_sql,
+			$fim_sql
+		)
 	);
 
 	$por_motivo = $wpdb->get_results(
 		$wpdb->prepare(
 			"SELECT heuristic_reasons, COUNT(*) AS total FROM {$table}
-			 WHERE recorded_at BETWEEN %s AND %s
+			 WHERE heuristic_reasons <> '' AND recorded_at BETWEEN %s AND %s
 			 GROUP BY heuristic_reasons ORDER BY total DESC",
 			$inicio_sql,
 			$fim_sql
@@ -278,7 +442,8 @@ function dsi_uisensor_admin_page(): void {
 
 	$linhas = $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT * FROM {$table} WHERE recorded_at BETWEEN %s AND %s
+			"SELECT * FROM {$table}
+			 WHERE heuristic_reasons <> '' AND recorded_at BETWEEN %s AND %s
 			 ORDER BY recorded_at DESC LIMIT %d",
 			$inicio_sql,
 			$fim_sql,
@@ -287,7 +452,9 @@ function dsi_uisensor_admin_page(): void {
 	);
 
 	echo '<div class="wrap"><h1>Navegadores agênticos</h1>';
-	echo '<p style="color:#646970;max-width:80ch;">Sessões onde o navegador do visitante disparou algum sinal de automação (ver <code>mu-plugins/dsi-ui-sensor.php</code>) -- pageview normal de humano <strong>não</strong> aparece aqui, o sensor não envia nada nesse caso. Isto responde "existe tráfego de agente pilotando navegador (tipo computer-use) no site?" antes de investir em classificar qual modelo é.</p>';
+	echo '<p style="color:#646970;max-width:80ch;">Navegador agêntico (Claude no Chrome, ChatGPT Atlas, Perplexity Comet) manda <strong>User-Agent de Chrome puro</strong> — não existe detecção por header, só por comportamento. Esta tela mede isso de duas formas: <strong>detecção</strong> (sessões que dispararam algum sinal de automação, registradas 100%) e <strong>baseline</strong> (uma amostra de ' . (int) round( DSI_UISENSOR_BASELINE_RATE * 100 ) . '% das sessões, sorteada às cegas, que serve de denominador).</p>';
+
+	dsi_uisensor_render_prevalencia( $table, $inicio_sql, $fim_sql );
 
 	echo '<form method="get" style="margin:16px 0;display:flex;gap:8px;align-items:end;flex-wrap:wrap;">';
 	echo '<input type="hidden" name="page" value="dsi-ui-sensor">';
@@ -313,6 +480,8 @@ function dsi_uisensor_admin_page(): void {
 		}
 		echo '</tbody></table>';
 	}
+
+	dsi_uisensor_render_sessoes( $table, $inicio_sql, $fim_sql );
 
 	echo '<h2 style="margin-top:32px;">Sessões flagradas (' . (int) DSI_UISENSOR_POR_PAGINA . ' mais recentes)</h2>';
 	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>URL</th><th>Motivos</th><th>Cliente (UA)</th><th>IP</th><th>País</th><th>Cliques</th><th>Scrolls</th><th>Teclas</th><th>Viewport</th><th title="navigator.webdriver">WebDriver</th><th title="Houve mousemove antes do 1º clique?">Mousemove antes</th><th title="Pontos no caminho do mouse até o 1º clique">Pontos mouse</th><th title="Comprimento do caminho / distância em linha reta -- perto de 1.0 = trajetória sintética">Retidão</th></tr></thead><tbody>';

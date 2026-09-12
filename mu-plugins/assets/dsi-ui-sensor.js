@@ -2,18 +2,67 @@
 	'use strict';
 
 	// Sensor de comportamento de UI -- detecta se quem esta navegando e um
-	// agente de IA pilotando o navegador de verdade (tipo computer-use/
-	// Midscene.js), nao um humano nem um crawler HTTP comum. So envia dados
-	// quando pelo menos um sinal de automacao dispara: pageview normal de
-	// humano nunca gera nenhum tráfego nem linha no banco. Nunca captura o
-	// CARACTERE digitado -- so a classificacao estrutural/imprimivel e o
-	// timing (ver mu-plugins/dsi-ui-sensor.php).
+	// agente de IA pilotando o navegador de verdade, nao um humano. Nunca
+	// captura o CARACTERE digitado -- so a classificacao estrutural/
+	// imprimivel e o timing (ver mu-plugins/dsi-ui-sensor.php).
+	//
+	// Envia beacon em dois casos:
+	//   1. algum sinal de automacao disparou (deteccao)
+	//   2. a sessao caiu na amostra de baseline (denominador estatistico)
+	// Fora esses dois, nao gera trafego nem linha no banco.
+	//
+	// Navegador agentico como Claude no Chrome / ChatGPT Atlas / Perplexity
+	// Comet manda User-Agent de Chrome puro -- confirmado ao vivo e pela
+	// documentacao dos proprios fornecedores. Nao existe deteccao por header:
+	// so comportamento, e so agregado por SESSAO (a assinatura e "muitas
+	// paginas em janela curta, ritmo constante, poucas acoes por pagina",
+	// que nao aparece olhando um pageview isolado).
 
 	if ( window.__dsiUiSensorLoaded ) { return; }
 	window.__dsiUiSensorLoaded = true;
 
 	var cfg = window.dsiUiSensor || {};
 	if ( ! cfg.endpoint ) { return; }
+
+	// -------------------------------------------------------------------
+	// SESSAO -- sessionStorage, nao cookie: morre ao fechar a aba, nao
+	// atravessa abas nem visitas futuras. E identidade de sessao de
+	// navegacao, nao de pessoa.
+	//
+	// O sorteio da amostra e decidido UMA VEZ por sessao, nunca por pagina:
+	// amostrar pagina a pagina deixaria buracos no meio da sessao e
+	// corromperia justamente as features de ritmo entre paginas.
+	// -------------------------------------------------------------------
+	var sess = { id: cfg.traceId, index: 1, msSincePrev: null, sampled: false, degradado: true };
+
+	try {
+		var agora = Date.now();
+		var id    = sessionStorage.getItem( 'dsi_sess_id' );
+
+		if ( ! id ) {
+			id = cfg.traceId; // 1a pagina: reaproveita o uuid que o servidor ja gerou
+			sessionStorage.setItem( 'dsi_sess_id', id );
+			sessionStorage.setItem( 'dsi_sess_n', '1' );
+			sessionStorage.setItem( 'dsi_sess_sampled', Math.random() < ( cfg.baselineRate || 0 ) ? '1' : '0' );
+			sess.index = 1;
+		} else {
+			var n = parseInt( sessionStorage.getItem( 'dsi_sess_n' ) || '1', 10 ) + 1;
+			sessionStorage.setItem( 'dsi_sess_n', String( n ) );
+			sess.index = n;
+
+			var tprev = parseInt( sessionStorage.getItem( 'dsi_sess_tprev' ) || '0', 10 );
+			if ( tprev > 0 && agora > tprev ) { sess.msSincePrev = agora - tprev; }
+		}
+
+		sessionStorage.setItem( 'dsi_sess_tprev', String( agora ) );
+
+		sess.id        = id;
+		sess.sampled   = sessionStorage.getItem( 'dsi_sess_sampled' ) === '1';
+		sess.degradado = false;
+	} catch ( e ) {
+		// sessionStorage bloqueado (janela privada, cookies desativados).
+		// Segue funcionando como sensor por pageview, sem agregacao.
+	}
 
 	var STRUCTURAL_KEYS = [ 'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
 		'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight' ];
@@ -204,6 +253,11 @@
 
 		return {
 			trace_id: cfg.traceId,
+			session_id: sess.id,
+			page_index: sess.index,
+			ms_since_prev_page: sess.msSincePrev,
+			sampled: sess.sampled,
+			session_degradada: sess.degradado,
 			url_path: location.pathname,
 			motivos: motivos,
 			viewport_w: window.innerWidth,
@@ -242,10 +296,18 @@
 
 	function flush() {
 		if ( flushed ) { return; }
+
+		// Pageview sem nenhuma interacao nao entra -- nem como deteccao nem
+		// como baseline. O criterio e o MESMO dos dois lados de proposito:
+		// a taxa que o painel calcula e "entre pageviews com alguma
+		// interacao", e so se mantem honesta se numerador e denominador
+		// excluirem exatamente a mesma coisa.
 		if ( totalClicks === 0 && totalScrolls === 0 && totalKeydowns === 0 ) { return; }
 
 		var motivos = heuristicaAutomacao();
-		if ( motivos.length === 0 ) { return; } // comportamento normal -- nada enviado
+
+		// Sem motivo e fora da amostra: comportamento normal, nada enviado.
+		if ( motivos.length === 0 && ! sess.sampled ) { return; }
 
 		flushed = true;
 		var body = JSON.stringify( montaPayload( motivos ) );
