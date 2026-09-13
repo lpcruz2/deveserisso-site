@@ -360,6 +360,12 @@ function dsi_agentmd_bots_conhecidos(): array {
 		// Bots de IA
 		'GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'ClaudeBot', 'Claude-Web', 'Claude-User',
 		'Claude-SearchBot', 'anthropic-ai', 'PerplexityBot', 'Perplexity-User', 'CCBot',
+		// Manus-User: achado ao vivo em 2026-09-13 testando o agente Manus --
+		// diferente do Comet/Claude no Chrome (Chrome puro, sem marca), o
+		// Manus se autodeclara no UA (`...; Manus-User/1.0`), mas nao bate no
+		// padrao bot/crawler/spider do fallback, entao caia em "desconhecido"
+		// sem essa entrada.
+		'Manus-User',
 		'Google-Extended', 'GoogleOther', 'Bytespider', 'Amazonbot', 'Applebot',
 		'meta-externalagent', 'FacebookBot', 'DuckAssistBot', 'YouBot', 'Diffbot',
 		'cohere-ai', 'AI2Bot', 'ImagesiftBot', 'omgili', 'Timpibot', 'MistralAI',
