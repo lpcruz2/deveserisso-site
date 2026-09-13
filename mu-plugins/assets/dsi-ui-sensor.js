@@ -100,6 +100,25 @@
 	var firstClickStraightness = null;
 	var firstClickStraightLineDist = null;
 
+	// Duracao do clique/tecla (mousedown->mouseup, keydown->keyup) -- achado
+	// fazendo engenharia reversa ao vivo no Claude no Chrome em 2026-09-13:
+	// o clique dele tem ~2-3ms entre pressionar e soltar, e a digitacao
+	// ~0.3-0.5ms entre tecla e tecla. Mao humana nunca faz isso -- o tempo
+	// minimo de um clique deliberado fica na casa de dezenas de ms (contracao
+	// muscular + atuacao mecanica do botao), e digitacao rapida de verdade
+	// raramente passa de ~8-10 teclas/segundo (~100ms/tecla). Nao captura
+	// qual tecla foi solta, so o timestamp -- mesmo espirito de privacidade
+	// do resto do sensor.
+	var firstMousedownAt = null;
+	var firstClickDwellMs = null;
+	var keyDwellMs = [];
+	var pendingKeydownAt = null;
+	var MAX_KEY_DWELL_SAMPLES = 50;
+
+	window.addEventListener( 'mousedown', function ( e ) {
+		if ( firstMousedownAt === null ) { firstMousedownAt = e.timeStamp; }
+	}, { passive: true, capture: true } );
+
 	function markEvent() {
 		var now = performance.now();
 		if ( firstActionAt === null ) { firstActionAt = now - startedAt; }
@@ -129,6 +148,7 @@
 		totalClicks++;
 		if ( firstClickHadMouseMove === null ) {
 			firstClickHadMouseMove = mouseMoved;
+			firstClickDwellMs = firstMousedownAt !== null ? ( e.timeStamp - firstMousedownAt ) : null;
 
 			// So calcula pra quem realmente teve mousemove -- senao ja cai em
 			// clique_sem_mousemove, sinal mais forte e mais barato.
@@ -169,6 +189,14 @@
 		} else if ( e.key && e.key.length === 1 ) {
 			printableKeydowns++;
 		}
+		pendingKeydownAt = e.timeStamp;
+	}, { passive: true, capture: true } );
+
+	window.addEventListener( 'keyup', function ( e ) {
+		if ( pendingKeydownAt !== null && keyDwellMs.length < MAX_KEY_DWELL_SAMPLES ) {
+			keyDwellMs.push( e.timeStamp - pendingKeydownAt );
+		}
+		pendingKeydownAt = null;
 	}, { passive: true, capture: true } );
 
 	window.addEventListener( 'focusin', function ( e ) {
@@ -244,6 +272,23 @@
 			motivos.push( 'sem_idiomas' );
 		}
 
+		// Limiares bem abaixo do minimo humano plausivel (clique deliberado
+		// mais rapido fica na casa de dezenas de ms; digitacao mais rapida
+		// registrada, na casa de ~100ms/tecla) -- os valores observados no
+		// Claude no Chrome (~2-3ms clique, ~0.3-0.5ms/tecla) ficam uma ordem
+		// de grandeza abaixo disso, entao ha folga confortavel sem risco de
+		// falso positivo em humano rapido.
+		if ( firstClickDwellMs !== null && firstClickDwellMs < 20 ) {
+			motivos.push( 'clique_duracao_impossivel' );
+		}
+
+		if ( keyDwellMs.length >= 2 ) {
+			var mKeyDwell = mean( keyDwellMs );
+			if ( mKeyDwell !== null && mKeyDwell < 15 ) {
+				motivos.push( 'digitacao_impossivel' );
+			}
+		}
+
 		return motivos;
 	}
 
@@ -290,7 +335,9 @@
 			mean_scroll_pct: mean( scrollDepths ),
 			had_mousemove_before_first_click: firstClickHadMouseMove,
 			first_click_path_points: firstClickPathPoints,
-			first_click_straightness: firstClickStraightness
+			first_click_straightness: firstClickStraightness,
+			first_click_dwell_ms: firstClickDwellMs,
+			mean_key_dwell_ms: keyDwellMs.length ? mean( keyDwellMs ) : null
 		};
 	}
 

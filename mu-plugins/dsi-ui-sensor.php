@@ -168,6 +168,8 @@ const DSI_UISENSOR_MOTIVOS_VALIDOS = [
 	'viewport_automacao_sem_plugins',
 	'sem_idiomas',
 	'movimento_mouse_sintetico',
+	'clique_duracao_impossivel',
+	'digitacao_impossivel',
 ];
 
 /**
@@ -246,6 +248,8 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 				: null,
 			'first_click_path_points'          => dsi_uisensor_int( $dados['first_click_path_points'] ?? null, 0, 1000 ),
 			'first_click_straightness'         => dsi_uisensor_float( $dados['first_click_straightness'] ?? null, 0, 1000 ),
+			'first_click_dwell_ms'              => dsi_uisensor_float( $dados['first_click_dwell_ms'] ?? null, 0, 60000 ),
+			'mean_key_dwell_ms'                  => dsi_uisensor_float( $dados['mean_key_dwell_ms'] ?? null, 0, 60000 ),
 			'session_id'                       => mb_substr( sanitize_text_field( (string) ( $dados['session_id'] ?? '' ) ), 0, 36 ),
 			'page_index'                       => dsi_uisensor_int( $dados['page_index'] ?? null, 0, 10000 ),
 			'ms_since_prev_page'               => dsi_uisensor_int( $dados['ms_since_prev_page'] ?? null, 0, 86400000 ),
@@ -259,6 +263,7 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 			'%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f',
 			'%d',
 			'%d', '%f',
+			'%f', '%f',
 			'%s', '%d', '%d', '%d', '%d',
 		]
 	);
@@ -311,6 +316,8 @@ function dsi_uisensor_motivo_label( string $motivo ): string {
 		'viewport_automacao_sem_plugins'  => 'viewport de automação + sem plugins',
 		'sem_idiomas'                     => 'sem idiomas declarados',
 		'movimento_mouse_sintetico'       => 'movimento de mouse sintético (poucos pontos/reto demais)',
+		'clique_duracao_impossivel'       => 'clique rápido demais (mousedown→mouseup)',
+		'digitacao_impossivel'            => 'digitação rápida demais (keydown→keyup)',
 	][ $motivo ] ?? $motivo;
 }
 
@@ -520,10 +527,10 @@ function dsi_uisensor_admin_page(): void {
 	dsi_uisensor_render_sessoes( $table, $inicio_sql, $fim_sql );
 
 	echo '<h2 style="margin-top:32px;">Sessões flagradas (' . (int) DSI_UISENSOR_POR_PAGINA . ' mais recentes)</h2>';
-	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>URL</th><th>Motivos</th><th>Cliente (UA)</th><th>IP</th><th>País</th><th>Cliques</th><th>Scrolls</th><th>Teclas</th><th>Viewport</th><th title="navigator.webdriver">WebDriver</th><th title="Houve mousemove antes do 1º clique?">Mousemove antes</th><th title="Pontos no caminho do mouse até o 1º clique">Pontos mouse</th><th title="Comprimento do caminho / distância em linha reta -- perto de 1.0 = trajetória sintética">Retidão</th></tr></thead><tbody>';
+	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>URL</th><th>Motivos</th><th>Cliente (UA)</th><th>IP</th><th>País</th><th>Cliques</th><th>Scrolls</th><th>Teclas</th><th>Viewport</th><th title="navigator.webdriver">WebDriver</th><th title="Houve mousemove antes do 1º clique?">Mousemove antes</th><th title="Pontos no caminho do mouse até o 1º clique">Pontos mouse</th><th title="Comprimento do caminho / distância em linha reta -- perto de 1.0 = trajetória sintética">Retidão</th><th title="mousedown→mouseup do 1º clique -- humano nunca fica abaixo de ~20ms">Duração clique (ms)</th><th title="keydown→keyup médio -- humano nunca fica abaixo de ~15ms">Duração tecla (ms)</th></tr></thead><tbody>';
 
 	if ( ! $linhas ) {
-		echo '<tr><td colspan="14">Nenhuma sessão flagrada nesse período.</td></tr>';
+		echo '<tr><td colspan="16">Nenhuma sessão flagrada nesse período.</td></tr>';
 	}
 
 	foreach ( $linhas as $row ) {
@@ -532,7 +539,7 @@ function dsi_uisensor_admin_page(): void {
 		$rotulos = implode( ', ', array_map( 'dsi_uisensor_motivo_label', explode( ',', $row->heuristic_reasons ) ) );
 
 		printf(
-			'<tr><td>%s</td><td><code>%s</code></td><td>%s</td><td title="%s">%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%s×%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+			'<tr><td>%s</td><td><code>%s</code></td><td>%s</td><td title="%s">%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%s×%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
 			esc_html( $row->recorded_at ),
 			esc_html( $row->url_path ),
 			esc_html( $rotulos ),
@@ -548,7 +555,9 @@ function dsi_uisensor_admin_page(): void {
 			$row->navigator_webdriver ? 'sim' : 'não',
 			esc_html( $mousemove_txt ),
 			esc_html( (string) ( $row->first_click_path_points ?? '—' ) ),
-			$row->first_click_straightness !== null ? esc_html( number_format( (float) $row->first_click_straightness, 3 ) ) : '—'
+			$row->first_click_straightness !== null ? esc_html( number_format( (float) $row->first_click_straightness, 3 ) ) : '—',
+			$row->first_click_dwell_ms !== null ? esc_html( number_format( (float) $row->first_click_dwell_ms, 1 ) ) : '—',
+			$row->mean_key_dwell_ms !== null ? esc_html( number_format( (float) $row->mean_key_dwell_ms, 1 ) ) : '—'
 		);
 	}
 
