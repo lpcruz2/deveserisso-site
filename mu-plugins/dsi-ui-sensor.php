@@ -23,10 +23,10 @@
  * User-Agent, caminho da URL, viewport, fuso e timing.
  *
  * Isso é coleta analítica de tráfego, comparável a um GA4 mais enxuto, NÃO
- * "só quem parece bot deixa rastro". A frase antiga do cabeçalho dizia o
- * contrário e estava errada. Para voltar ao regime seletivo, baixe
+ * "só quem parece bot deixa rastro". Para voltar ao regime seletivo, baixe
  * BASELINE_RATE (ex.: 0.2) -- aí sim o pageview humano fora do sorteio não
- * gera requisição nenhuma.
+ * gera requisição nenhuma. `baseline_rate` é gravado por linha e o painel
+ * avisa quando um período mistura taxas diferentes.
  *
  * IP: retenção em duas camadas (ver dsi_uisensor_purga). `client_ip` bruto
  * vive DSI_UISENSOR_IP_RAW_DIAS dias, o suficiente pra investigar uma sessão
@@ -42,6 +42,22 @@
  * balde é o IP do EDGE da Cloudflare, compartilhado por qualquer tráfego que
  * caia no mesmo edge no mesmo minuto, então uma única sessão de navegação
  * rápida (o próprio padrão de um agente) esgotava o balde sozinha.
+ *
+ * ---------------------------------------------------------------------------
+ * SEGURANÇA DO ENDPOINT -- corrigido na v4 após revisão externa.
+ *
+ * O endpoint é público de necessidade (sendBeacon não permite header
+ * customizado, então não dá pra exigir nonce). Isso NÃO significa "sem
+ * verificação nenhuma": um curl direto pro endpoint, forjando `motivos`,
+ * `session_id` e demais campos, conseguia gravar linha arbitrária e -- pior
+ * -- se autodeclarar `dev_traffic` pra sumir das contas do painel. Camadas
+ * de defesa adicionadas: (1) rejeita quando o header `Origin` está presente
+ * e não bate com o domínio do site (não pega curl que nem manda Origin, mas
+ * mata o caso ingênuo); (2) `dev_traffic` deixou de ser lido do payload do
+ * cliente -- agora vem de um cookie (`dsi_dbg`) que só o PRÓPRIO servidor
+ * grava, quando alguém visita com `?dsi_debug=1`. Nenhuma das duas é à prova
+ * de um atacante que leia este código-fonte e replique o fluxo exato -- é
+ * elevar o custo de abuso trivial, não eliminar toda superfície.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -53,6 +69,7 @@ const DSI_UISENSOR_RL_JANELA     = 60;  // segundos
 const DSI_UISENSOR_RETENCAO_DIAS = 90;  // vida da linha inteira
 const DSI_UISENSOR_IP_RAW_DIAS   = 7;   // vida do client_ip BRUTO dentro da linha
 const DSI_UISENSOR_POR_PAGINA    = 100;
+const DSI_UISENSOR_RULESET_VERSION = 4; // espelha RULESET_VERSION do JS -- usado nas linhas gravadas direto pelo servidor (header flags)
 
 /**
  * IPs da própria equipe/máquina de teste. Linhas vindas daqui recebem
@@ -63,9 +80,13 @@ const DSI_UISENSOR_POR_PAGINA    = 100;
  * cruzamento H4: 1 dos 3 IPs "sobrepostos" era a máquina de desenvolvimento).
  *
  * Alternativa sem configurar nada, e a recomendada: abra o site uma vez com
- * ?dsi_debug=1 -- o sensor marca aquele navegador como dev em localStorage,
- * de forma permanente (?dsi_debug=0 limpa). Não é credencial, não concede
- * nada: só pede pra ser ignorado nas contas.
+ * ?dsi_debug=1 -- o PRÓPRIO SERVIDOR grava um cookie (dsi_dbg, ver
+ * dsi_uisensor_debug_cookie), permanente até `?dsi_debug=0` limpar. Não é
+ * credencial, não concede nada: só pede pra ser ignorado nas contas. (Na v3
+ * isso era um valor enviado pelo cliente no payload do beacon -- qualquer um
+ * podia forjar `dev_traffic:true` numa requisição direta ao endpoint e sumir
+ * das contas; corrigido na v4 pra depender só do cookie, que o servidor
+ * controla.)
  *
  * Se preencher a lista, defina em wp-config.php e não aqui:
  *
@@ -83,6 +104,31 @@ function dsi_uisensor_dev_ips(): array {
 		: [];
 
 	return array_merge( DSI_UISENSOR_DEV_IPS, $extra );
+}
+
+/**
+ * Marca ?dsi_debug=1/0 como cookie de sessão gravado pelo SERVIDOR -- em
+ * `init`, cedo o bastante pra `setcookie()` funcionar (wp_footer, onde o
+ * sensor é impresso, já é tarde demais: o HTML já começou a sair). O cookie
+ * não é lido por JS nenhum (httponly) porque não precisa: só o PHP consulta
+ * em `dsi_uisensor_eh_dev_traffic()`.
+ */
+add_action( 'init', 'dsi_uisensor_debug_cookie' );
+function dsi_uisensor_debug_cookie(): void {
+	if ( headers_sent() ) {
+		return;
+	}
+	if ( isset( $_GET['dsi_debug'] ) && $_GET['dsi_debug'] === '1' ) {
+		setcookie( 'dsi_dbg', '1', time() + 10 * YEAR_IN_SECONDS, COOKIEPATH ?: '/', COOKIE_DOMAIN, is_ssl(), true );
+	} elseif ( isset( $_GET['dsi_debug'] ) && $_GET['dsi_debug'] === '0' ) {
+		setcookie( 'dsi_dbg', '', time() - HOUR_IN_SECONDS, COOKIEPATH ?: '/', COOKIE_DOMAIN, is_ssl(), true );
+	}
+}
+
+/** Único lugar que decide se um IP/sessão é tráfego interno -- ver nota de segurança no topo. */
+function dsi_uisensor_eh_dev_traffic( string $ip ): bool {
+	return ( isset( $_COOKIE['dsi_dbg'] ) && $_COOKIE['dsi_dbg'] === '1' )
+		|| in_array( $ip, dsi_uisensor_dev_ips(), true );
 }
 
 /**
@@ -114,31 +160,37 @@ const DSI_UISENSOR_BASELINE_RATE = 1.0;
 // passando pela fila padrão do WP some de cena imprimindo direto como HTML.
 //
 // ATENÇÃO: o HTML deste rodapé É CACHEADO. Nada que precise ser único por
-// visitante pode nascer aqui -- foi exatamente o bug do session_id em v1.
+// visitante pode nascer aqui -- foi exatamente o bug do session_id em v1, e
+// a v3 REINCIDIU nisso com os motivos de header (ver
+// dsi_uisensor_grava_header_flags logo abaixo, que corrige gravando direto
+// no banco em vez de passar pelo HTML cacheável).
 // =============================================================================
 add_action( 'wp_footer', 'dsi_uisensor_print_inline', 20 );
 
 /**
- * Motivos calculados no SERVIDOR, a partir dos headers da requisição de
- * PÁGINA (não do beacon) -- só é possível avaliar aqui, em wp_footer, porque
- * $_SERVER ainda reflete a requisição original nesse ponto do request.
+ * Motivos calculados a partir dos headers da requisição de PÁGINA (não do
+ * beacon) -- só é possível avaliar aqui, em wp_footer, porque $_SERVER ainda
+ * reflete a requisição original nesse ponto do request.
  *
  * Comparado contra a literatura de fingerprinting de agentes (FP-Agent,
- * arXiv:2605.01247; "Whose Agent Are You?", arXiv:2606.20910) -- ver
- * changelog do JS. Ainda não verificado ao vivo contra Claude no Chrome,
- * Comet ou Manus especificamente (nenhum mostrou anomalia de header nos
- * testes já feitos); mira uma categoria mais ampla de automação que
- * intercepta rede via CDP e não preserva esses headers com fidelidade.
+ * arXiv:2605.01247; "Whose Agent Are You?", arXiv:2606.20910). Ainda não
+ * verificado ao vivo contra Claude no Chrome, Comet ou Manus especificamente
+ * (nenhum mostrou anomalia de header nos testes já feitos); mira uma
+ * categoria mais ampla de automação que intercepta rede via CDP e não
+ * preserva esses headers com fidelidade.
  */
 function dsi_uisensor_header_flags(): array {
 	$motivos = [];
 
 	// Sec-Fetch-Mode "navigate" só pode vir pareado com Sec-Fetch-Dest
-	// "document" (ou "iframe"/"frame" em conteúdo embutido) -- um navegador
-	// real nunca "navega" pedindo um destino de sub-recurso.
+	// "document" (ou "iframe"/"frame"/"object"/"embed" em conteúdo embutido
+	// -- os dois últimos adicionados na v4: um <object>/<embed> legítimo
+	// embutindo uma página do site produz essa combinação por spec, e sem
+	// eles todo acesso embutido assim virava falso positivo). Um navegador
+	// real nunca "navega" pedindo um destino fora dessa lista.
 	$modo = $_SERVER['HTTP_SEC_FETCH_MODE'] ?? '';
 	$dest = $_SERVER['HTTP_SEC_FETCH_DEST'] ?? '';
-	if ( $modo === 'navigate' && $dest !== '' && ! in_array( $dest, [ 'document', 'iframe', 'frame' ], true ) ) {
+	if ( $modo === 'navigate' && $dest !== '' && ! in_array( $dest, [ 'document', 'iframe', 'frame', 'object', 'embed' ], true ) ) {
 		$motivos[] = 'fetch_metadata_impossivel';
 	}
 
@@ -163,10 +215,68 @@ function dsi_uisensor_header_flags(): array {
 	return $motivos;
 }
 
+/**
+ * Grava direto no banco os motivos calculados a partir de header -- NUNCA
+ * passa pelo cliente/HTML cacheável (ver nota de ATENÇÃO acima). Como só é
+ * chamada de dentro de dsi_uisensor_print_inline(), só roda em cache MISS
+ * (o único momento em que este hook realmente executa) -- então cada
+ * chamada corresponde à requisição de UM visitante real, nunca atribui o
+ * header de alguém a outra pessoa que receba a mesma página do cache.
+ *
+ * session_id fica vazio de propósito: não existe conceito de "sessão de
+ * navegação" aqui, é um sinal de UMA requisição específica, sem beacon
+ * nenhum do cliente por trás. `sampled=0` pelo mesmo motivo -- não faz parte
+ * do sorteio de baseline (que é por sessão comportamental).
+ */
+function dsi_uisensor_grava_header_flags(): void {
+	$motivos = array_values( array_unique( dsi_uisensor_header_flags() ) );
+	if ( ! $motivos ) {
+		return;
+	}
+
+	$ip = dsi_uisensor_client_ip();
+
+	// Mesmo balde do endpoint público -- sem isso, uma sequência de
+	// requisições com header hostil e query string variando (pra forçar
+	// cache MISS) poderia inflar esta tabela sem limite.
+	if ( dsi_uisensor_rate_limit_excedido( $ip ) ) {
+		return;
+	}
+
+	global $wpdb;
+	$salt = dsi_uisensor_ip_salt();
+	$ua   = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+
+	$wpdb->insert(
+		$wpdb->prefix . 'dsi_ui_flagged_traces',
+		[
+			'recorded_at'       => current_time( 'mysql' ),
+			'trace_id'          => wp_generate_uuid4(),
+			'session_id'        => '',
+			'sampled'           => 0,
+			'is_dev_traffic'    => dsi_uisensor_eh_dev_traffic( $ip ) ? 1 : 0,
+			'baseline_rate'     => DSI_UISENSOR_BASELINE_RATE,
+			'url_path'          => dsi_uisensor_texto( $_SERVER['REQUEST_URI'] ?? '', 255 ),
+			'user_agent'        => mb_substr( $ua, 0, 255 ),
+			'client_ip'         => $ip,
+			'ip_hash'           => dsi_uisensor_ip_hash( $ip ),
+			'ip_prefix'         => dsi_uisensor_ip_prefix( $ip ),
+			'ip_salt_epoch'     => (int) ( $salt['epoch'] ?? 1 ),
+			'country'           => function_exists( 'dsi_agentmd_country' ) ? dsi_agentmd_country() : null,
+			'bot_label'         => function_exists( 'dsi_agentmd_classify_bot' ) ? dsi_agentmd_classify_bot( $ua ) : null,
+			'heuristic_reasons' => implode( ',', $motivos ),
+			'ruleset_version'   => DSI_UISENSOR_RULESET_VERSION,
+		],
+		[ '%s', '%s', '%s', '%d', '%d', '%f', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d' ]
+	);
+}
+
 function dsi_uisensor_print_inline(): void {
 	if ( is_admin() || is_feed() || is_user_logged_in() ) {
 		return;
 	}
+
+	dsi_uisensor_grava_header_flags();
 
 	$path = __DIR__ . '/assets/dsi-ui-sensor.js';
 	$js   = @file_get_contents( $path );
@@ -178,11 +288,13 @@ function dsi_uisensor_print_inline(): void {
 	// HTML é cacheável, ele pode chegar idêntico a muitos visitantes. É
 	// gravado como render_id justamente pra tornar isso mensurável (duas
 	// linhas com o mesmo render_id e session_id diferentes = cache HIT).
+	// NENHUM outro valor aqui pode ser específico do visitante desta
+	// requisição -- ver header_flags acima, que por isso é gravado direto,
+	// nunca incluído neste config.
 	$config = [
 		'endpoint'     => rest_url( DSI_UISENSOR_NAMESPACE . DSI_UISENSOR_ROUTE ),
 		'traceId'      => wp_generate_uuid4(),
 		'baselineRate' => DSI_UISENSOR_BASELINE_RATE,
-		'headerFlags'  => dsi_uisensor_header_flags(),
 	];
 
 	echo "\n<script id=\"dsi-ui-sensor-inline\">\n";
@@ -276,7 +388,8 @@ function dsi_uisensor_ip_prefix( string $ip ): string {
 
 // =============================================================================
 // INGESTÃO — rota pública (sendBeacon não permite header custom, então não
-// dá pra exigir nonce aqui; rate limit por IP faz esse papel).
+// dá pra exigir nonce aqui). Rate limit + checagem de Origin fazem esse
+// papel (ver nota de SEGURANÇA DO ENDPOINT no topo do arquivo).
 // =============================================================================
 add_action( 'rest_api_init', 'dsi_uisensor_register_route' );
 
@@ -290,6 +403,25 @@ function dsi_uisensor_register_route(): void {
 			'permission_callback' => '__return_true',
 		]
 	);
+}
+
+/**
+ * Rejeita quando o header Origin está PRESENTE e não bate com o domínio do
+ * site. Não rejeita quando Origin está ausente (nem todo cliente legítimo
+ * manda) -- filtra o caso ingênuo (curl direto, sem se preocupar em forjar
+ * Origin), não é uma barreira contra um atacante que leia este código e
+ * replique o header.
+ */
+function dsi_uisensor_origin_valida(): bool {
+	$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+	if ( $origin === '' ) {
+		return true;
+	}
+
+	$site  = wp_parse_url( home_url() );
+	$vindo = wp_parse_url( $origin );
+
+	return isset( $site['host'], $vindo['host'] ) && strtolower( $site['host'] ) === strtolower( $vindo['host'] );
 }
 
 function dsi_uisensor_client_ip(): string {
@@ -370,6 +502,10 @@ const DSI_UISENSOR_MOTIVOS_VALIDOS = [
  * Content-Type correto pra popular os parâmetros.
  */
 function dsi_uisensor_ingest( WP_REST_Request $request ) {
+	if ( ! dsi_uisensor_origin_valida() ) {
+		return new WP_REST_Response( null, 204 );
+	}
+
 	$ip = dsi_uisensor_client_ip();
 	if ( dsi_uisensor_rate_limit_excedido( $ip ) ) {
 		// Descarte silencioso -- contabilizado pra o painel poder avisar que
@@ -383,10 +519,15 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 		return new WP_REST_Response( null, 204 );
 	}
 
-	$motivos = array_values( array_intersect(
+	// array_unique: sem isso, um payload malicioso repetindo o mesmo motivo
+	// centenas de vezes ({"motivos":["webdriver","webdriver",...]}) pode
+	// estourar o VARCHAR(255) de heuristic_reasons (insert rejeitado em modo
+	// estrito, ou truncado em silêncio fora dele). Legítimo nunca repete --
+	// no máximo os 15 motivos válidos, ~230 chars.
+	$motivos = array_values( array_unique( array_intersect(
 		array_map( 'sanitize_text_field', (array) ( $dados['motivos'] ?? [] ) ),
 		DSI_UISENSOR_MOTIVOS_VALIDOS
-	) );
+	) ) );
 
 	$sampled = ! empty( $dados['sampled'] );
 
@@ -400,14 +541,20 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 	$user_agent = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
 	$salt       = dsi_uisensor_ip_salt();
 
-	$is_dev = ! empty( $dados['dev_traffic'] ) || in_array( $ip, dsi_uisensor_dev_ips(), true );
+	// dev_traffic NÃO vem mais do payload do cliente (ver nota de SEGURANÇA
+	// DO ENDPOINT no topo) -- qualquer um podia se autodeclarar tráfego
+	// interno numa requisição forjada direto ao endpoint e sumir das contas
+	// do painel. Decidido só pelo que o SERVIDOR sabe (cookie + lista de IP).
+	$is_dev = dsi_uisensor_eh_dev_traffic( $ip );
+
+	$trace_id_valor = dsi_uisensor_texto( $dados['trace_id'] ?? '', 36 );
 
 	// Mapa coluna => [formato, valor]. Em v1 isto era um array de valores e um
 	// array de formatos paralelos, com 47 posições que precisavam bater na
 	// ordem -- classe de bug caro e silencioso. Aqui os dois nascem juntos.
 	$campos = [
 		'recorded_at'                      => [ '%s', current_time( 'mysql' ) ],
-		'trace_id'                         => [ '%s', dsi_uisensor_texto( $dados['trace_id'] ?? '', 36 ) ],
+		'trace_id'                         => [ '%s', $trace_id_valor ],
 		'render_id'                        => [ '%s', dsi_uisensor_texto( $dados['render_id'] ?? '', 36 ) ],
 		'session_id'                       => [ '%s', dsi_uisensor_texto( $dados['session_id'] ?? '', 36 ) ],
 		'page_index'                       => [ '%d', dsi_uisensor_int( $dados['page_index'] ?? null, 0, 10000 ) ],
@@ -483,7 +630,19 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 	}
 
 	global $wpdb;
-	$ok = $wpdb->insert( $wpdb->prefix . 'dsi_ui_flagged_traces', $valores, $formatos );
+	$table = $wpdb->prefix . 'dsi_ui_flagged_traces';
+
+	// Reenvio da MESMA pageview (visibilitychange não-terminal, ver flush()
+	// no JS) substitui a linha anterior em vez de duplicar -- fica só a
+	// versão mais recente. trace_id é gerado por pageview (crypto.randomUUID
+	// no cliente), então nunca colide entre pageviews diferentes; não usamos
+	// UNIQUE KEY + upsert pra não arriscar a coluna, que já tem linhas
+	// antigas com trace_id vazio (v1) que colidiriam entre si.
+	if ( $trace_id_valor !== '' ) {
+		$wpdb->delete( $table, [ 'trace_id' => $trace_id_valor ], [ '%s' ] );
+	}
+
+	$ok = $wpdb->insert( $table, $valores, $formatos );
 
 	// Falha de insert era silenciosa: se a tabela não existe (instalação que
 	// não rodou o schema.sql) ou uma coluna falta (migração pendente), o dado
@@ -554,9 +713,25 @@ function dsi_uisensor_purga(): void {
 		)
 	);
 
+	// Limpa os contadores diários de descarte (uma option nova por dia,
+	// pra sempre, sem isso) -- mantém só os últimos DSI_UISENSOR_RETENCAO_DIAS.
+	$corte_opcao = 'dsi_uisensor_descartes_' . dsi_uisensor_corte( DSI_UISENSOR_RETENCAO_DIAS );
+	$wpdb->query(
+		$wpdb->prepare(
+			"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name < %s",
+			$wpdb->esc_like( 'dsi_uisensor_descartes_' ) . '%',
+			$corte_opcao
+		)
+	);
+
 	// Salt novo depois da purga: os hashes que sobraram deixam de ser
 	// vinculáveis a qualquer IP observado daqui pra frente.
 	dsi_uisensor_rotaciona_salt();
+
+	// Prova de que o cron rodou de verdade -- sem isso, a promessa de
+	// retenção do README/painel depende silenciosamente do wp-cron nunca
+	// morrer, e não havia como notar se ele parasse.
+	update_option( 'dsi_uisensor_ultima_purga', current_time( 'mysql' ), false );
 }
 
 /**
@@ -684,8 +859,8 @@ function dsi_uisensor_motivo_label( string $motivo ): string {
 		'viewport_automacao_sem_plugins'  => 'viewport de automação + sem plugins',
 		'sem_idiomas'                     => 'sem idiomas declarados',
 		'movimento_mouse_sintetico'       => 'movimento de mouse sintético (poucos pontos/reto demais)',
-		'clique_duracao_impossivel'       => 'clique rápido demais (mousedown→mouseup)',
-		'digitacao_impossivel'            => 'digitação rápida demais (keydown→keyup)',
+		'clique_duracao_impossivel'       => 'clique rápido demais (mousedown→mouseup, exceto toque)',
+		'digitacao_impossivel'            => 'digitação rápida demais (keydown→keyup, exceto auto-repeat)',
 		'scroll_multiplo_viewport'        => 'parada de scroll em múltiplo exato da tela (fora do fim do documento)',
 		'clique_nao_confiavel'            => 'clique com isTrusted=false (disparado via JavaScript)',
 		'tecla_nao_confiavel'             => 'tecla com isTrusted=false',
@@ -730,6 +905,16 @@ function dsi_uisensor_periodo(): array {
  * inválida justamente no regime deste projeto -- p pequeno e n na casa das
  * dezenas -- e chega a produzir limite inferior negativo.
  *
+ * LIMITE CONHECIDO (não corrigido, documentado): o Wilson assume amostras
+ * i.i.d. Bernoulli com probabilidade constante, mas aqui P(sessão flagrada)
+ * cresce com o número de páginas da sessão (mais páginas = mais chances de
+ * QUALQUER uma das heurísticas acender por acaso). O IC abaixo é mais
+ * estreito do que a incerteza real, e a prevalência é sensível ao
+ * comprimento típico de sessão do período -- dois períodos com engajamento
+ * diferente não são diretamente comparáveis mesmo com mesmo ruleset e mesmo
+ * baseline_rate. Ver a prevalência POR PÁGINA abaixo, que não tem esse
+ * acúmulo, como contraponto.
+ *
  * @return array{0:?float,1:?float,2:?float} proporção, limite inferior, superior
  */
 function dsi_uisensor_wilson( int $k, int $n, float $z = 1.96 ): array {
@@ -753,6 +938,12 @@ function dsi_uisensor_wilson( int $k, int $n, float $z = 1.96 ): array {
  * distinta é contaminada por construção e não pode entrar em nenhuma taxa.
  *
  * Usa ip_hash quando existe e cai pro client_ip nas linhas antigas.
+ *
+ * LIMITE CONHECIDO (aceito, baixo risco): agrupa por ip_hash sem filtrar
+ * ip_salt_epoch, o que em tese pode juntar duas origens diferentes cujo hash
+ * colidiu entre épocas distintas do salt. Na prática uma sessão dura minutos
+ * e a rotação do salt acompanha a retenção (dias), então o risco real é
+ * desprezível.
  */
 function dsi_uisensor_sql_quarentena( string $table ): string {
 	return "session_id NOT IN (
@@ -779,7 +970,11 @@ function dsi_uisensor_sql_quarentena( string $table ): string {
  *  - agente puramente leitor (caso Manus etapa 1) não gera beacon e portanto
  *    não está em nenhum dos dois lados da conta -- o número SUBESTIMA;
  *  - sessões contaminadas por colisão de id ficam fora;
- *  - tráfego marcado como dev fica fora.
+ *  - tráfego marcado como dev fica fora;
+ *  - sessão degradada (sem sessionStorage -- janela privada, WebView) vira
+ *    uma "sessão" de 1 página cada vez, inflando o denominador por sessão
+ *    sem a mesma chance de acender sinal que uma sessão real de várias
+ *    páginas teria -- excluída aqui.
  */
 function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, string $fim_sql ): void {
 	global $wpdb;
@@ -794,6 +989,7 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 			 FROM {$table}
 			 WHERE sampled = 1
 			   AND is_dev_traffic = 0
+			   AND session_degradada = 0
 			   AND session_id <> ''
 			   AND recorded_at BETWEEN %s AND %s
 			   AND {$quarentena}",
@@ -809,6 +1005,28 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 
 	$confiavel = $amostradas >= 100;
 
+	// Prevalência POR PÁGINA, em paralelo -- não acumula chance de acender
+	// sinal com o comprimento da sessão (ver limite documentado em
+	// dsi_uisensor_wilson), então serve de contraponto quando os dois
+	// números divergem bastante.
+	$rp = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT
+			   COUNT(*) amostradas,
+			   SUM(CASE WHEN heuristic_reasons <> '' THEN 1 ELSE 0 END) flagradas
+			 FROM {$table}
+			 WHERE sampled = 1
+			   AND is_dev_traffic = 0
+			   AND session_degradada = 0
+			   AND recorded_at BETWEEN %s AND %s",
+			$inicio_sql,
+			$fim_sql
+		)
+	);
+	$pag_amostradas = (int) ( $rp->amostradas ?? 0 );
+	$pag_flagradas  = (int) ( $rp->flagradas ?? 0 );
+	$pag_pct        = $pag_amostradas > 0 ? ( $pag_flagradas / $pag_amostradas ) * 100 : null;
+
 	echo '<div style="display:flex;gap:16px;margin:20px 0;flex-wrap:wrap;">';
 	printf(
 		'<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;min-width:300px;box-sizing:border-box;">
@@ -816,7 +1034,15 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 			<div style="font-size:36px;font-weight:600;line-height:1.2;color:%s;">%s</div>
 			<div style="font-size:13px;color:#646970;">%s</div>
 			<div style="font-size:12px;color:#646970;margin-top:8px;line-height:1.5;">
-				Entre sessões sorteadas <strong>com interação</strong>. Agente que apenas lê não gera beacon e não entra em nenhum dos dois lados da conta — este número subestima.
+				Entre sessões sorteadas <strong>com interação</strong>. Agente que apenas lê não gera beacon e não entra em nenhum dos dois lados da conta — este número subestima. Sensível ao comprimento típico de sessão do período (ver "por página" ao lado).
+			</div>
+		</div>
+		<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;min-width:260px;box-sizing:border-box;">
+			<div style="font-size:13px;color:#646970;">Páginas com sinal de automação (não agrupado por sessão)</div>
+			<div style="font-size:36px;font-weight:600;line-height:1.2;">%s</div>
+			<div style="font-size:13px;color:#646970;">%d de %d páginas sorteadas</div>
+			<div style="font-size:12px;color:#646970;margin-top:8px;line-height:1.5;">
+				Não acumula chance de acender sinal com sessões longas — se divergir muito do número por sessão, o comprimento de sessão do período está distorcendo a outra métrica.
 			</div>
 		</div>',
 		$confiavel ? '#1d2327' : '#8c6d1f',
@@ -829,7 +1055,10 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 				$sup * 100,
 				$flagradas,
 				$amostradas
-			) )
+			) ),
+		$pag_pct === null ? '—' : esc_html( sprintf( '%.1f%%', $pag_pct ) ),
+		$pag_flagradas,
+		$pag_amostradas
 	);
 
 	if ( ! $confiavel ) {
@@ -853,13 +1082,19 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 
 	$falha = get_option( 'dsi_uisensor_ultima_falha' );
 	if ( is_array( $falha ) && ! empty( $falha['erro'] ) ) {
-		printf(
-			'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;">
-				<strong>Última falha de gravação:</strong> %s<br><code>%s</code><br>Migração de schema pendente?
-			</div>',
-			esc_html( (string) $falha['quando'] ),
-			esc_html( (string) $falha['erro'] )
-		);
+		// Aviso expira sozinho depois de alguns dias -- sem isso, uma falha
+		// já corrigida (ex.: migração aplicada) deixava o box vermelho na
+		// tela indefinidamente, porque nada nunca "limpa" esta option.
+		$idade_falha = current_time( 'timestamp' ) - strtotime( (string) $falha['quando'] );
+		if ( $idade_falha <= 3 * DAY_IN_SECONDS ) {
+			printf(
+				'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;">
+					<strong>Última falha de gravação:</strong> %s<br><code>%s</code><br>Migração de schema pendente?
+				</div>',
+				esc_html( (string) $falha['quando'] ),
+				esc_html( (string) $falha['erro'] )
+			);
+		}
 	}
 	echo '</div>';
 }
@@ -882,7 +1117,7 @@ function dsi_uisensor_render_sessoes( string $table, string $inicio_sql, string 
 			        TIMESTAMPDIFF(SECOND, MIN(recorded_at), MAX(recorded_at)) duracao_s,
 			        SUM(n_clicks) cliques, SUM(n_scrolls) scrolls,
 			        AVG(ms_since_prev_page) intervalo_medio,
-			        STDDEV_POP(ms_since_prev_page) intervalo_desvio,
+			        STDDEV_SAMP(ms_since_prev_page) intervalo_desvio,
 			        MAX(sampled) sampled,
 			        SUM(CASE WHEN heuristic_reasons LIKE '%%scroll_multiplo_viewport%%' THEN 1 ELSE 0 END) paginas_multiplo,
 			        GROUP_CONCAT(DISTINCT NULLIF(heuristic_reasons, '')) motivos,
@@ -903,8 +1138,8 @@ function dsi_uisensor_render_sessoes( string $table, string $inicio_sql, string 
 	);
 
 	echo '<h2 style="margin-top:32px;">Sessões multipágina</h2>';
-	echo '<p style="color:#646970;max-width:80ch;">Só sessões com 2+ páginas — é onde o ritmo entre páginas existe e pode ser medido. <strong>Ritmo</strong> é o desvio do intervalo dividido pela média: perto de zero significa cadência de máquina (humano varia muito mais). <strong>Scroll em múltiplo</strong> conta em quantas páginas da sessão houve parada em múltiplo exato da tela — uma página isolada é fraca, repetição é que vira evidência. Sessões com mais de uma origem distinta estão em quarentena e não aparecem aqui.</p>';
-	echo '<table class="widefat striped"><thead><tr><th>Início</th><th>Páginas</th><th>Duração</th><th title="Páginas por minuto">Pág/min</th><th title="Desvio do intervalo entre páginas / média. Baixo = cadência constante">Ritmo</th><th title="(cliques + scrolls) por página">Ações/pág</th><th title="Páginas da sessão com parada em múltiplo exato da tela">Scroll em múltiplo</th><th>Motivos</th><th>Amostra</th><th title="Regra vigente quando a linha foi gravada">Ruleset</th><th>Rede</th><th>País</th></tr></thead><tbody>';
+	echo '<p style="color:#646970;max-width:80ch;">Só sessões com 2+ páginas — é onde o ritmo entre páginas existe e pode ser medido. <strong>Ritmo</strong> é o desvio-padrão AMOSTRAL do intervalo dividido pela média (STDDEV_SAMP, não populacional -- com poucos intervalos a versão populacional subestima a variância real): perto de zero significa cadência de máquina (humano varia muito mais), só destacado com 4+ páginas (3+ intervalos). <strong>Scroll em múltiplo</strong> conta em quantas páginas da sessão houve parada em múltiplo exato da tela — uma página isolada é fraca, repetição é que vira evidência. Sessões com mais de uma origem distinta estão em quarentena e não aparecem aqui.</p>';
+	echo '<table class="widefat striped"><thead><tr><th>Início</th><th>Páginas</th><th>Duração</th><th title="Páginas por minuto">Pág/min</th><th title="Desvio-padrão amostral do intervalo entre páginas / média. Baixo = cadência constante">Ritmo</th><th title="(cliques + scrolls) por página">Ações/pág</th><th title="Páginas da sessão com parada em múltiplo exato da tela">Scroll em múltiplo</th><th>Motivos</th><th>Amostra</th><th title="Regra vigente quando a linha foi gravada">Ruleset</th><th>Rede</th><th>País</th></tr></thead><tbody>';
 
 	if ( ! $sessoes ) {
 		echo '<tr><td colspan="12">Nenhuma sessão multipágina nesse período.</td></tr>';
@@ -919,8 +1154,9 @@ function dsi_uisensor_render_sessoes( string $table, string $inicio_sql, string 
 		$acoes   = ( (int) $s->cliques + (int) $s->scrolls ) / max( 1, $paginas );
 
 		// Só destaca cadência robótica quando há amostra suficiente pra isso
-		// significar algo -- com 2 páginas, 1 intervalo, CV é ruído.
-		$cv_suspeito = $cv !== null && $cv < 0.35 && $paginas >= 3;
+		// significar algo -- exige 4+ páginas (3+ intervalos): com 3 páginas
+		// (2 intervalos), STDDEV_SAMP ainda é instável demais pra confiar.
+		$cv_suspeito = $cv !== null && $cv < 0.35 && $paginas >= 4;
 
 		// Rede em vez de IP: o bruto sai em 7 dias, o prefixo fica os 90.
 		$rede = $s->prefixo ?: ( $s->ip ?: '—' );
@@ -947,7 +1183,7 @@ function dsi_uisensor_render_sessoes( string $table, string $inicio_sql, string 
 	echo '</tbody></table>';
 }
 
-/** Quantas linhas de cada versão de regra no período -- v1 e v2 não são comparáveis. */
+/** Quantas linhas de cada versão de regra no período -- versões diferentes não são comparáveis. */
 function dsi_uisensor_render_rulesets( string $table, string $inicio_sql, string $fim_sql ): void {
 	global $wpdb;
 
@@ -967,10 +1203,40 @@ function dsi_uisensor_render_rulesets( string $table, string $inicio_sql, string
 	}
 
 	echo '<div style="background:#fcf9e8;border:1px solid #dba617;padding:16px;margin:16px 0;max-width:80ch;font-size:13px;line-height:1.5;">';
-	echo '<strong>Período mistura versões de regra.</strong> Na v2 mudaram o significado de <code>digitacao_impossivel</code>, <code>timing_regular_demais</code>, <code>scroll_multiplo_viewport</code> e a identidade de sessão. Não compare taxa entre versões: ';
+	echo '<strong>Período mistura versões de regra.</strong> O significado de alguns sinais muda entre versões do ruleset (ver Changelog do repositório) -- não compare taxa entre versões diferentes: ';
 	$partes = [];
 	foreach ( $linhas as $l ) {
 		$partes[] = sprintf( 'v%d: %d linhas', (int) $l->rv, (int) $l->total );
+	}
+	echo esc_html( implode( ' · ', $partes ) );
+	echo '</div>';
+}
+
+/** Mesma ideia de dsi_uisensor_render_rulesets, mas pra baseline_rate -- a coluna era gravada e nunca lida. */
+function dsi_uisensor_render_baseline_rates( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
+
+	$linhas = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT baseline_rate br, COUNT(*) total
+			 FROM {$table}
+			 WHERE sampled = 1 AND recorded_at BETWEEN %s AND %s
+			 GROUP BY br ORDER BY br",
+			$inicio_sql,
+			$fim_sql
+		)
+	);
+
+	if ( count( $linhas ) < 2 ) {
+		return;
+	}
+
+	echo '<div style="background:#fcf9e8;border:1px solid #dba617;padding:16px;margin:16px 0;max-width:80ch;font-size:13px;line-height:1.5;">';
+	echo '<strong>Período mistura taxas de amostragem diferentes.</strong> A prevalência acima usa todas as linhas sorteadas do período, mas elas foram coletadas sob <code>BASELINE_RATE</code> distinto -- dois períodos com taxas diferentes não são diretamente comparáveis, mesmo com o mesmo ruleset: ';
+	$partes = [];
+	foreach ( $linhas as $l ) {
+		$pct        = $l->br === null ? null : round( (float) $l->br * 100, 1 );
+		$partes[]   = ( $pct === null ? '?' : rtrim( rtrim( (string) $pct, '0' ), '.' ) ) . '%: ' . (int) $l->total . ' linhas';
 	}
 	echo esc_html( implode( ' · ', $partes ) );
 	echo '</div>';
@@ -1024,6 +1290,7 @@ function dsi_uisensor_admin_page(): void {
 
 	dsi_uisensor_aviso_backfill( $table );
 	dsi_uisensor_render_rulesets( $table, $inicio_sql, $fim_sql );
+	dsi_uisensor_render_baseline_rates( $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_prevalencia( $table, $inicio_sql, $fim_sql );
 
 	echo '<form method="get" style="margin:16px 0;display:flex;gap:8px;align-items:end;flex-wrap:wrap;">';
@@ -1103,12 +1370,15 @@ function dsi_uisensor_admin_page(): void {
 
 	echo '</tbody></table>';
 
+	$ultima_purga = get_option( 'dsi_uisensor_ultima_purga' );
+
 	printf(
 		'<p style="color:#646970;max-width:80ch;margin-top:24px;font-size:13px;line-height:1.6;">
-			<strong>Retenção:</strong> IP bruto é apagado da linha após %d dias; <code>ip_hash</code> (HMAC com salt do site) e <code>ip_prefix</code> (/24) seguem até %d dias, quando a linha inteira sai. O salt rotaciona junto com a purga — depois disso os hashes antigos deixam de ser vinculáveis a qualquer IP novo. Comparação por <code>ip_hash</code> só vale dentro do mesmo <code>ip_salt_epoch</code>.
+			<strong>Retenção:</strong> IP bruto é apagado da linha após %d dias; <code>ip_hash</code> (HMAC com salt do site) e <code>ip_prefix</code> (/24) seguem até %d dias, quando a linha inteira sai. O salt rotaciona junto com a purga — depois disso os hashes antigos deixam de ser vinculáveis a qualquer IP novo. Comparação por <code>ip_hash</code> só vale dentro do mesmo <code>ip_salt_epoch</code>. Última purga automática: %s (depende do wp-cron continuar rodando -- se essa data ficar velha, a promessa de retenção acima não está mais sendo cumprida).
 		</p>',
 		(int) DSI_UISENSOR_IP_RAW_DIAS,
-		(int) DSI_UISENSOR_RETENCAO_DIAS
+		(int) DSI_UISENSOR_RETENCAO_DIAS,
+		$ultima_purga ? esc_html( (string) $ultima_purga ) : 'nunca rodou ainda'
 	);
 
 	echo '</div>';

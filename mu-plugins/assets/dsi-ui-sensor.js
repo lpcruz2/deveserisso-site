@@ -71,25 +71,60 @@
 	//       antes do timer disparar, perdendo justamente a posicao final.
 	//  v3 (2026-09-13): 3 sinais novos, comparados contra a literatura
 	//     (FP-Agent, arXiv:2605.01247; "Whose Agent Are You?", arXiv:2606.20910):
-	//     - `fetch_metadata_impossivel` / `client_hints_incoerente`: motivos
-	//       calculados no SERVIDOR a partir dos headers Sec-Fetch-*/Sec-Ch-Ua
-	//       da requisicao de PAGINA (nao da requisicao do beacon), avaliados em
-	//       dsi_uisensor_print_inline() -- unico ponto em que $_SERVER reflete
-	//       o pageview em si -- e passados pro cliente via cfg.headerFlags, que
-	//       so repassa pro payload. Nao verificado ainda contra Claude no
-	//       Chrome/Comet/Manus especificamente (nenhum dos tres mostrou
-	//       anomalia de header nos testes ate agora) -- adicionado por ser
-	//       barato e vir de framework de automacao que intercepta rede via
-	//       CDP, categoria mais ampla que so os tres produtos ja testados.
+	//     - `fetch_metadata_impossivel` / `client_hints_incoerente` (o calculo
+	//       em si sobreviveu, mas o TRANSPORTE mudou na v4 -- ver abaixo).
 	//     - `total_mouse_dist_px`: soma da distancia percorrida pelo mouse na
 	//       sessao inteira (nao so ate o primeiro clique, que ja tinhamos).
-	//       Campo observacional por enquanto, sem limiar/motivo associado --
-	//       mesmo padrao de click_x_std/click_y_std.
-	//     - Motivo baseado em header pode disparar o envio mesmo com ZERO
-	//       interacao de DOM -- e um sinal independente de clique/scroll/tecla,
-	//       entao o gate de flush() deixou de exigir interacao quando ha
-	//       headerFlags.
-	var RULESET_VERSION = 3;
+	//       Campo observacional, sem limiar/motivo associado -- mesmo padrao
+	//       de click_x_std/click_y_std.
+	//  v4 (2026-09-13): revisao externa independente (outro modelo, com
+	//     evidencia ao vivo contra producao) achou 2 bugs reais introduzidos
+	//     pelas proprias correcoes anteriores, mais outros 5 problemas:
+	//     - **headerFlags REMOVIDO do cliente.** A v3 calculava
+	//       fetch_metadata_impossivel/client_hints_incoerente no servidor e
+	//       serializava o resultado dentro de cfg -- que vive no MESMO HTML
+	//       cacheavel que o comentario de sessao, algumas linhas abaixo,
+	//       ja avisava pra nunca carregar estado por-visitante ("o bug do
+	//       session_id em v1"). Confirmado ao vivo: um curl com header hostil
+	//       muda o headerFlags gravado naquele HTML -- se esse HTML entrar em
+	//       cache, todo visitante seguinte da mesma URL herdaria o motivo de
+	//       OUTRA pessoa, e o gate do flush() (que a v3 tambem afrouxou pra
+	//       dispensar interacao quando ha headerFlags) mandaria um beacon de
+	//       "deteccao" sem nenhum clique/scroll/tecla ter acontecido de
+	//       verdade. Os dois motivos continuam existindo, mas agora sao
+	//       calculados E GRAVADOS direto no PHP (dsi_uisensor_grava_header_flags,
+	//       chamado em wp_footer), nunca passam pelo cliente/beacon -- e como
+	//       so rodam em cache MISS (unico momento em que o hook realmente
+	//       executa), nunca atribuem o header de um visitante a outro.
+	//     - `clique_duracao_impossivel` disparava em TODO toque de celular.
+	//       mousedown/mouseup/click sintetizados a partir do mesmo toque
+	//       carregam o mesmo timeStamp -> dwell exatamente 0 -> passa o teste
+	//       "< 20ms" (que a v2, com razao, parou de mascarar com clamp). 9 de
+	//       9 cliques touch na base de producao tinham dwell=0. Corrigido:
+	//       um toque nos ~1s antes do clique desarma essa heuristica pra
+	//       aquele clique.
+	//     - Auto-repeat de tecla (segurar Arrow/PageDown) nao era excluido --
+	//       o SO gera keydown em intervalo fixo (~30ms, CV baixo) com um so
+	//       keyup, disparando digitacao_impossivel E timing_regular_demais
+	//       num comportamento humano banal. Corrigido: `e.repeat` descarta o
+	//       evento antes de qualquer contagem.
+	//     - O primeiro `visibilitychange` marcava `flushed = true` e
+	//       congelava a coleta pro resto da pagina -- trocar de aba (comum em
+	//       humano, raro num agente em tarefa unica) truncava sistematicamente
+	//       o lado humano da comparacao. Agora so pagehide/beforeunload
+	//       fecham o beacon (`flushed = true`); visibilitychange reenvia (o
+	//       servidor faz upsert por trace_id, fica so a versao mais recente),
+	//       e um reenvio sem novidade nenhuma e descartado no proprio cliente
+	//       (assinatura de contagem inalterada).
+	//     - `document.documentElement.scrollTop` assume standards mode;
+	//       trocado por `document.scrollingElement`, que nao tem essa
+	//       dependencia e custa o mesmo.
+	//     - `dev_traffic` deixou de ser lido do payload do cliente (qualquer
+	//       um podia se autodeclarar tetefego interno e sumir das contas). O
+	//       marcador `?dsi_debug=1` agora vira cookie de sessao gravado pelo
+	//       PROPRIO servidor (dsi_uisensor_debug_cookie, hook `init`) -- o
+	//       cliente nao precisa mais fazer nada, localStorage removido.
+	var RULESET_VERSION = 4;
 
 	if ( window.__dsiUiSensorLoaded ) { return; }
 	window.__dsiUiSensorLoaded = true;
@@ -120,28 +155,7 @@
 	// corromperia justamente as features de ritmo entre paginas.
 	// -------------------------------------------------------------------
 	var pageviewId = novoId();
-	var sess = { id: pageviewId, index: 1, msSincePrev: null, sampled: false, degradado: true, dev: false };
-
-	// Marcador de trafego de teste da propria equipe: ?dsi_debug=1 UMA vez no
-	// navegador. Existe pra nao precisar guardar IP bruto de todo visitante so
-	// pra reconhecer a maquina de desenvolvimento depois -- e pra nao precisar
-	// colocar o IP residencial de alguem num arquivo versionado.
-	//
-	// localStorage (nao sessionStorage): assim vale pra sempre naquele
-	// navegador, em vez de exigir o parametro em cada aba nova. ?dsi_debug=0
-	// limpa. E marcador local, nao credencial: nao concede nada, so pede pra
-	// ser ignorado nas contas.
-	try {
-		if ( location.search.indexOf( 'dsi_debug=1' ) !== -1 ) {
-			localStorage.setItem( 'dsi_dev', '1' );
-		} else if ( location.search.indexOf( 'dsi_debug=0' ) !== -1 ) {
-			localStorage.removeItem( 'dsi_dev' );
-		}
-		// Lido AQUI, fora do bloco de sessao: senao a marca de dev se perderia
-		// justamente quando sessionStorage esta bloqueado (janela privada), que
-		// e um cenario comum de teste.
-		sess.dev = localStorage.getItem( 'dsi_dev' ) === '1';
-	} catch ( e ) {}
+	var sess = { id: pageviewId, index: 1, msSincePrev: null, sampled: false, degradado: true };
 
 	try {
 		var agora = Date.now();
@@ -200,6 +214,11 @@
 	var firstClickHadMouseMove = null;
 	var flushed              = false;
 
+	// Elemento que realmente rola no documento -- document.documentElement
+	// assume standards mode; scrollingElement nao tem essa dependencia e
+	// custa o mesmo (achado em revisao externa, 2026-09-13).
+	var scrollEl = document.scrollingElement || document.documentElement;
+
 	// Contadores de isTrusted=false por TIPO de evento. Um booleano unico
 	// (como em v1) nao distingue "agente clicou via JS" de "gerenciador de
 	// senha preencheu o campo", e as duas coisas nao valem a mesma evidencia.
@@ -237,9 +256,22 @@
 	// qual tecla foi solta, so o timestamp.
 	var lastMousedownAt = null;   // o mousedown DAQUELE clique, nao o 1o da pagina
 	var firstClickDwellMs = null;
+	var firstClickFromTouch = null;
 	var keyDwellMs = [];
 	var keydownPorTecla = Object.create( null );
 	var MAX_KEY_DWELL_SAMPLES = 50;
+
+	// Toque sintetiza mousedown/mouseup/click no mesmo turno, com o MESMO
+	// timeStamp -- dwell sai exatamente 0, que e um valor "< 20ms" legitimo
+	// desde que a v2 parou de clampar dwell negativo em 0 (correcao certa,
+	// pelo motivo certo -- so que 0 tambem e o que o mobile emite de
+	// verdade). Confirmado em producao: 9 de 9 cliques em sessao com toque
+	// tinham dwell=0. Um toque nos ~1s antes do clique desarma a heuristica
+	// de duracao pra aquele clique especifico.
+	var lastTouchEndAt = null;
+	window.addEventListener( 'touchend', function ( e ) {
+		lastTouchEndAt = e.timeStamp;
+	}, { passive: true } );
 
 	window.addEventListener( 'mousedown', function ( e ) {
 		lastMousedownAt = e.timeStamp;
@@ -294,6 +326,7 @@
 			// trazer timeStamp anterior ao mousedown, e clampar isso em 0
 			// fazia o valor passar o teste de "< 20ms" por artefato.
 			firstClickDwellMs = lastMousedownAt !== null ? ( e.timeStamp - lastMousedownAt ) : null;
+			firstClickFromTouch = lastTouchEndAt !== null && ( e.timeStamp - lastTouchEndAt ) < 1000;
 
 			// So calcula pra quem realmente teve mousemove -- senao ja cai em
 			// clique_sem_mousemove, sinal mais forte e mais barato.
@@ -340,19 +373,18 @@
 	function registraParada() {
 		scrollStopPendente = false;
 		if ( scrollStops.length < MAX_SCROLL_STOPS ) {
-			scrollStops.push( document.documentElement.scrollTop );
+			scrollStops.push( scrollEl.scrollTop );
 		}
 	}
 
 	window.addEventListener( 'scroll', function () {
 		markEvent( true );
 		totalScrolls++;
-		var doc = document.documentElement;
-		var max = ( doc.scrollHeight - doc.clientHeight ) || 1;
+		var max = ( scrollEl.scrollHeight - scrollEl.clientHeight ) || 1;
 		if ( scrollDepths.length < MAX_EVENTS ) {
-			scrollDepths.push( Math.min( 100, Math.max( 0, ( doc.scrollTop / max ) * 100 ) ) );
+			scrollDepths.push( Math.min( 100, Math.max( 0, ( scrollEl.scrollTop / max ) * 100 ) ) );
 		}
-		if ( scrollDepthsPx.length < MAX_EVENTS ) { scrollDepthsPx.push( doc.scrollTop ); }
+		if ( scrollDepthsPx.length < MAX_EVENTS ) { scrollDepthsPx.push( scrollEl.scrollTop ); }
 
 		if ( scrollStopTimer ) { clearTimeout( scrollStopTimer ); }
 		scrollStopPendente = true;
@@ -360,6 +392,14 @@
 	}, { passive: true } );
 
 	window.addEventListener( 'keydown', function ( e ) {
+		// Segurar uma tecla (Arrow/PageDown pra rolar um artigo longo, por
+		// exemplo) gera keydown repetido pelo SO em intervalo fixo, com um so
+		// keyup no final -- comportamento humano banal que, sem este corte,
+		// disparava digitacao_impossivel (dwell = ultimo keydown ate o unico
+		// keyup, artificialmente baixo) E timing_regular_demais (intervalos
+		// quase identicos entre as repeticoes).
+		if ( e.repeat ) { return; }
+
 		markEvent( false );
 		totalKeydowns++;
 		if ( e.isTrusted === false ) { naoConfiavel.keydown++; }
@@ -446,8 +486,7 @@
 		var vh = window.innerHeight;
 		if ( ! vh ) { return { total: 0, multiplos: 0, maiorMultiplo: 0 }; }
 
-		var doc    = document.documentElement;
-		var docMax = ( doc.scrollHeight - doc.clientHeight ) || 0;
+		var docMax = ( scrollEl.scrollHeight - scrollEl.clientHeight ) || 0;
 
 		var multiplos = 0;
 		var maior     = 0;
@@ -514,11 +553,15 @@
 			motivos.push( 'sem_idiomas' );
 		}
 
-		// Limiares bem abaixo do minimo humano plausivel. Exige dwell > 0:
-		// valor negativo indica timeStamp inconsistente de evento sintetico,
-		// e isso ja e coberto por clique_nao_confiavel -- nao deve entrar
-		// aqui disfarcado de "clique rapido".
-		if ( firstClickDwellMs !== null && firstClickDwellMs >= 0 && firstClickDwellMs < 20 ) {
+		// Limiares bem abaixo do minimo humano plausivel. Exige dwell >= 0 e
+		// que o clique nao tenha vindo de um toque de tela (compat events de
+		// touch sintetizam mousedown/mouseup/click no mesmo turno, com o
+		// mesmo timeStamp -- dwell sai exatamente 0, confirmado em 9 de 9
+		// cliques touch na base de producao). Valor negativo indica
+		// timeStamp inconsistente de evento sintetico, ja coberto por
+		// clique_nao_confiavel -- nao deve entrar aqui disfarcado de
+		// "clique rapido".
+		if ( firstClickDwellMs !== null && firstClickDwellMs >= 0 && firstClickDwellMs < 20 && ! firstClickFromTouch ) {
 			motivos.push( 'clique_duracao_impossivel' );
 		}
 
@@ -563,7 +606,6 @@
 		var m = mean( ieis );
 		var s = std( ieis, m );
 		var mAcao = mean( ieisAcao );
-		var doc = document.documentElement;
 
 		return {
 			trace_id: pageviewId,          // id do PAGEVIEW, gerado no cliente
@@ -573,7 +615,6 @@
 			ms_since_prev_page: sess.msSincePrev,
 			sampled: sess.sampled,
 			session_degradada: sess.degradado,
-			dev_traffic: sess.dev,
 			url_path: location.pathname,
 			motivos: motivos,
 			viewport_w: window.innerWidth,
@@ -612,7 +653,7 @@
 			first_click_dwell_ms: firstClickDwellMs,
 			mean_key_dwell_ms: keyDwellMs.length ? mean( keyDwellMs ) : null,
 			max_scroll_px: scrollDepthsPx.length ? Math.max.apply( null, scrollDepthsPx ) : null,
-			doc_scroll_max_px: Math.max( 0, ( doc.scrollHeight - doc.clientHeight ) || 0 ),
+			doc_scroll_max_px: Math.max( 0, ( scrollEl.scrollHeight - scrollEl.clientHeight ) || 0 ),
 			n_scroll_stops: paradas.total,
 			n_scroll_stops_multiplo: paradas.multiplos,
 			n_inputs: totalInputs,
@@ -629,7 +670,23 @@
 		};
 	}
 
-	function flush() {
+	// Assinatura barata do que ja foi enviado -- evita reenviar um beacon
+	// identico quando visibilitychange dispara mais de uma vez sem nenhuma
+	// novidade (ex.: usuario troca de aba varias vezes sem interagir).
+	var lastSentSignature = null;
+	function assinaturaAtual() {
+		return totalClicks + '|' + totalScrolls + '|' + totalKeydowns + '|' + totalInputs;
+	}
+
+	// flush(final): `final` marca um gatilho terminal (pagehide/beforeunload)
+	// -- so esses travam `flushed`. visibilitychange e reenviavel: trocar de
+	// aba e comportamento humano banal (muito mais comum em humano lendo um
+	// artigo do que num agente executando uma tarefa unica em foco continuo),
+	// e travar no primeiro envio truncava sistematicamente esse lado da
+	// comparacao (menos clique, menos scroll, menos distancia de mouse do
+	// que a visita real teve). O servidor faz upsert por trace_id -- cada
+	// reenvio substitui a linha anterior da MESMA pageview, nunca duplica.
+	function flush( final ) {
 		if ( flushed ) { return; }
 
 		// Pageview sem nenhuma interacao nao entra -- nem como deteccao nem
@@ -638,13 +695,7 @@
 		// e so se mantem honesta se numerador e denominador excluirem
 		// exatamente a mesma coisa. Consequencia conhecida e documentada:
 		// agente puramente leitor (caso Manus etapa 1) e invisivel aqui.
-		//
-		// Excecao: motivo de header (cfg.headerFlags, calculado no servidor a
-		// partir da propria requisicao de pagina) e independente de interacao
-		// de DOM -- exigir clique/scroll/tecla pra reportar isso destruiria um
-		// sinal que ja chegou pronto do servidor.
-		var headerFlags = ( cfg.headerFlags && cfg.headerFlags.length ) ? cfg.headerFlags : [];
-		if ( totalClicks === 0 && totalScrolls === 0 && totalKeydowns === 0 && totalInputs === 0 && ! headerFlags.length ) { return; }
+		if ( totalClicks === 0 && totalScrolls === 0 && totalKeydowns === 0 && totalInputs === 0 ) { return; }
 
 		// A propria saida da pagina e evidencia de que o scroll parou ali --
 		// resolve na mao o que o debounce nao teve tempo de resolver sozinho
@@ -666,13 +717,19 @@
 			registraParada();
 		}
 
+		if ( ! final ) {
+			var assinatura = assinaturaAtual();
+			if ( assinatura === lastSentSignature ) { return; }
+			lastSentSignature = assinatura;
+		}
+
 		var paradas = contaParadasEmMultiplo();
-		var motivos = heuristicaAutomacao( paradas ).concat( headerFlags );
+		var motivos = heuristicaAutomacao( paradas );
 
 		// Sem motivo e fora da amostra: comportamento normal, nada enviado.
 		if ( motivos.length === 0 && ! sess.sampled ) { return; }
 
-		flushed = true;
+		if ( final ) { flushed = true; }
 		var body = JSON.stringify( montaPayload( motivos, paradas ) );
 		if ( navigator.sendBeacon ) {
 			navigator.sendBeacon( cfg.endpoint, new Blob( [ body ], { type: 'text/plain' } ) );
@@ -682,9 +739,9 @@
 	}
 
 	document.addEventListener( 'visibilitychange', function () {
-		if ( document.visibilityState === 'hidden' ) { flush(); }
+		if ( document.visibilityState === 'hidden' ) { flush( false ); }
 	} );
-	window.addEventListener( 'pagehide', flush );
+	window.addEventListener( 'pagehide', function () { flush( true ); } );
 
 	// 'beforeunload' como terceiro gatilho -- achado ao vivo em 2026-09-12:
 	// navegacao disparada pela extensao Claude no Chrome (via clique real num
@@ -701,5 +758,5 @@
 	// esse listener. Trade-off aceito de propria vontade: sem ele o sensor
 	// perde a maior parte da navegacao agentica. Reavaliar se o site passar a
 	// depender de navegacao "voltar" pra metrica de negocio.
-	window.addEventListener( 'beforeunload', flush );
+	window.addEventListener( 'beforeunload', function () { flush( true ); } );
 })();
