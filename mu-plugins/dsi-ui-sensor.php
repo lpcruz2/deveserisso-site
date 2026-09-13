@@ -68,29 +68,42 @@ const DSI_UISENSOR_BASELINE_RATE = 1.0;
 // =============================================================================
 // FRONT-END — injeta o sensor em toda visita pública (não em wp-admin, feed
 // ou visitante logado -- o alvo é quem visita de fora, não a própria equipe).
+//
+// Impresso direto no wp_footer (não via wp_enqueue_script) de proposito, achado
+// ao vivo em 2026-09-12: o script sumia (sem erro, sem log, só ausência de
+// dado) em 6 de 9 posts testados. Já descartei regra do Asset CleanUp (aba
+// Overview do plugin mostrou zero regras pra esse handle) e cache (LiteSpeed
+// e Cloudflare ambos MISS/DYNAMIC nas páginas quebradas) -- a causa exata
+// dentro do pipeline de otimização de JS não foi identificada, mas qualquer
+// mecanismo de terceiro que só enxerga scripts passando pela fila padrão do
+// WP (wp_enqueue_script) some de cena imprimindo direto como HTML. Sem
+// handle, sem fila, sem o que otimizar/descartar.
 // =============================================================================
-add_action( 'wp_enqueue_scripts', 'dsi_uisensor_enqueue' );
+add_action( 'wp_footer', 'dsi_uisensor_print_inline', 20 );
 
-function dsi_uisensor_enqueue(): void {
+function dsi_uisensor_print_inline(): void {
 	if ( is_admin() || is_feed() || is_user_logged_in() ) {
 		return;
 	}
 
-	wp_enqueue_script(
-		'dsi-ui-sensor',
-		content_url( 'mu-plugins/assets/dsi-ui-sensor.js' ),
-		[],
-		'1.0.0',
-		[ 'strategy' => 'defer', 'in_footer' => true ]
-	);
+	$path = __DIR__ . '/assets/dsi-ui-sensor.js';
+	$js   = @file_get_contents( $path );
+	if ( $js === false ) {
+		return;
+	}
 
 	// trace_id por pageview (não por sessão multi-página -- granularidade
 	// escolhida pra manter o MVP simples; ver nota de arquitetura no topo).
-	wp_localize_script( 'dsi-ui-sensor', 'dsiUiSensor', [
+	$config = [
 		'endpoint'     => rest_url( DSI_UISENSOR_NAMESPACE . DSI_UISENSOR_ROUTE ),
 		'traceId'      => wp_generate_uuid4(),
 		'baselineRate' => DSI_UISENSOR_BASELINE_RATE,
-	] );
+	];
+
+	echo "\n<script id=\"dsi-ui-sensor-inline\">\n";
+	echo 'var dsiUiSensor = ' . wp_json_encode( $config ) . ";\n";
+	echo $js;
+	echo "\n</script>\n";
 }
 
 // =============================================================================
