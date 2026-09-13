@@ -1,10 +1,10 @@
 (function () {
 	'use strict';
 
-	// Sensor de comportamento de UI -- detecta se quem esta navegando e um
-	// agente de IA pilotando o navegador de verdade, nao um humano. Nunca
-	// captura o CARACTERE digitado -- so a classificacao estrutural/
-	// imprimivel e o timing (ver mu-plugins/dsi-ui-sensor.php).
+	// Sensor de comportamento de UI -- mede se quem esta navegando e um agente
+	// pilotando o navegador de verdade, nao um humano. Nunca captura o
+	// CARACTERE digitado -- so a classificacao estrutural/imprimivel e o
+	// timing (ver dsi-ui-sensor.php).
 	//
 	// Envia beacon em dois casos:
 	//   1. algum sinal de automacao disparou (deteccao)
@@ -18,20 +18,58 @@
 	// paginas em janela curta, ritmo constante, poucas acoes por pagina",
 	// que nao aparece olhando um pageview isolado).
 
-	// Versao do CONJUNTO DE REGRAS (limiares, sinais, gatilhos) -- comeca a
-	// ser rastreada em 2026-09-13 (linhas gravadas antes disso nao tem essa
-	// coluna preenchida). Sobe 1 toda vez que um limiar ou sinal muda, pra
-	// nunca mais ficar impossivel saber qual regra gerou qual linha antiga
-	// depois de um ajuste futuro.
+	// Versao do CONJUNTO DE REGRAS (limiares, sinais, gatilhos). Sobe 1 toda
+	// vez que um limiar ou sinal muda, pra nunca ficar impossivel saber qual
+	// regra gerou qual linha antiga depois de um ajuste futuro.
 	//
 	// Changelog:
-	//  v1 (2026-09-13): estado no momento em que o versionamento comecou --
-	//     10 sinais (webdriver, clique_sem_mousemove, movimento_mouse_sintetico,
+	//  v1 (2026-09-13): estado em que o versionamento comecou -- 10 sinais
+	//     (webdriver, clique_sem_mousemove, movimento_mouse_sintetico,
 	//     timing_regular_demais, viewport_automacao_sem_plugins, sem_idiomas,
-	//     clique_duracao_impossivel, digitacao_impossivel, scroll_multiplo_viewport,
-	//     evento_nao_confiavel) + cobertura de input/beforeinput adicionada
-	//     nesta mesma versao.
-	var RULESET_VERSION = 1;
+	//     clique_duracao_impossivel, digitacao_impossivel,
+	//     scroll_multiplo_viewport, evento_nao_confiavel) + cobertura de
+	//     input/beforeinput adicionada na mesma versao.
+	//  v2 (2026-09-13): rodada de correcoes apos revisao externa. Muda o
+	//     significado de 3 sinais, entao NAO compare taxa de v1 com v2:
+	//     - session_id agora nasce no CLIENTE (crypto.randomUUID). Em v1 ele
+	//       reaproveitava o uuid impresso pelo servidor, que era cacheado
+	//       junto com o HTML: dezenas de visitantes distintos caiam na mesma
+	//       "sessao" (confirmado nos dados: 1 sessao com 30 paginas e 28 IPs).
+	//       O uuid do servidor continua indo no payload como render_id -- duas
+	//       linhas com o mesmo render_id e session_id diferentes = cache HIT,
+	//       health check da coleta de graca.
+	//     - `digitacao_impossivel`: pareamento keydown/keyup passa a ser por
+	//       e.code. Em v1 uma variavel global unica era sobrescrita pela tecla
+	//       seguinte, e rollover de digitacao humana rapida (keydown a,
+	//       keydown b, keyup a) produzia dwell minusculo ou NEGATIVO -- falso
+	//       positivo em digitador rapido.
+	//     - `evento_nao_confiavel` foi dividido em clique_nao_confiavel /
+	//       tecla_nao_confiavel / input_nao_confiavel. Colapsar os tres
+	//       destruia informacao ja provada util (Manus seta value via JS sem
+	//       digitar; Comet vaza no clique) e, pior, um gerenciador de senha
+	//       preenchendo formulario (isTrusted=false em input) virava "agente".
+	//     - `timing_regular_demais` passa a ser calculado SEM eventos de
+	//       scroll. Scroll e entregue atrelado ao frame (~16,7ms), entao um
+	//       flick continuo sozinho podia render CV < 0,05 sem automacao.
+	//     - `scroll_multiplo_viewport`: tolerancia agora em pixels absolutos
+	//       (+-4px, era +-2% do viewport = +-20px) e parada no FIM do
+	//       documento e explicitamente excluida. Novos campos
+	//       doc_scroll_max_px / n_scroll_stops / n_scroll_stops_multiplo pra
+	//       nunca mais precisar reconstituir isso por query manual.
+	//     - first_click_dwell_ms agora usa o mousedown DAQUELE clique (em v1
+	//       era o primeiro mousedown da pagina inteira) e vai bruto, podendo
+	//       ser negativo -- o clamp em 0 do servidor transformava dwell
+	//       negativo de evento sintetico em "0ms", que passava o teste < 20ms
+	//       e virava deteccao por artefato, nao por medicao.
+	//     - n_untrusted_click/n_untrusted_input contam so o evento final
+	//       (click/input), nao o par com mousedown/beforeinput -- somar os
+	//       dois inflava a contagem em ate 2x quando o mesmo disparo sintetico
+	//       gerava ambos.
+	//     - parada de scroll pendente (<150ms desde o ultimo evento) e
+	//       resolvida na hora do flush, nao só pelo debounce sozinho -- uma
+	//       saida rapida de pagina (o padrao de um agente) podia acontecer
+	//       antes do timer disparar, perdendo justamente a posicao final.
+	var RULESET_VERSION = 2;
 
 	if ( window.__dsiUiSensorLoaded ) { return; }
 	window.__dsiUiSensorLoaded = true;
@@ -39,23 +77,58 @@
 	var cfg = window.dsiUiSensor || {};
 	if ( ! cfg.endpoint ) { return; }
 
+	function novoId() {
+		try {
+			if ( window.crypto && typeof crypto.randomUUID === 'function' ) {
+				return crypto.randomUUID();
+			}
+		} catch ( e ) {}
+		return 'f' + Date.now().toString( 36 ) + Math.random().toString( 36 ).slice( 2, 12 );
+	}
+
 	// -------------------------------------------------------------------
 	// SESSAO -- sessionStorage, nao cookie: morre ao fechar a aba, nao
 	// atravessa abas nem visitas futuras. E identidade de sessao de
 	// navegacao, nao de pessoa.
 	//
+	// O id NUNCA vem do servidor: o HTML e cacheado (LiteSpeed/Cloudflare) e
+	// um uuid impresso no render vira o mesmo id pra todo mundo que receber
+	// aquela pagina do cache.
+	//
 	// O sorteio da amostra e decidido UMA VEZ por sessao, nunca por pagina:
 	// amostrar pagina a pagina deixaria buracos no meio da sessao e
 	// corromperia justamente as features de ritmo entre paginas.
 	// -------------------------------------------------------------------
-	var sess = { id: cfg.traceId, index: 1, msSincePrev: null, sampled: false, degradado: true };
+	var pageviewId = novoId();
+	var sess = { id: pageviewId, index: 1, msSincePrev: null, sampled: false, degradado: true, dev: false };
+
+	// Marcador de trafego de teste da propria equipe: ?dsi_debug=1 UMA vez no
+	// navegador. Existe pra nao precisar guardar IP bruto de todo visitante so
+	// pra reconhecer a maquina de desenvolvimento depois -- e pra nao precisar
+	// colocar o IP residencial de alguem num arquivo versionado.
+	//
+	// localStorage (nao sessionStorage): assim vale pra sempre naquele
+	// navegador, em vez de exigir o parametro em cada aba nova. ?dsi_debug=0
+	// limpa. E marcador local, nao credencial: nao concede nada, so pede pra
+	// ser ignorado nas contas.
+	try {
+		if ( location.search.indexOf( 'dsi_debug=1' ) !== -1 ) {
+			localStorage.setItem( 'dsi_dev', '1' );
+		} else if ( location.search.indexOf( 'dsi_debug=0' ) !== -1 ) {
+			localStorage.removeItem( 'dsi_dev' );
+		}
+		// Lido AQUI, fora do bloco de sessao: senao a marca de dev se perderia
+		// justamente quando sessionStorage esta bloqueado (janela privada), que
+		// e um cenario comum de teste.
+		sess.dev = localStorage.getItem( 'dsi_dev' ) === '1';
+	} catch ( e ) {}
 
 	try {
 		var agora = Date.now();
 		var id    = sessionStorage.getItem( 'dsi_sess_id' );
 
 		if ( ! id ) {
-			id = cfg.traceId; // 1a pagina: reaproveita o uuid que o servidor ja gerou
+			id = novoId();
 			sessionStorage.setItem( 'dsi_sess_id', id );
 			sessionStorage.setItem( 'dsi_sess_n', '1' );
 			sessionStorage.setItem( 'dsi_sess_sampled', Math.random() < ( cfg.baselineRate || 0 ) ? '1' : '0' );
@@ -76,7 +149,8 @@
 		sess.degradado = false;
 	} catch ( e ) {
 		// sessionStorage bloqueado (janela privada, cookies desativados).
-		// Segue funcionando como sensor por pageview, sem agregacao.
+		// Segue funcionando como sensor por pageview, sem agregacao. O id de
+		// sessao cai no id do pageview -- unico por visita, nao compartilhado.
 	}
 
 	var STRUCTURAL_KEYS = [ 'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
@@ -85,9 +159,11 @@
 	var MAX_EVENTS = 500; // limite de memoria -- stats ja convergem bem antes disso
 
 	var startedAt            = performance.now();
-	var lastEventAt          = null;
+	var lastEventAt          = null;   // qualquer evento (inclui scroll)
+	var lastActionAt         = null;   // acao deliberada (exclui scroll)
 	var firstActionAt        = null;
-	var ieis                 = [];
+	var ieis                 = [];     // todos os eventos -- so estatistica descritiva
+	var ieisAcao             = [];     // sem scroll -- base do timing_regular_demais
 	var clicksX              = [];
 	var clicksY              = [];
 	var clickTopCount        = 0;
@@ -104,6 +180,11 @@
 	var firstClickHadMouseMove = null;
 	var flushed              = false;
 
+	// Contadores de isTrusted=false por TIPO de evento. Um booleano unico
+	// (como em v1) nao distingue "agente clicou via JS" de "gerenciador de
+	// senha preencheu o campo", e as duas coisas nao valem a mesma evidencia.
+	var naoConfiavel = { click: 0, mousedown: 0, keydown: 0, input: 0, beforeinput: 0 };
+
 	// Caminho do mouse desde o ultimo clique -- zerado a cada clique. Serve
 	// pra distinguir movimento humano (dezenas de pontos, trajetoria curva,
 	// tremor motor) de movimento sintetico (poucos pontos, quase uma linha
@@ -118,42 +199,38 @@
 
 	// Duracao do clique/tecla (mousedown->mouseup, keydown->keyup) -- achado
 	// fazendo engenharia reversa ao vivo no Claude no Chrome em 2026-09-13:
-	// o clique dele tem ~2-3ms entre pressionar e soltar, e a digitacao
+	// o clique dele tem ~2-6ms entre pressionar e soltar, e a digitacao
 	// ~0.3-0.5ms entre tecla e tecla. Mao humana nunca faz isso -- o tempo
 	// minimo de um clique deliberado fica na casa de dezenas de ms (contracao
 	// muscular + atuacao mecanica do botao), e digitacao rapida de verdade
 	// raramente passa de ~8-10 teclas/segundo (~100ms/tecla). Nao captura
-	// qual tecla foi solta, so o timestamp -- mesmo espirito de privacidade
-	// do resto do sensor.
-	var firstMousedownAt = null;
+	// qual tecla foi solta, so o timestamp.
+	var lastMousedownAt = null;   // o mousedown DAQUELE clique, nao o 1o da pagina
 	var firstClickDwellMs = null;
 	var keyDwellMs = [];
-	var pendingKeydownAt = null;
+	var keydownPorTecla = Object.create( null );
 	var MAX_KEY_DWELL_SAMPLES = 50;
 
-	// Achado testando o Perplexity Comet em 2026-09-13: quando ele nao
-	// consegue clicar "de verdade" (input a nivel de SO) porque o alvo nao e
-	// clicavel de fato (ex: um titulo que nao e link), ele cai pra disparar
-	// o clique via JavaScript (elemento.click()) -- e todo evento disparado
-	// assim vem com isTrusted:false. Humano fisicamente nao gera isso; so
-	// script consegue. Mais confiavel que qualquer sinal de timing (o mesmo
-	// teste mostrou o Comet simulando timing bem humano no clique/tecla
-	// reais: ~101ms de duracao de clique, ~173ms/tecla -- nenhuma das
-	// heuristicas de timing acima pegaria).
-	var eventoNaoConfiavel = false;
-
 	window.addEventListener( 'mousedown', function ( e ) {
-		if ( firstMousedownAt === null ) { firstMousedownAt = e.timeStamp; }
-		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
+		lastMousedownAt = e.timeStamp;
+		if ( e.isTrusted === false ) { naoConfiavel.mousedown++; }
 	}, { passive: true, capture: true } );
 
-	function markEvent() {
+	function markEvent( ehScroll ) {
 		var now = performance.now();
 		if ( firstActionAt === null ) { firstActionAt = now - startedAt; }
+
 		if ( lastEventAt !== null && ieis.length < MAX_EVENTS ) {
 			ieis.push( now - lastEventAt );
 		}
 		lastEventAt = now;
+
+		if ( ! ehScroll ) {
+			if ( lastActionAt !== null && ieisAcao.length < MAX_EVENTS ) {
+				ieisAcao.push( now - lastActionAt );
+			}
+			lastActionAt = now;
+		}
 	}
 
 	window.addEventListener( 'mousemove', function ( e ) {
@@ -172,12 +249,16 @@
 	}
 
 	window.addEventListener( 'click', function ( e ) {
-		markEvent();
+		markEvent( false );
 		totalClicks++;
-		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
+		if ( e.isTrusted === false ) { naoConfiavel.click++; }
 		if ( firstClickHadMouseMove === null ) {
 			firstClickHadMouseMove = mouseMoved;
-			firstClickDwellMs = firstMousedownAt !== null ? ( e.timeStamp - firstMousedownAt ) : null;
+
+			// Bruto de proposito, inclusive negativo: evento sintetico pode
+			// trazer timeStamp anterior ao mousedown, e clampar isso em 0
+			// fazia o valor passar o teste de "< 20ms" por artefato.
+			firstClickDwellMs = lastMousedownAt !== null ? ( e.timeStamp - lastMousedownAt ) : null;
 
 			// So calcula pra quem realmente teve mousemove -- senao ja cai em
 			// clique_sem_mousemove, sinal mais forte e mais barato.
@@ -202,62 +283,100 @@
 		if ( el && el.closest && el.closest( 'a[href]' ) ) { linkClicks++; }
 	}, { passive: true, capture: true } );
 
-	// Posicao absoluta em pixels, alem do percentual -- necessario pro
+	// Posicao absoluta em pixels, alem do percentual -- necessario pra
 	// heuristica de multiplo de viewport abaixo (percentual sozinho nao
 	// revela isso, porque a mesma "distancia em telas" vira uma % diferente
 	// em cada pagina dependendo do tamanho do artigo).
 	var scrollDepthsPx = [];
 
+	// PARADAS de scroll: posicao onde o scroll ficou parado >=150ms. E isso
+	// que distingue mecanismo de passo fixo (paradas em 1x, 2x, 3x a tela) de
+	// coincidencia (uma parada isolada perto de um multiplo).
+	var MAX_SCROLL_STOPS = 100;
+	var scrollStops = [];
+	var scrollStopTimer = null;
+	var scrollStopPendente = false;
+
+	// Extraida do setTimeout pra poder ser chamada tambem de flush(): uma
+	// saida rapida de pagina (o padrao de um agente, ironicamente) pode
+	// acontecer ANTES dos 150ms de debounce -- o timer pendente nunca dispara
+	// sozinho porque a pagina esta sendo desmontada, e a posicao final (a
+	// mais provavel de ser a parada que importa) some silenciosamente.
+	function registraParada() {
+		scrollStopPendente = false;
+		if ( scrollStops.length < MAX_SCROLL_STOPS ) {
+			scrollStops.push( document.documentElement.scrollTop );
+		}
+	}
+
 	window.addEventListener( 'scroll', function () {
-		markEvent();
+		markEvent( true );
 		totalScrolls++;
 		var doc = document.documentElement;
 		var max = ( doc.scrollHeight - doc.clientHeight ) || 1;
-		scrollDepths.push( Math.min( 100, Math.max( 0, ( doc.scrollTop / max ) * 100 ) ) );
+		if ( scrollDepths.length < MAX_EVENTS ) {
+			scrollDepths.push( Math.min( 100, Math.max( 0, ( doc.scrollTop / max ) * 100 ) ) );
+		}
 		if ( scrollDepthsPx.length < MAX_EVENTS ) { scrollDepthsPx.push( doc.scrollTop ); }
+
+		if ( scrollStopTimer ) { clearTimeout( scrollStopTimer ); }
+		scrollStopPendente = true;
+		scrollStopTimer = setTimeout( registraParada, 150 );
 	}, { passive: true } );
 
 	window.addEventListener( 'keydown', function ( e ) {
-		markEvent();
+		markEvent( false );
 		totalKeydowns++;
-		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
+		if ( e.isTrusted === false ) { naoConfiavel.keydown++; }
 		if ( STRUCTURAL_KEYS.indexOf( e.key ) !== -1 ) {
 			structuralKeydowns++;
 		} else if ( e.key && e.key.length === 1 ) {
 			printableKeydowns++;
 		}
-		pendingKeydownAt = e.timeStamp;
+		// Pareamento por tecla, nao por variavel global: digitacao humana
+		// rapida tem rollover (keydown a -> keydown b -> keyup a), e uma
+		// variavel unica produzia dwell minusculo ou negativo nesse caso.
+		keydownPorTecla[ e.code || e.key ] = e.timeStamp;
 	}, { passive: true, capture: true } );
 
 	window.addEventListener( 'keyup', function ( e ) {
-		if ( pendingKeydownAt !== null && keyDwellMs.length < MAX_KEY_DWELL_SAMPLES ) {
-			keyDwellMs.push( e.timeStamp - pendingKeydownAt );
+		var chave = e.code || e.key;
+		var inicio = keydownPorTecla[ chave ];
+		if ( inicio !== undefined ) {
+			var dwell = e.timeStamp - inicio;
+			if ( dwell >= 0 && keyDwellMs.length < MAX_KEY_DWELL_SAMPLES ) {
+				keyDwellMs.push( dwell );
+			}
+			delete keydownPorTecla[ chave ];
 		}
-		pendingKeydownAt = null;
 	}, { passive: true, capture: true } );
 
 	window.addEventListener( 'focusin', function ( e ) {
 		var tag = e.target && e.target.tagName;
 		if ( tag === 'INPUT' || tag === 'TEXTAREA' ) {
-			markEvent();
+			markEvent( false );
 			totalFocus++;
 		}
 	}, { passive: true } );
 
 	// Cobre o caso que nenhum listener acima ve: um agente que preenche um
 	// campo direto (elemento.value = "x" + dispatchEvent) em vez de simular
-	// tecla por tecla -- mais simples de implementar que digitacao, entao
-	// plausivelmente comum. Sem isso, esse tipo de preenchimento e invisivel
-	// pros 10 sinais anteriores (zero keydown, zero click). So conta
-	// ocorrencia e isTrusted -- nunca le o valor digitado/preenchido.
+	// tecla por tecla -- confirmado no Manus (n_inputs=3, n_keydowns=0). So
+	// conta ocorrencia e isTrusted -- nunca le o valor preenchido.
+	//
+	// ATENCAO na interpretacao: gerenciador de senha (1Password, Bitwarden,
+	// LastPass), tradutor e extensao de acessibilidade tambem preenchem campo
+	// via script e tambem chegam com isTrusted=false. Por isso este sinal e
+	// um motivo SEPARADO do clique -- input sintetico e ambiguo por natureza,
+	// clique sintetico em link/botao nao e.
 	window.addEventListener( 'beforeinput', function ( e ) {
-		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
+		if ( e.isTrusted === false ) { naoConfiavel.beforeinput++; }
 	}, { passive: true, capture: true } );
 
 	window.addEventListener( 'input', function ( e ) {
-		markEvent();
+		markEvent( false );
 		totalInputs++;
-		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
+		if ( e.isTrusted === false ) { naoConfiavel.input++; }
 	}, { passive: true, capture: true } );
 
 	function mean( arr ) {
@@ -281,10 +400,44 @@
 		return sorted[ idx ];
 	}
 
+	// Paradas de scroll que caem em multiplo inteiro da altura da janela,
+	// excluindo o fim do documento. Tolerancia em PIXEL absoluto: a antiga
+	// (+-2% do multiplo) dava +-20px num viewport de 1000px, ou seja ~4% de
+	// chance de acerto aleatorio por pagina -- alto demais pra medir um
+	// fenomeno de poucos por cento.
+	var TOL_PX = 4;
+
+	function contaParadasEmMultiplo() {
+		var vh = window.innerHeight;
+		if ( ! vh ) { return { total: 0, multiplos: 0, maiorMultiplo: 0 }; }
+
+		var doc    = document.documentElement;
+		var docMax = ( doc.scrollHeight - doc.clientHeight ) || 0;
+
+		var multiplos = 0;
+		var maior     = 0;
+
+		for ( var i = 0; i < scrollStops.length; i++ ) {
+			var pos = scrollStops[ i ];
+
+			// Parada no fim do documento nao e evidencia de nada: e onde
+			// qualquer leitor que terminou a pagina para.
+			if ( docMax > 0 && Math.abs( pos - docMax ) <= TOL_PX ) { continue; }
+
+			var k = Math.round( pos / vh );
+			if ( k >= 1 && Math.abs( pos - k * vh ) <= TOL_PX ) {
+				multiplos++;
+				if ( k > maior ) { maior = k; }
+			}
+		}
+
+		return { total: scrollStops.length, multiplos: multiplos, maiorMultiplo: maior };
+	}
+
 	// Sinais de automacao baratos de calcular, sem nenhum classificador --
 	// servem so pra decidir SE vale enviar o beacon. Pageview onde nada
 	// disso dispara nao gera trafego nenhum.
-	function heuristicaAutomacao() {
+	function heuristicaAutomacao( paradas ) {
 		var motivos = [];
 
 		if ( navigator.webdriver === true ) { motivos.push( 'webdriver' ); }
@@ -296,9 +449,7 @@
 		// Pega o caso "educado": a ferramenta simula mousemove (nao cai no
 		// motivo acima), mas o caminho e sintetico -- poucos pontos ou quase
 		// uma linha reta ate o alvo, cobrindo distancia grande demais pra
-		// ser coincidencia. Mouse humano de verdade tem dezenas de pontos
-		// (a maioria dos navegadores reporta mousemove em alta frequencia) e
-		// trajetoria com curvatura (tremor motor), raramente perto de 1.0.
+		// ser coincidencia.
 		if ( firstClickHadMouseMove === true && firstClickPathPoints !== null &&
 			firstClickStraightLineDist !== null && firstClickStraightLineDist >= 60 ) {
 			var poucosPontos = firstClickPathPoints <= 3;
@@ -308,16 +459,19 @@
 			}
 		}
 
-		var m = mean( ieis );
-		var s = std( ieis, m );
-		if ( m !== null && s !== null && m > 0 && ( s / m ) < 0.05 && ieis.length >= 5 ) {
+		// SEM scroll: evento de scroll e entregue atrelado ao frame (~16,7ms),
+		// entao um unico flick continuo de trackpad/celular gerava um fluxo
+		// quase uniforme e podia render CV < 0,05 sem nenhuma automacao.
+		var mAcao = mean( ieisAcao );
+		var sAcao = std( ieisAcao, mAcao );
+		if ( mAcao !== null && sAcao !== null && mAcao > 0 && ( sAcao / mAcao ) < 0.05 && ieisAcao.length >= 5 ) {
 			motivos.push( 'timing_regular_demais' );
 		}
 
 		var vpAutomacaoComum = ( window.innerWidth === 1280 && window.innerHeight === 768 ) ||
 			( window.innerWidth === 1920 && window.innerHeight === 1080 ) ||
 			( window.innerWidth === 800 && window.innerHeight === 600 );
-		if ( vpAutomacaoComum && navigator.plugins.length === 0 ) {
+		if ( vpAutomacaoComum && navigator.plugins && navigator.plugins.length === 0 ) {
 			motivos.push( 'viewport_automacao_sem_plugins' );
 		}
 
@@ -325,13 +479,11 @@
 			motivos.push( 'sem_idiomas' );
 		}
 
-		// Limiares bem abaixo do minimo humano plausivel (clique deliberado
-		// mais rapido fica na casa de dezenas de ms; digitacao mais rapida
-		// registrada, na casa de ~100ms/tecla) -- os valores observados no
-		// Claude no Chrome (~2-3ms clique, ~0.3-0.5ms/tecla) ficam uma ordem
-		// de grandeza abaixo disso, entao ha folga confortavel sem risco de
-		// falso positivo em humano rapido.
-		if ( firstClickDwellMs !== null && firstClickDwellMs < 20 ) {
+		// Limiares bem abaixo do minimo humano plausivel. Exige dwell > 0:
+		// valor negativo indica timeStamp inconsistente de evento sintetico,
+		// e isso ja e coberto por clique_nao_confiavel -- nao deve entrar
+		// aqui disfarcado de "clique rapido".
+		if ( firstClickDwellMs !== null && firstClickDwellMs >= 0 && firstClickDwellMs < 20 ) {
 			motivos.push( 'clique_duracao_impossivel' );
 		}
 
@@ -342,42 +494,51 @@
 			}
 		}
 
-		// Achado ao vivo testando o Perplexity Comet em 2026-09-13: ele so
-		// rolou a pagina (zero cliques), entao nenhum motivo acima tinha
-		// como disparar -- mas o scroll parou em MULTIPLO EXATO da altura
-		// da janela em 5 de 5 paginas testadas (ex: 4004px = 4x1001px de
-		// viewport), em paginas com tamanhos totalmente diferentes. Scroll
-		// humano (mouse/trackpad) e continuo, nunca para num multiplo exato
-		// de tela por acaso -- e muito menos de forma repetida na mesma
-		// sessao. So conta multiplo >=2 pra nao pegar coincidencia de uma
-		// unica "pagina pra baixo".
-		if ( scrollDepthsPx.length && window.innerHeight > 0 ) {
-			var maxScrollPx = Math.max.apply( null, scrollDepthsPx );
-			var multiplo     = maxScrollPx / window.innerHeight;
-			var maisProximo  = Math.round( multiplo );
-			if ( maisProximo >= 2 && Math.abs( multiplo - maisProximo ) < 0.02 ) {
-				motivos.push( 'scroll_multiplo_viewport' );
-			}
+		// Achado ao vivo no Perplexity Comet em 2026-09-13 e confirmado nos
+		// dados depois: 5 artigos de tamanhos diferentes pararam todos em
+		// exatamente 3604px (4 x 901px de viewport) com max_scroll_pct entre
+		// 38,9% e 49,9% -- ou seja, parou na METADE de cada artigo, nao no
+		// fim. Fim de documento daria percentual identico (100%) e pixel
+		// diferente; passo fixo da o oposto. Mecanismo confirmado.
+		//
+		// Rodadas posteriores, com prompt pedindo "role ate o final", deram
+		// max_scroll_pct=100 e zero multiplo: o mesmo produto tem mais de um
+		// caminho de execucao, roteado pelo pedido. Por isso este sinal exige
+		// parada fora do fim do documento e o painel pede repeticao em 2+
+		// paginas da sessao antes de tratar como evidencia.
+		if ( paradas.multiplos >= 1 && paradas.maiorMultiplo >= 2 ) {
+			motivos.push( 'scroll_multiplo_viewport' );
 		}
 
-		if ( eventoNaoConfiavel ) {
-			motivos.push( 'evento_nao_confiavel' );
+		// Tipados de proposito -- ver comentario no listener de input.
+		if ( naoConfiavel.click > 0 || naoConfiavel.mousedown > 0 ) {
+			motivos.push( 'clique_nao_confiavel' );
+		}
+		if ( naoConfiavel.keydown > 0 ) {
+			motivos.push( 'tecla_nao_confiavel' );
+		}
+		if ( naoConfiavel.input > 0 || naoConfiavel.beforeinput > 0 ) {
+			motivos.push( 'input_nao_confiavel' );
 		}
 
 		return motivos;
 	}
 
-	function montaPayload( motivos ) {
+	function montaPayload( motivos, paradas ) {
 		var m = mean( ieis );
 		var s = std( ieis, m );
+		var mAcao = mean( ieisAcao );
+		var doc = document.documentElement;
 
 		return {
-			trace_id: cfg.traceId,
+			trace_id: pageviewId,          // id do PAGEVIEW, gerado no cliente
+			render_id: cfg.traceId || '',  // uuid do servidor -- cacheavel de proposito
 			session_id: sess.id,
 			page_index: sess.index,
 			ms_since_prev_page: sess.msSincePrev,
 			sampled: sess.sampled,
 			session_degradada: sess.degradado,
+			dev_traffic: sess.dev,
 			url_path: location.pathname,
 			motivos: motivos,
 			viewport_w: window.innerWidth,
@@ -399,6 +560,8 @@
 			std_iei_ms: s,
 			p10_iei_ms: percentile( ieis, 0.10 ),
 			p90_iei_ms: percentile( ieis, 0.90 ),
+			mean_iei_acao_ms: mAcao,
+			std_iei_acao_ms: std( ieisAcao, mAcao ),
 			click_x_std: std( clicksX, mean( clicksX ) ),
 			click_y_std: std( clicksY, mean( clicksY ) ),
 			click_top_frac: totalClicks > 0 ? clickTopCount / totalClicks : null,
@@ -414,7 +577,18 @@
 			first_click_dwell_ms: firstClickDwellMs,
 			mean_key_dwell_ms: keyDwellMs.length ? mean( keyDwellMs ) : null,
 			max_scroll_px: scrollDepthsPx.length ? Math.max.apply( null, scrollDepthsPx ) : null,
+			doc_scroll_max_px: Math.max( 0, ( doc.scrollHeight - doc.clientHeight ) || 0 ),
+			n_scroll_stops: paradas.total,
+			n_scroll_stops_multiplo: paradas.multiplos,
 			n_inputs: totalInputs,
+			// Um evento sintetico costuma disparar o par inteiro (mousedown+click,
+			// beforeinput+input), entao somar os dois inflava a contagem em ate 2x.
+			// O contador guarda so o evento final -- o motivo continua olhando o
+			// par (ver acima), pra nao perder o caso de mousedown/beforeinput
+			// sintetico sem o evento final correspondente.
+			n_untrusted_click: naoConfiavel.click,
+			n_untrusted_key: naoConfiavel.keydown,
+			n_untrusted_input: naoConfiavel.input,
 			ruleset_version: RULESET_VERSION
 		};
 	}
@@ -423,19 +597,31 @@
 		if ( flushed ) { return; }
 
 		// Pageview sem nenhuma interacao nao entra -- nem como deteccao nem
-		// como baseline. O criterio e o MESMO dos dois lados de proposito:
-		// a taxa que o painel calcula e "entre pageviews com alguma
-		// interacao", e so se mantem honesta se numerador e denominador
-		// excluirem exatamente a mesma coisa.
+		// como baseline. O criterio e o MESMO dos dois lados de proposito: a
+		// taxa que o painel calcula e "entre pageviews com alguma interacao",
+		// e so se mantem honesta se numerador e denominador excluirem
+		// exatamente a mesma coisa. Consequencia conhecida e documentada:
+		// agente puramente leitor (caso Manus etapa 1) e invisivel aqui.
 		if ( totalClicks === 0 && totalScrolls === 0 && totalKeydowns === 0 && totalInputs === 0 ) { return; }
 
-		var motivos = heuristicaAutomacao();
+		// A propria saida da pagina e evidencia de que o scroll parou ali --
+		// resolve na mao o que o debounce nao teve tempo de resolver sozinho
+		// (ver comentario em registraParada). So age se o timer ainda nao
+		// tiver disparado por conta propria (scrollStopPendente evita
+		// registrar a mesma parada duas vezes).
+		if ( scrollStopPendente ) {
+			clearTimeout( scrollStopTimer );
+			registraParada();
+		}
+
+		var paradas = contaParadasEmMultiplo();
+		var motivos = heuristicaAutomacao( paradas );
 
 		// Sem motivo e fora da amostra: comportamento normal, nada enviado.
 		if ( motivos.length === 0 && ! sess.sampled ) { return; }
 
 		flushed = true;
-		var body = JSON.stringify( montaPayload( motivos ) );
+		var body = JSON.stringify( montaPayload( motivos, paradas ) );
 		if ( navigator.sendBeacon ) {
 			navigator.sendBeacon( cfg.endpoint, new Blob( [ body ], { type: 'text/plain' } ) );
 		} else {
@@ -449,12 +635,19 @@
 	window.addEventListener( 'pagehide', flush );
 
 	// 'beforeunload' como terceiro gatilho -- achado ao vivo em 2026-09-12:
-	// navegacao disparada pela extensao Claude no Chrome (via clique real
-	// num link OU via troca de URL programatica) NAO dispara 'pagehide' nem
+	// navegacao disparada pela extensao Claude no Chrome (via clique real num
+	// link OU via troca de URL programatica) NAO dispara 'pagehide' nem
 	// 'visibilitychange' no documento que sai, mas 'beforeunload' dispara
 	// sempre (confirmado com probes via Image() em 3 repeticoes seguidas).
-	// Sem isso, exatamente o trafego que o sensor existe pra medir era o
-	// que mais escapava da captura. flush() ja e idempotente (guarda
-	// `flushed`), entao ter 3 gatilhos nao gera beacon duplicado.
+	// Sem isso, exatamente o trafego que o sensor existe pra medir era o que
+	// mais escapava da captura. flush() e idempotente (guarda `flushed`),
+	// entao ter 3 gatilhos nao gera beacon duplicado.
+	//
+	// CUSTO CONHECIDO: 'unload' inviabiliza o back/forward cache em
+	// Chrome/Firefox e nao e usado aqui; 'beforeunload' e tolerado nesses
+	// dois, mas o Safari historicamente exclui do cache paginas que registram
+	// esse listener. Trade-off aceito de propria vontade: sem ele o sensor
+	// perde a maior parte da navegacao agentica. Reavaliar se o site passar a
+	// depender de navegacao "voltar" pra metrica de negocio.
 	window.addEventListener( 'beforeunload', flush );
 })();
