@@ -173,12 +173,19 @@
 		if ( el && el.closest && el.closest( 'a[href]' ) ) { linkClicks++; }
 	}, { passive: true, capture: true } );
 
+	// Posicao absoluta em pixels, alem do percentual -- necessario pro
+	// heuristica de multiplo de viewport abaixo (percentual sozinho nao
+	// revela isso, porque a mesma "distancia em telas" vira uma % diferente
+	// em cada pagina dependendo do tamanho do artigo).
+	var scrollDepthsPx = [];
+
 	window.addEventListener( 'scroll', function () {
 		markEvent();
 		totalScrolls++;
 		var doc = document.documentElement;
 		var max = ( doc.scrollHeight - doc.clientHeight ) || 1;
 		scrollDepths.push( Math.min( 100, Math.max( 0, ( doc.scrollTop / max ) * 100 ) ) );
+		if ( scrollDepthsPx.length < MAX_EVENTS ) { scrollDepthsPx.push( doc.scrollTop ); }
 	}, { passive: true } );
 
 	window.addEventListener( 'keydown', function ( e ) {
@@ -289,6 +296,24 @@
 			}
 		}
 
+		// Achado ao vivo testando o Perplexity Comet em 2026-09-13: ele so
+		// rolou a pagina (zero cliques), entao nenhum motivo acima tinha
+		// como disparar -- mas o scroll parou em MULTIPLO EXATO da altura
+		// da janela em 5 de 5 paginas testadas (ex: 4004px = 4x1001px de
+		// viewport), em paginas com tamanhos totalmente diferentes. Scroll
+		// humano (mouse/trackpad) e continuo, nunca para num multiplo exato
+		// de tela por acaso -- e muito menos de forma repetida na mesma
+		// sessao. So conta multiplo >=2 pra nao pegar coincidencia de uma
+		// unica "pagina pra baixo".
+		if ( scrollDepthsPx.length && window.innerHeight > 0 ) {
+			var maxScrollPx = Math.max.apply( null, scrollDepthsPx );
+			var multiplo     = maxScrollPx / window.innerHeight;
+			var maisProximo  = Math.round( multiplo );
+			if ( maisProximo >= 2 && Math.abs( multiplo - maisProximo ) < 0.02 ) {
+				motivos.push( 'scroll_multiplo_viewport' );
+			}
+		}
+
 		return motivos;
 	}
 
@@ -337,7 +362,8 @@
 			first_click_path_points: firstClickPathPoints,
 			first_click_straightness: firstClickStraightness,
 			first_click_dwell_ms: firstClickDwellMs,
-			mean_key_dwell_ms: keyDwellMs.length ? mean( keyDwellMs ) : null
+			mean_key_dwell_ms: keyDwellMs.length ? mean( keyDwellMs ) : null,
+			max_scroll_px: scrollDepthsPx.length ? Math.max.apply( null, scrollDepthsPx ) : null
 		};
 	}
 

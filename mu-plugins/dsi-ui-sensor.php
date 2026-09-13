@@ -170,6 +170,7 @@ const DSI_UISENSOR_MOTIVOS_VALIDOS = [
 	'movimento_mouse_sintetico',
 	'clique_duracao_impossivel',
 	'digitacao_impossivel',
+	'scroll_multiplo_viewport',
 ];
 
 /**
@@ -250,6 +251,7 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 			'first_click_straightness'         => dsi_uisensor_float( $dados['first_click_straightness'] ?? null, 0, 1000 ),
 			'first_click_dwell_ms'              => dsi_uisensor_float( $dados['first_click_dwell_ms'] ?? null, 0, 60000 ),
 			'mean_key_dwell_ms'                  => dsi_uisensor_float( $dados['mean_key_dwell_ms'] ?? null, 0, 60000 ),
+			'max_scroll_px'                      => dsi_uisensor_int( $dados['max_scroll_px'] ?? null, 0, 10000000 ),
 			'session_id'                       => mb_substr( sanitize_text_field( (string) ( $dados['session_id'] ?? '' ) ), 0, 36 ),
 			'page_index'                       => dsi_uisensor_int( $dados['page_index'] ?? null, 0, 10000 ),
 			'ms_since_prev_page'               => dsi_uisensor_int( $dados['ms_since_prev_page'] ?? null, 0, 86400000 ),
@@ -263,7 +265,7 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 			'%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f', '%f',
 			'%d',
 			'%d', '%f',
-			'%f', '%f',
+			'%f', '%f', '%d',
 			'%s', '%d', '%d', '%d', '%d',
 		]
 	);
@@ -318,6 +320,7 @@ function dsi_uisensor_motivo_label( string $motivo ): string {
 		'movimento_mouse_sintetico'       => 'movimento de mouse sintético (poucos pontos/reto demais)',
 		'clique_duracao_impossivel'       => 'clique rápido demais (mousedown→mouseup)',
 		'digitacao_impossivel'            => 'digitação rápida demais (keydown→keyup)',
+		'scroll_multiplo_viewport'        => 'scroll parou em múltiplo exato da altura da janela',
 	][ $motivo ] ?? $motivo;
 }
 
