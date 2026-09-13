@@ -69,7 +69,27 @@
 	//       resolvida na hora do flush, nao só pelo debounce sozinho -- uma
 	//       saida rapida de pagina (o padrao de um agente) podia acontecer
 	//       antes do timer disparar, perdendo justamente a posicao final.
-	var RULESET_VERSION = 2;
+	//  v3 (2026-09-13): 3 sinais novos, comparados contra a literatura
+	//     (FP-Agent, arXiv:2605.01247; "Whose Agent Are You?", arXiv:2606.20910):
+	//     - `fetch_metadata_impossivel` / `client_hints_incoerente`: motivos
+	//       calculados no SERVIDOR a partir dos headers Sec-Fetch-*/Sec-Ch-Ua
+	//       da requisicao de PAGINA (nao da requisicao do beacon), avaliados em
+	//       dsi_uisensor_print_inline() -- unico ponto em que $_SERVER reflete
+	//       o pageview em si -- e passados pro cliente via cfg.headerFlags, que
+	//       so repassa pro payload. Nao verificado ainda contra Claude no
+	//       Chrome/Comet/Manus especificamente (nenhum dos tres mostrou
+	//       anomalia de header nos testes ate agora) -- adicionado por ser
+	//       barato e vir de framework de automacao que intercepta rede via
+	//       CDP, categoria mais ampla que so os tres produtos ja testados.
+	//     - `total_mouse_dist_px`: soma da distancia percorrida pelo mouse na
+	//       sessao inteira (nao so ate o primeiro clique, que ja tinhamos).
+	//       Campo observacional por enquanto, sem limiar/motivo associado --
+	//       mesmo padrao de click_x_std/click_y_std.
+	//     - Motivo baseado em header pode disparar o envio mesmo com ZERO
+	//       interacao de DOM -- e um sinal independente de clique/scroll/tecla,
+	//       entao o gate de flush() deixou de exigir interacao quando ha
+	//       headerFlags.
+	var RULESET_VERSION = 3;
 
 	if ( window.__dsiUiSensorLoaded ) { return; }
 	window.__dsiUiSensorLoaded = true;
@@ -197,6 +217,16 @@
 	var firstClickStraightness = null;
 	var firstClickStraightLineDist = null;
 
+	// Distancia total percorrida pelo mouse na SESSAO inteira (nao reinicia a
+	// cada clique, diferente de pathPoints acima). Achado na literatura
+	// (FP-Agent/"Whose Agent Are You?"): agente baseado em coordenada de
+	// pixel percorre uma distancia acumulada bem maior que um agente baseado
+	// em referencia de acessibilidade, pra a mesma tarefa. So observacional
+	// por enquanto -- sem limiar definido, mesmo padrao de click_x_std.
+	var totalMouseDistPx = 0;
+	var lastMouseX = null;
+	var lastMouseY = null;
+
 	// Duracao do clique/tecla (mousedown->mouseup, keydown->keyup) -- achado
 	// fazendo engenharia reversa ao vivo no Claude no Chrome em 2026-09-13:
 	// o clique dele tem ~2-6ms entre pressionar e soltar, e a digitacao
@@ -235,6 +265,11 @@
 
 	window.addEventListener( 'mousemove', function ( e ) {
 		mouseMoved = true;
+		if ( lastMouseX !== null ) {
+			totalMouseDistPx += Math.hypot( e.clientX - lastMouseX, e.clientY - lastMouseY );
+		}
+		lastMouseX = e.clientX;
+		lastMouseY = e.clientY;
 		if ( pathPoints.length < MAX_PATH_POINTS ) {
 			pathPoints.push( { x: e.clientX, y: e.clientY } );
 		}
@@ -589,6 +624,7 @@
 			n_untrusted_click: naoConfiavel.click,
 			n_untrusted_key: naoConfiavel.keydown,
 			n_untrusted_input: naoConfiavel.input,
+			total_mouse_dist_px: Math.round( totalMouseDistPx ),
 			ruleset_version: RULESET_VERSION
 		};
 	}
@@ -602,7 +638,13 @@
 		// e so se mantem honesta se numerador e denominador excluirem
 		// exatamente a mesma coisa. Consequencia conhecida e documentada:
 		// agente puramente leitor (caso Manus etapa 1) e invisivel aqui.
-		if ( totalClicks === 0 && totalScrolls === 0 && totalKeydowns === 0 && totalInputs === 0 ) { return; }
+		//
+		// Excecao: motivo de header (cfg.headerFlags, calculado no servidor a
+		// partir da propria requisicao de pagina) e independente de interacao
+		// de DOM -- exigir clique/scroll/tecla pra reportar isso destruiria um
+		// sinal que ja chegou pronto do servidor.
+		var headerFlags = ( cfg.headerFlags && cfg.headerFlags.length ) ? cfg.headerFlags : [];
+		if ( totalClicks === 0 && totalScrolls === 0 && totalKeydowns === 0 && totalInputs === 0 && ! headerFlags.length ) { return; }
 
 		// A propria saida da pagina e evidencia de que o scroll parou ali --
 		// resolve na mao o que o debounce nao teve tempo de resolver sozinho
@@ -625,7 +667,7 @@
 		}
 
 		var paradas = contaParadasEmMultiplo();
-		var motivos = heuristicaAutomacao( paradas );
+		var motivos = heuristicaAutomacao( paradas ).concat( headerFlags );
 
 		// Sem motivo e fora da amostra: comportamento normal, nada enviado.
 		if ( motivos.length === 0 && ! sess.sampled ) { return; }

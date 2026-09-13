@@ -118,6 +118,51 @@ const DSI_UISENSOR_BASELINE_RATE = 1.0;
 // =============================================================================
 add_action( 'wp_footer', 'dsi_uisensor_print_inline', 20 );
 
+/**
+ * Motivos calculados no SERVIDOR, a partir dos headers da requisição de
+ * PÁGINA (não do beacon) -- só é possível avaliar aqui, em wp_footer, porque
+ * $_SERVER ainda reflete a requisição original nesse ponto do request.
+ *
+ * Comparado contra a literatura de fingerprinting de agentes (FP-Agent,
+ * arXiv:2605.01247; "Whose Agent Are You?", arXiv:2606.20910) -- ver
+ * changelog do JS. Ainda não verificado ao vivo contra Claude no Chrome,
+ * Comet ou Manus especificamente (nenhum mostrou anomalia de header nos
+ * testes já feitos); mira uma categoria mais ampla de automação que
+ * intercepta rede via CDP e não preserva esses headers com fidelidade.
+ */
+function dsi_uisensor_header_flags(): array {
+	$motivos = [];
+
+	// Sec-Fetch-Mode "navigate" só pode vir pareado com Sec-Fetch-Dest
+	// "document" (ou "iframe"/"frame" em conteúdo embutido) -- um navegador
+	// real nunca "navega" pedindo um destino de sub-recurso.
+	$modo = $_SERVER['HTTP_SEC_FETCH_MODE'] ?? '';
+	$dest = $_SERVER['HTTP_SEC_FETCH_DEST'] ?? '';
+	if ( $modo === 'navigate' && $dest !== '' && ! in_array( $dest, [ 'document', 'iframe', 'frame' ], true ) ) {
+		$motivos[] = 'fetch_metadata_impossivel';
+	}
+
+	// User-Agent e Sec-Ch-Ua nascem do mesmo motor num navegador real -- não
+	// podem declarar famílias diferentes. Checagem estreita de propósito
+	// (só Chrome vs. Edge, os dois com token bem definido) pra não arriscar
+	// falso positivo com navegadores menos comuns.
+	$ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+	$ch = strtolower( $_SERVER['HTTP_SEC_CH_UA'] ?? '' );
+	if ( $ch !== '' ) {
+		$ua_e_edge   = strpos( $ua, 'Edg/' ) !== false;
+		$ua_e_chrome = ! $ua_e_edge && strpos( $ua, 'Chrome/' ) !== false;
+		$ch_tem_edge   = strpos( $ch, 'edge' ) !== false;
+		$ch_tem_chrome = strpos( $ch, 'chrom' ) !== false;
+
+		if ( ( $ua_e_edge && ! $ch_tem_edge && $ch_tem_chrome )
+			|| ( $ua_e_chrome && $ch_tem_edge && ! $ch_tem_chrome ) ) {
+			$motivos[] = 'client_hints_incoerente';
+		}
+	}
+
+	return $motivos;
+}
+
 function dsi_uisensor_print_inline(): void {
 	if ( is_admin() || is_feed() || is_user_logged_in() ) {
 		return;
@@ -137,6 +182,7 @@ function dsi_uisensor_print_inline(): void {
 		'endpoint'     => rest_url( DSI_UISENSOR_NAMESPACE . DSI_UISENSOR_ROUTE ),
 		'traceId'      => wp_generate_uuid4(),
 		'baselineRate' => DSI_UISENSOR_BASELINE_RATE,
+		'headerFlags'  => dsi_uisensor_header_flags(),
 	];
 
 	echo "\n<script id=\"dsi-ui-sensor-inline\">\n";
@@ -314,6 +360,8 @@ const DSI_UISENSOR_MOTIVOS_VALIDOS = [
 	'tecla_nao_confiavel',
 	'input_nao_confiavel',
 	'evento_nao_confiavel', // legado (ruleset v1)
+	'fetch_metadata_impossivel',
+	'client_hints_incoerente',
 ];
 
 /**
@@ -397,6 +445,7 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 		'n_untrusted_click'                => [ '%d', dsi_uisensor_int( $dados['n_untrusted_click'] ?? null, 0, 5000 ) ],
 		'n_untrusted_key'                  => [ '%d', dsi_uisensor_int( $dados['n_untrusted_key'] ?? null, 0, 5000 ) ],
 		'n_untrusted_input'                => [ '%d', dsi_uisensor_int( $dados['n_untrusted_input'] ?? null, 0, 5000 ) ],
+		'total_mouse_dist_px'              => [ '%d', dsi_uisensor_int( $dados['total_mouse_dist_px'] ?? null, 0, 100000000 ) ],
 		't_first_action_ms'                => [ '%d', dsi_uisensor_int( $dados['t_first_action_ms'] ?? null, 0, 3600000 ) ],
 		'mean_iei_ms'                      => [ '%f', dsi_uisensor_float( $dados['mean_iei_ms'] ?? null, 0, 3600000 ) ],
 		'std_iei_ms'                       => [ '%f', dsi_uisensor_float( $dados['std_iei_ms'] ?? null, 0, 3600000 ) ],
@@ -603,6 +652,30 @@ function dsi_uisensor_admin_menu(): void {
 	);
 }
 
+/**
+ * Proporção de cada tipo de ação sobre o total da página -- não é contagem
+ * bruta (já exibida em colunas separadas), é o "formato" da interação.
+ * Achado na literatura (FP-Agent/"Whose Agent Are You?"): agentes diferentes
+ * mantêm uma proporção característica entre clique/scroll/tecla/input que se
+ * repete conforme o tipo de página muda -- não exige coleta nova, só olhar as
+ * contagens que já existem de outro jeito.
+ */
+function dsi_uisensor_perfil_acao( int $clicks, int $scrolls, int $keys, int $inputs ): string {
+	$total = $clicks + $scrolls + $keys + $inputs;
+	if ( $total === 0 ) {
+		return '—';
+	}
+
+	$partes = [];
+	foreach ( [ 'clique' => $clicks, 'scroll' => $scrolls, 'tecla' => $keys, 'input' => $inputs ] as $rotulo => $valor ) {
+		if ( $valor > 0 ) {
+			$partes[] = $rotulo . ' ' . round( ( $valor / $total ) * 100 ) . '%';
+		}
+	}
+
+	return implode( ' · ', $partes );
+}
+
 function dsi_uisensor_motivo_label( string $motivo ): string {
 	return [
 		'webdriver'                       => 'navigator.webdriver',
@@ -618,6 +691,8 @@ function dsi_uisensor_motivo_label( string $motivo ): string {
 		'tecla_nao_confiavel'             => 'tecla com isTrusted=false',
 		'input_nao_confiavel'             => 'input com isTrusted=false (ambíguo: agente OU gerenciador de senha/tradutor)',
 		'evento_nao_confiavel'            => 'evento com isTrusted=false (motivo legado, ruleset v1)',
+		'fetch_metadata_impossivel'       => 'Sec-Fetch-Mode/Dest inconsistentes (calculado no servidor)',
+		'client_hints_incoerente'         => 'User-Agent e Sec-Ch-Ua declaram navegadores diferentes (calculado no servidor)',
 	][ $motivo ] ?? $motivo;
 }
 
@@ -979,10 +1054,10 @@ function dsi_uisensor_admin_page(): void {
 	dsi_uisensor_render_sessoes( $table, $inicio_sql, $fim_sql );
 
 	echo '<h2 style="margin-top:32px;">Páginas com sinal (' . (int) DSI_UISENSOR_POR_PAGINA . ' mais recentes)</h2>';
-	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>URL</th><th>Motivos</th><th>Cliente (UA)</th><th>Rede</th><th>País</th><th>Cliques</th><th>Scrolls</th><th>Teclas</th><th>Inputs</th><th>Viewport</th><th title="navigator.webdriver">WebDriver</th><th title="Houve mousemove antes do 1º clique?">Mousemove antes</th><th title="Comprimento do caminho / distância em linha reta -- perto de 1.0 = trajetória sintética">Retidão</th><th title="mousedown→mouseup do 1º clique. Negativo = timeStamp inconsistente de evento sintético">Duração clique (ms)</th><th title="keydown→keyup médio, pareado por tecla">Duração tecla (ms)</th><th title="Parada final de scroll / fim rolável do documento. Iguais = leu até o fim; diferentes com múltiplo exato = passo fixo de tela">Scroll (parada/fim)</th><th title="Paradas em múltiplo exato da tela, fora do fim do documento">Paradas múltiplo</th></tr></thead><tbody>';
+	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>URL</th><th>Motivos</th><th>Cliente (UA)</th><th>Rede</th><th>País</th><th>Cliques</th><th>Scrolls</th><th>Teclas</th><th>Inputs</th><th title="Fração de cada tipo de ação sobre o total da página, não contagem bruta">Perfil de ação</th><th>Viewport</th><th title="navigator.webdriver">WebDriver</th><th title="Houve mousemove antes do 1º clique?">Mousemove antes</th><th title="Comprimento do caminho / distância em linha reta -- perto de 1.0 = trajetória sintética">Retidão</th><th title="Distância total percorrida pelo mouse na sessão inteira, em pixels">Mouse (px)</th><th title="mousedown→mouseup do 1º clique. Negativo = timeStamp inconsistente de evento sintético">Duração clique (ms)</th><th title="keydown→keyup médio, pareado por tecla">Duração tecla (ms)</th><th title="Parada final de scroll / fim rolável do documento. Iguais = leu até o fim; diferentes com múltiplo exato = passo fixo de tela">Scroll (parada/fim)</th><th title="Paradas em múltiplo exato da tela, fora do fim do documento">Paradas múltiplo</th></tr></thead><tbody>';
 
 	if ( ! $linhas ) {
-		echo '<tr><td colspan="18">Nenhuma página com sinal nesse período.</td></tr>';
+		echo '<tr><td colspan="20">Nenhuma página com sinal nesse período.</td></tr>';
 	}
 
 	foreach ( $linhas as $row ) {
@@ -998,7 +1073,7 @@ function dsi_uisensor_admin_page(): void {
 		}
 
 		printf(
-				'<tr><td>%s</td><td><code>%s</code></td><td>%s</td><td title="%s">%s</td><td><code>%s</code></td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td><td>%s×%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+				'<tr><td>%s</td><td><code>%s</code></td><td>%s</td><td title="%s">%s</td><td><code>%s</code></td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td><td>%s</td><td>%s×%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
 			esc_html( $row->recorded_at ),
 			esc_html( $row->url_path ),
 			esc_html( $rotulos ),
@@ -1010,11 +1085,13 @@ function dsi_uisensor_admin_page(): void {
 			(int) $row->n_scrolls,
 			(int) $row->n_keydowns,
 			(int) $row->n_inputs,
+			esc_html( dsi_uisensor_perfil_acao( (int) $row->n_clicks, (int) $row->n_scrolls, (int) $row->n_keydowns, (int) $row->n_inputs ) ),
 			esc_html( (string) ( $row->viewport_w ?? '—' ) ),
 			esc_html( (string) ( $row->viewport_h ?? '—' ) ),
 			$row->navigator_webdriver ? 'sim' : 'não',
 			esc_html( $mousemove_txt ),
 			$row->first_click_straightness !== null ? esc_html( number_format( (float) $row->first_click_straightness, 3 ) ) : '—',
+			isset( $row->total_mouse_dist_px ) && $row->total_mouse_dist_px !== null ? esc_html( number_format( (float) $row->total_mouse_dist_px, 0, ',', '.' ) ) : '—',
 			$row->first_click_dwell_ms !== null ? esc_html( number_format( (float) $row->first_click_dwell_ms, 1 ) ) : '—',
 			$row->mean_key_dwell_ms !== null ? esc_html( number_format( (float) $row->mean_key_dwell_ms, 1 ) ) : '—',
 			esc_html( $scroll_txt ),
