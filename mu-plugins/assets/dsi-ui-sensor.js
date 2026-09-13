@@ -609,6 +609,16 @@
 		// (ver comentario em registraParada). So age se o timer ainda nao
 		// tiver disparado por conta propria (scrollStopPendente evita
 		// registrar a mesma parada duas vezes).
+		//
+		// Residuo aceito: flush() tambem roda em 'visibilitychange' (troca de
+		// aba), que pode acontecer no MEIO de uma rolagem continua -- nesse
+		// caso a "parada" registrada aqui e so um instantaneo de passagem, nao
+		// uma parada de verdade. Quantificado e considerado baixo risco: com
+		// tolerancia de 4px num viewport de ~900px, uma posicao arbitraria cai
+		// num multiplo por coincidencia em ~1% dos casos, e o motivo ainda
+		// exige >=2x de multiplo pra disparar. Nao vale trocar por "nao
+		// registrar nada na saida" -- isso perderia o caso mais frequente dos
+		// dois, que e a saida rapida de pagina que este fix corrige acima.
 		if ( scrollStopPendente ) {
 			clearTimeout( scrollStopTimer );
 			registraParada();
