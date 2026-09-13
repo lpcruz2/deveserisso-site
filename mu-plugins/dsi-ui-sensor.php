@@ -171,6 +171,7 @@ const DSI_UISENSOR_MOTIVOS_VALIDOS = [
 	'clique_duracao_impossivel',
 	'digitacao_impossivel',
 	'scroll_multiplo_viewport',
+	'evento_nao_confiavel',
 ];
 
 /**
@@ -321,6 +322,7 @@ function dsi_uisensor_motivo_label( string $motivo ): string {
 		'clique_duracao_impossivel'       => 'clique rápido demais (mousedown→mouseup)',
 		'digitacao_impossivel'            => 'digitação rápida demais (keydown→keyup)',
 		'scroll_multiplo_viewport'        => 'scroll parou em múltiplo exato da altura da janela',
+		'evento_nao_confiavel'            => 'evento com isTrusted=false (disparado via JavaScript, não input real)',
 	][ $motivo ] ?? $motivo;
 }
 

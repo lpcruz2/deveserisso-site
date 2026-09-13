@@ -115,8 +115,20 @@
 	var pendingKeydownAt = null;
 	var MAX_KEY_DWELL_SAMPLES = 50;
 
+	// Achado testando o Perplexity Comet em 2026-09-13: quando ele nao
+	// consegue clicar "de verdade" (input a nivel de SO) porque o alvo nao e
+	// clicavel de fato (ex: um titulo que nao e link), ele cai pra disparar
+	// o clique via JavaScript (elemento.click()) -- e todo evento disparado
+	// assim vem com isTrusted:false. Humano fisicamente nao gera isso; so
+	// script consegue. Mais confiavel que qualquer sinal de timing (o mesmo
+	// teste mostrou o Comet simulando timing bem humano no clique/tecla
+	// reais: ~101ms de duracao de clique, ~173ms/tecla -- nenhuma das
+	// heuristicas de timing acima pegaria).
+	var eventoNaoConfiavel = false;
+
 	window.addEventListener( 'mousedown', function ( e ) {
 		if ( firstMousedownAt === null ) { firstMousedownAt = e.timeStamp; }
+		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
 	}, { passive: true, capture: true } );
 
 	function markEvent() {
@@ -146,6 +158,7 @@
 	window.addEventListener( 'click', function ( e ) {
 		markEvent();
 		totalClicks++;
+		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
 		if ( firstClickHadMouseMove === null ) {
 			firstClickHadMouseMove = mouseMoved;
 			firstClickDwellMs = firstMousedownAt !== null ? ( e.timeStamp - firstMousedownAt ) : null;
@@ -191,6 +204,7 @@
 	window.addEventListener( 'keydown', function ( e ) {
 		markEvent();
 		totalKeydowns++;
+		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
 		if ( STRUCTURAL_KEYS.indexOf( e.key ) !== -1 ) {
 			structuralKeydowns++;
 		} else if ( e.key && e.key.length === 1 ) {
@@ -312,6 +326,10 @@
 			if ( maisProximo >= 2 && Math.abs( multiplo - maisProximo ) < 0.02 ) {
 				motivos.push( 'scroll_multiplo_viewport' );
 			}
+		}
+
+		if ( eventoNaoConfiavel ) {
+			motivos.push( 'evento_nao_confiavel' );
 		}
 
 		return motivos;
