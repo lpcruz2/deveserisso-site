@@ -18,6 +18,21 @@
 	// paginas em janela curta, ritmo constante, poucas acoes por pagina",
 	// que nao aparece olhando um pageview isolado).
 
+	// Versao do CONJUNTO DE REGRAS (limiares, sinais, gatilhos) -- comeca a
+	// ser rastreada em 2026-09-13 (linhas gravadas antes disso nao tem essa
+	// coluna preenchida). Sobe 1 toda vez que um limiar ou sinal muda, pra
+	// nunca mais ficar impossivel saber qual regra gerou qual linha antiga
+	// depois de um ajuste futuro.
+	//
+	// Changelog:
+	//  v1 (2026-09-13): estado no momento em que o versionamento comecou --
+	//     10 sinais (webdriver, clique_sem_mousemove, movimento_mouse_sintetico,
+	//     timing_regular_demais, viewport_automacao_sem_plugins, sem_idiomas,
+	//     clique_duracao_impossivel, digitacao_impossivel, scroll_multiplo_viewport,
+	//     evento_nao_confiavel) + cobertura de input/beforeinput adicionada
+	//     nesta mesma versao.
+	var RULESET_VERSION = 1;
+
 	if ( window.__dsiUiSensorLoaded ) { return; }
 	window.__dsiUiSensorLoaded = true;
 
@@ -81,6 +96,7 @@
 	var totalScrolls         = 0;
 	var totalKeydowns        = 0;
 	var totalFocus           = 0;
+	var totalInputs          = 0;
 	var structuralKeydowns   = 0;
 	var printableKeydowns    = 0;
 	var scrollDepths         = [];
@@ -227,6 +243,22 @@
 			totalFocus++;
 		}
 	}, { passive: true } );
+
+	// Cobre o caso que nenhum listener acima ve: um agente que preenche um
+	// campo direto (elemento.value = "x" + dispatchEvent) em vez de simular
+	// tecla por tecla -- mais simples de implementar que digitacao, entao
+	// plausivelmente comum. Sem isso, esse tipo de preenchimento e invisivel
+	// pros 10 sinais anteriores (zero keydown, zero click). So conta
+	// ocorrencia e isTrusted -- nunca le o valor digitado/preenchido.
+	window.addEventListener( 'beforeinput', function ( e ) {
+		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
+	}, { passive: true, capture: true } );
+
+	window.addEventListener( 'input', function ( e ) {
+		markEvent();
+		totalInputs++;
+		if ( e.isTrusted === false ) { eventoNaoConfiavel = true; }
+	}, { passive: true, capture: true } );
 
 	function mean( arr ) {
 		if ( ! arr.length ) { return null; }
@@ -381,7 +413,9 @@
 			first_click_straightness: firstClickStraightness,
 			first_click_dwell_ms: firstClickDwellMs,
 			mean_key_dwell_ms: keyDwellMs.length ? mean( keyDwellMs ) : null,
-			max_scroll_px: scrollDepthsPx.length ? Math.max.apply( null, scrollDepthsPx ) : null
+			max_scroll_px: scrollDepthsPx.length ? Math.max.apply( null, scrollDepthsPx ) : null,
+			n_inputs: totalInputs,
+			ruleset_version: RULESET_VERSION
 		};
 	}
 
@@ -393,7 +427,7 @@
 		// a taxa que o painel calcula e "entre pageviews com alguma
 		// interacao", e so se mantem honesta se numerador e denominador
 		// excluirem exatamente a mesma coisa.
-		if ( totalClicks === 0 && totalScrolls === 0 && totalKeydowns === 0 ) { return; }
+		if ( totalClicks === 0 && totalScrolls === 0 && totalKeydowns === 0 && totalInputs === 0 ) { return; }
 
 		var motivos = heuristicaAutomacao();
 

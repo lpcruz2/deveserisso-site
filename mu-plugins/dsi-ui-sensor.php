@@ -258,6 +258,8 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 			'ms_since_prev_page'               => dsi_uisensor_int( $dados['ms_since_prev_page'] ?? null, 0, 86400000 ),
 			'sampled'                          => $sampled ? 1 : 0,
 			'session_degradada'                => ! empty( $dados['session_degradada'] ) ? 1 : 0,
+			'n_inputs'                         => dsi_uisensor_int( $dados['n_inputs'] ?? null, 0, 5000 ),
+			'ruleset_version'                  => dsi_uisensor_int( $dados['ruleset_version'] ?? null, 0, 1000 ),
 		],
 		[
 			'%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s',
@@ -268,6 +270,7 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 			'%d', '%f',
 			'%f', '%f', '%d',
 			'%s', '%d', '%d', '%d', '%d',
+			'%d', '%d',
 		]
 	);
 
