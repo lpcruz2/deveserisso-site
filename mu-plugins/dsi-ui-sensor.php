@@ -1615,13 +1615,13 @@ function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $
 		$texto = 'Sem evidência no período';
 	}
 
-	// max-width no CARTÃO inteiro, não só no texto -- um <div> sem largura
-	// própria estica até o fim do .wrap, e um <p> com max-width dentro dele
-	// deixa um vão vazio à direita, dentro da própria borda/fundo do
-	// cartão: visualmente parece "duas colunas, conteúdo só na primeira".
-	// Mesmo padrão já usado nos avisos mais antigos deste arquivo (ver
-	// dsi_uisensor_avisos_descarte_falha, max-width no <div>, não no <p>).
-	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:24px;margin:16px 0;max-width:800px;box-sizing:border-box;">';
+	// Sem max-width no cartão nem no texto -- pra acompanhar a largura das
+	// tabelas dos blocos 4/5 (widefat, 100% do container). Um max-width
+	// menor que o resto da página deixa o cartão "flutuando" estreito à
+	// esquerda enquanto o resto da tela usa a largura toda, tão ruim visualmente
+	// quanto o problema original (texto mais estreito que um cartão largo).
+	// box-sizing:border-box garante que padding não estoure 100%.
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:24px;margin:16px 0;box-sizing:border-box;">';
 	echo '<div style="font-size:13px;color:#646970;">Tem navegador com automação de IA acessando o site?</div>';
 	printf(
 		'<div style="display:inline-block;background:%s;color:%s;font-weight:600;font-size:22px;padding:8px 16px;border-radius:4px;margin:12px 0;">%s</div>',
@@ -1668,10 +1668,10 @@ function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $
  * e as duas coisas significam o oposto uma da outra.
  */
 function dsi_uisensor_render_bloco2( array $prevalencia, string $table ): void {
-	// Mesmo ajuste do bloco 1: max-width no CARTÃO inteiro, não só no texto
-	// de dentro -- senão o card estica até o fim do .wrap e o parágrafo
-	// mais estreito deixa um vão vazio à direita, dentro da própria borda.
-	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:24px;margin:16px 0;max-width:800px;box-sizing:border-box;">';
+	// Sem max-width, mesmo ajuste do bloco 1 -- acompanha a largura das
+	// tabelas dos blocos 4/5 em vez de flutuar mais estreito que o resto
+	// da página.
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:24px;margin:16px 0;box-sizing:border-box;">';
 	echo '<div style="font-size:13px;color:#646970;">Quantos % das visitas parecem automação?</div>';
 
 	if ( ! $prevalencia['confiavel'] ) {
@@ -1789,8 +1789,11 @@ function dsi_uisensor_render_bloco3_grafico( string $table, string $inicio_sql, 
 		)
 	);
 
-	echo '<div style="margin:16px 0;">';
-	echo '<h2 style="margin-bottom:4px;">Histórico diário</h2>';
+	// Mesmo cartão branco dos blocos 1/2 (pedido do gestor, 2026-09-14) --
+	// consistência visual entre os blocos, em vez do gráfico flutuar solto
+	// sobre o fundo cinza da página.
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:24px;margin:16px 0;box-sizing:border-box;">';
+	echo '<h2 style="margin-top:0;margin-bottom:12px;">Histórico diário</h2>';
 
 	if ( ! $dias ) {
 		echo '<p style="color:#646970;">Nenhum dado no período.</p></div>';
