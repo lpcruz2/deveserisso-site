@@ -1072,7 +1072,19 @@ function dsi_uisensor_inicio_regua_atual( string $table ): ?string {
  * @return array{0:string,1:string,2:string,3:string}
  */
 function dsi_uisensor_periodo( ?string $default_inicio ): array {
-	if ( function_exists( 'dsi_agentmd_periodo_from_request' ) ) {
+	$valor_get_inicio  = isset( $_GET['data_inicio'] ) ? sanitize_text_field( wp_unslash( $_GET['data_inicio'] ) ) : '';
+	$tem_filtro_manual = (bool) preg_match( '/^\d{4}-\d{2}-\d{2}$/', $valor_get_inicio );
+
+	// O helper compartilhado (outro mu-plugin, painel "Bots") tem seu próprio
+	// default fixo (~30 dias) sem jeito de receber o nosso -- delegar pra ele
+	// sempre que existisse (comportamento antes da task V1) fazia o novo
+	// default "desde a régua atual" nunca ser aplicado de verdade, mesmo com
+	// $default_inicio correto (achado ao conferir os números reais desta
+	// task: o período aplicado saía como o default antigo do outro plugin,
+	// não o nosso). Só delega quando há filtro manual explícito (onde
+	// preservar o comportamento anterior é o correto) ou quando não há
+	// $default_inicio nenhum pra usar (régua sem dado ainda).
+	if ( function_exists( 'dsi_agentmd_periodo_from_request' ) && ( $tem_filtro_manual || $default_inicio === null ) ) {
 		return dsi_agentmd_periodo_from_request();
 	}
 
