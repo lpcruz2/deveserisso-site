@@ -914,7 +914,7 @@ function dsi_uisensor_aviso_backfill( string $table ): void {
 	}
 
 	printf(
-		'<div style="background:#fcf9e8;border:1px solid #dba617;padding:16px;margin:16px 0;max-width:80ch;font-size:13px;line-height:1.6;">
+		'<div style="background:#fcf9e8;border:1px solid #dba617;padding:16px;margin:16px 0;font-size:13px;line-height:1.6;">
 			<strong>%d linhas ainda sem <code>ip_hash</code>.</strong>
 			Elas t&ecirc;m IP bruto e perdem a capacidade de agrupamento (inclusive a quarentena de sess&otilde;es com id colidido) quando a purga apagar o IP, em at&eacute; %d dias.
 			Para preservar: <code>wp eval \'dsi_uisensor_backfill_ip_hash();\'</code> (repita at&eacute; <code>restantes</code> chegar a zero).
@@ -1284,7 +1284,7 @@ function dsi_uisensor_avisos_descarte_falha( string $table ): void {
 	$descartes = (int) get_option( 'dsi_uisensor_descartes_' . current_time( 'Y-m-d' ), 0 );
 	if ( $descartes > 0 ) {
 		printf(
-			'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;margin-bottom:12px;">
+			'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;box-sizing:border-box;font-size:13px;line-height:1.5;margin-bottom:12px;">
 				<strong>%d beacons descartados hoje por rate limit.</strong> O denominador do período está incompleto nessa medida. A chave do balde é o IP do edge do CDN, então sessão de navegação rápida (o padrão de um agente) é a mais afetada.
 			</div>',
 			$descartes
@@ -1297,7 +1297,7 @@ function dsi_uisensor_avisos_descarte_falha( string $table ): void {
 	$descartes_hdr = (int) get_option( 'dsi_uisensor_desc_hdr_' . current_time( 'Y-m-d' ), 0 );
 	if ( $descartes_hdr > 0 ) {
 		printf(
-			'<div style="background:#fcf9e8;border:1px solid #dba617;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;margin-bottom:12px;">
+			'<div style="background:#fcf9e8;border:1px solid #dba617;padding:20px;box-sizing:border-box;font-size:13px;line-height:1.5;margin-bottom:12px;">
 				<strong>%d requisições de header descartadas hoje por rate limit.</strong> Não afeta nenhum denominador (essas linhas não fazem parte da amostra) -- é só sinal de que GETs com header hostil estão sendo bloqueados antes de gravar.
 			</div>',
 			$descartes_hdr
@@ -1312,7 +1312,7 @@ function dsi_uisensor_avisos_descarte_falha( string $table ): void {
 		$idade_falha = current_time( 'timestamp' ) - strtotime( (string) $falha['quando'] );
 		if ( $idade_falha <= 3 * DAY_IN_SECONDS ) {
 			printf(
-				'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;margin-bottom:12px;">
+				'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;box-sizing:border-box;font-size:13px;line-height:1.5;margin-bottom:12px;">
 					<strong>Última falha de gravação:</strong> %s<br><code>%s</code><br>Migração de schema pendente?
 				</div>',
 				esc_html( (string) $falha['quando'] ),
@@ -1369,7 +1369,7 @@ function dsi_uisensor_render_sessoes( string $table, string $inicio_sql, string 
 	);
 
 	echo '<h2 style="margin-top:32px;">Sessões multipágina</h2>';
-	echo '<p style="color:#646970;max-width:80ch;">Só sessões com 2+ páginas — é onde o ritmo entre páginas existe e pode ser medido. <strong>Ritmo</strong> é o desvio-padrão AMOSTRAL do intervalo dividido pela média (STDDEV_SAMP, não populacional -- com poucos intervalos a versão populacional subestima a variância real): perto de zero significa cadência de máquina (humano varia muito mais), só destacado com 4+ páginas (3+ intervalos). <strong>Scroll em múltiplo</strong> conta em quantas páginas da sessão houve parada em múltiplo exato da tela — uma página isolada é fraca, repetição é que vira evidência. Sessões com mais de uma origem distinta estão em quarentena e não aparecem aqui.</p>';
+	echo '<p style="color:#646970;">Só sessões com 2+ páginas — é onde o ritmo entre páginas existe e pode ser medido. <strong>Ritmo</strong> é o desvio-padrão AMOSTRAL do intervalo dividido pela média (STDDEV_SAMP, não populacional -- com poucos intervalos a versão populacional subestima a variância real): perto de zero significa cadência de máquina (humano varia muito mais), só destacado com 4+ páginas (3+ intervalos). <strong>Scroll em múltiplo</strong> conta em quantas páginas da sessão houve parada em múltiplo exato da tela — uma página isolada é fraca, repetição é que vira evidência. Sessões com mais de uma origem distinta estão em quarentena e não aparecem aqui.</p>';
 	echo '<table class="widefat striped"><thead><tr><th>Início</th><th>Páginas</th><th>Duração</th><th title="Páginas por minuto">Pág/min</th><th title="Desvio-padrão amostral do intervalo entre páginas / média. Baixo = cadência constante">Ritmo</th><th title="(cliques + scrolls) por página">Ações/pág</th><th title="Páginas da sessão com parada em múltiplo exato da tela">Scroll em múltiplo</th><th>Motivos</th><th>Amostra</th><th title="Regra vigente quando a linha foi gravada">Ruleset</th><th>Rede</th><th>País</th></tr></thead><tbody>';
 
 	if ( ! $sessoes ) {
@@ -1433,7 +1433,7 @@ function dsi_uisensor_render_rulesets( string $table, string $inicio_sql, string
 		return;
 	}
 
-	echo '<div style="background:#fcf9e8;border:1px solid #dba617;padding:16px;margin:16px 0;max-width:80ch;font-size:13px;line-height:1.5;">';
+	echo '<div style="background:#fcf9e8;border:1px solid #dba617;padding:16px;margin:16px 0;font-size:13px;line-height:1.5;">';
 	echo '<strong>Período mistura versões de regra.</strong> O significado de alguns sinais muda entre versões do ruleset (ver Changelog do repositório) -- não compare taxa entre versões diferentes: ';
 	$partes = [];
 	foreach ( $linhas as $l ) {
@@ -1494,7 +1494,7 @@ function dsi_uisensor_render_baseline_rates( string $table, string $inicio_sql, 
 		return;
 	}
 
-	echo '<div style="background:#fcf9e8;border:1px solid #dba617;padding:16px;margin:16px 0;max-width:80ch;font-size:13px;line-height:1.5;">';
+	echo '<div style="background:#fcf9e8;border:1px solid #dba617;padding:16px;margin:16px 0;font-size:13px;line-height:1.5;">';
 	echo '<strong>Período mistura taxas de amostragem diferentes.</strong> A prevalência acima usa todas as linhas sorteadas do período, mas elas foram coletadas sob <code>BASELINE_RATE</code> distinto -- dois períodos com taxas diferentes não são diretamente comparáveis, mesmo com o mesmo ruleset: ';
 	$partes = [];
 	foreach ( $linhas as $l ) {
@@ -1945,10 +1945,10 @@ function dsi_uisensor_render_bloco4_conteudos( string $table, string $inicio_sql
 	}
 	echo '</tbody></table>';
 
-	echo '<p style="font-size:12px;color:#646970;max-width:80ch;line-height:1.6;margin-top:12px;">Ordenado por contagem absoluta de evidência, nunca por proporção — com denominadores de 1 a 40 visitas, ordenar por % põe no topo justamente o que não tem volume. <strong>Uma página com 1 de 1 visita não significa 100% de automação.</strong></p>';
+	echo '<p style="font-size:12px;color:#646970;line-height:1.6;margin-top:12px;">Ordenado por contagem absoluta de evidência, nunca por proporção — com denominadores de 1 a 40 visitas, ordenar por % põe no topo justamente o que não tem volume. <strong>Uma página com 1 de 1 visita não significa 100% de automação.</strong></p>';
 
 	if ( dsi_uisensor_periodo_tem_regua_antiga( $table, $inicio_sql, $fim_sql ) ) {
-		echo '<p style="font-size:12px;color:#8c6d1f;max-width:80ch;line-height:1.6;margin-top:8px;">O período inclui régua anterior à v' . (int) DSI_UISENSOR_RULESET_VERSION . '. O padrão de quais páginas aparecem no topo é <strong>hipótese, não achado</strong> -- parte vem de sinais com falso positivo já corrigido e das primeiras horas de teste, de antes do marcador de tráfego interno existir.</p>';
+		echo '<p style="font-size:12px;color:#8c6d1f;line-height:1.6;margin-top:8px;">O período inclui régua anterior à v' . (int) DSI_UISENSOR_RULESET_VERSION . '. O padrão de quais páginas aparecem no topo é <strong>hipótese, não achado</strong> -- parte vem de sinais com falso positivo já corrigido e das primeiras horas de teste, de antes do marcador de tráfego interno existir.</p>';
 	}
 
 	echo '</div>';
@@ -2037,7 +2037,7 @@ function dsi_uisensor_render_bloco5_sinais( string $table, string $inicio_sql, s
 	// passaram por aqui em tráfego orgânico neste período).
 	if ( $nunca_observados ) {
 		echo '<details style="margin-top:12px;"><summary style="cursor:pointer;color:#646970;">' . count( $nunca_observados ) . ' sinais nunca observados no período</summary>';
-		echo '<p style="font-size:12px;color:#646970;max-width:80ch;line-height:1.6;margin-top:8px;">Zero é informação, não vazio: por exemplo, zero em <code>clique_nao_confiavel</code> e <code>input_nao_confiavel</code> significa que os produtos que vazam por esses sinais (Comet e Manus) não passaram por aqui em tráfego orgânico neste período.</p>';
+		echo '<p style="font-size:12px;color:#646970;line-height:1.6;margin-top:8px;">Zero é informação, não vazio: por exemplo, zero em <code>clique_nao_confiavel</code> e <code>input_nao_confiavel</code> significa que os produtos que vazam por esses sinais (Comet e Manus) não passaram por aqui em tráfego orgânico neste período.</p>';
 		echo '<table class="widefat striped"><thead><tr><th>Sinal</th><th>O que mede</th></tr></thead><tbody>';
 		foreach ( $nunca_observados as $motivo ) {
 			printf(
@@ -2166,7 +2166,7 @@ function dsi_uisensor_admin_page(): void {
 			: ''
 	);
 
-	echo '<p style="color:#646970;max-width:80ch;line-height:1.6;margin-bottom:20px;">Navegador agêntico (Claude no Chrome, ChatGPT Atlas, Perplexity Comet) manda <strong>User-Agent de Chrome puro</strong> — não existe detecção por header, só por comportamento. Nenhum sinal aqui prova que há um agente ou que não há uma pessoa: são evidências observáveis de interação programática.</p>';
+	echo '<p style="color:#646970;line-height:1.6;margin-bottom:20px;">Navegador agêntico (Claude no Chrome, ChatGPT Atlas, Perplexity Comet) manda <strong>User-Agent de Chrome puro</strong> — não existe detecção por header, só por comportamento. Nenhum sinal aqui prova que há um agente ou que não há uma pessoa: são evidências observáveis de interação programática.</p>';
 
 	echo '<form method="get" style="margin:16px 0;display:flex;gap:8px;align-items:end;flex-wrap:wrap;">';
 	echo '<input type="hidden" name="page" value="dsi-ui-sensor">';
@@ -2204,7 +2204,7 @@ function dsi_uisensor_admin_page(): void {
 
 	$ultima_purga = get_option( 'dsi_uisensor_ultima_purga' );
 	printf(
-		'<p style="color:#646970;max-width:80ch;margin-top:24px;font-size:13px;line-height:1.6;">
+		'<p style="color:#646970;margin-top:24px;font-size:13px;line-height:1.6;">
 			<strong>Retenção:</strong> IP bruto é apagado da linha após %d dias; <code>ip_hash</code> (HMAC com salt do site) e <code>ip_prefix</code> (/24) seguem até %d dias, quando a linha inteira sai. O salt rotaciona junto com a purga — depois disso os hashes antigos deixam de ser vinculáveis a qualquer IP novo. Comparação por <code>ip_hash</code> só vale dentro do mesmo <code>ip_salt_epoch</code>. Última purga automática: %s (depende do wp-cron continuar rodando -- se essa data ficar velha, a promessa de retenção acima não está mais sendo cumprida).
 		</p>',
 		(int) DSI_UISENSOR_IP_RAW_DIAS,
