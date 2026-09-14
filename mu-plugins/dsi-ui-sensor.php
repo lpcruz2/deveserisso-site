@@ -69,7 +69,7 @@ const DSI_UISENSOR_RL_JANELA     = 60;  // segundos
 const DSI_UISENSOR_RETENCAO_DIAS = 90;  // vida da linha inteira
 const DSI_UISENSOR_IP_RAW_DIAS   = 7;   // vida do client_ip BRUTO dentro da linha
 const DSI_UISENSOR_POR_PAGINA    = 100;
-const DSI_UISENSOR_RULESET_VERSION = 4; // espelha RULESET_VERSION do JS -- usado nas linhas gravadas direto pelo servidor (header flags)
+const DSI_UISENSOR_RULESET_VERSION = 5; // espelha RULESET_VERSION do JS -- usado nas linhas gravadas direto pelo servidor (header flags)
 
 /**
  * IPs da própria equipe/máquina de teste. Linhas vindas daqui recebem
@@ -236,16 +236,27 @@ function dsi_uisensor_grava_header_flags(): void {
 
 	$ip = dsi_uisensor_client_ip();
 
-	// Mesmo balde do endpoint público -- sem isso, uma sequência de
-	// requisições com header hostil e query string variando (pra forçar
-	// cache MISS) poderia inflar esta tabela sem limite.
-	if ( dsi_uisensor_rate_limit_excedido( $ip ) ) {
+	// Balde PRÓPRIO, separado do endpoint público de beacon -- achado em
+	// revisão externa (2026-09-13): reaproveitar o mesmo balde permitia
+	// esgotar a cota de um edge inteiro só com GETs baratos (query string
+	// variando pra forçar cache MISS, sem precisar montar POST nenhum),
+	// derrubando a coleta de beacon legítimo de qualquer visitante que caia
+	// no mesmo edge.
+	if ( dsi_uisensor_rate_limit_excedido( $ip, 'dsi_uis_hdr_rl_' ) ) {
+		dsi_uisensor_conta_descarte();
 		return;
 	}
 
 	global $wpdb;
 	$salt = dsi_uisensor_ip_salt();
 	$ua   = sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+
+	// Só o path, sem query string -- REQUEST_URI bruto tem duas semânticas
+	// diferentes da mesma coluna: o beacon grava location.pathname (sem
+	// query), então misturar os dois quebra agrupamento por URL. Query
+	// string é texto livre controlado por quem chama; não precisa disso
+	// gravado (achado em revisão externa, 2026-09-13).
+	$path_bruto = wp_parse_url( $_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH );
 
 	$wpdb->insert(
 		$wpdb->prefix . 'dsi_ui_flagged_traces',
@@ -256,7 +267,7 @@ function dsi_uisensor_grava_header_flags(): void {
 			'sampled'           => 0,
 			'is_dev_traffic'    => dsi_uisensor_eh_dev_traffic( $ip ) ? 1 : 0,
 			'baseline_rate'     => DSI_UISENSOR_BASELINE_RATE,
-			'url_path'          => dsi_uisensor_texto( $_SERVER['REQUEST_URI'] ?? '', 255 ),
+			'url_path'          => dsi_uisensor_texto( $path_bruto ?? '', 255 ),
 			'user_agent'        => mb_substr( $ua, 0, 255 ),
 			'client_ip'         => $ip,
 			'ip_hash'           => dsi_uisensor_ip_hash( $ip ),
@@ -430,9 +441,15 @@ function dsi_uisensor_client_ip(): string {
 		: sanitize_text_field( $_SERVER['REMOTE_ADDR'] ?? '' );
 }
 
-/** Mesmo esquema de balde do dsi-api-ratelimit.php, namespace próprio. */
-function dsi_uisensor_rate_limit_excedido( string $ip ): bool {
-	$key   = 'dsi_uis_rl_' . md5( $ip );
+/**
+ * Mesmo esquema de balde do dsi-api-ratelimit.php, namespace próprio.
+ * $prefixo isola o balde do endpoint de beacon do balde de header flags --
+ * são caminhos com custo de disparo bem diferente (POST vs GET puro) e
+ * compartilhar o mesmo balde deixava um esgotar o outro (ver
+ * dsi_uisensor_grava_header_flags).
+ */
+function dsi_uisensor_rate_limit_excedido( string $ip, string $prefixo = 'dsi_uis_rl_' ): bool {
+	$key   = $prefixo . md5( $ip );
 	$state = get_transient( $key );
 	$now   = time();
 
@@ -633,22 +650,53 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 	$table = $wpdb->prefix . 'dsi_ui_flagged_traces';
 
 	// Reenvio da MESMA pageview (visibilitychange não-terminal, ver flush()
-	// no JS) substitui a linha anterior em vez de duplicar -- fica só a
-	// versão mais recente. trace_id é gerado por pageview (crypto.randomUUID
-	// no cliente), então nunca colide entre pageviews diferentes; não usamos
+	// no JS) substitui a linha anterior em vez de duplicar -- fica só a mais
+	// recente. trace_id é gerado por pageview (crypto.randomUUID no
+	// cliente), então nunca colide entre pageviews diferentes; não usamos
 	// UNIQUE KEY + upsert pra não arriscar a coluna, que já tem linhas
 	// antigas com trace_id vazio (v1) que colidiriam entre si.
-	if ( $trace_id_valor !== '' ) {
-		$wpdb->delete( $table, [ 'trace_id' => $trace_id_valor ], [ '%s' ] );
-	}
-
+	//
+	// INSERE PRIMEIRO, remove depois (ordem invertida na v5, revisão
+	// externa 2026-09-13) -- a ordem antiga (delete depois insert) tinha
+	// dois problemas reais: (1) se o insert falhasse depois do delete já ter
+	// rodado, a linha boa anterior desaparecia e nenhuma nova entrava --
+	// perda de dado numa falha que antes era só "não grava a atualização";
+	// (2) duas requisições concorrentes pro mesmo trace_id (dois envios de
+	// sendBeacon quase simultâneos) podiam ambas fazer DELETE sem achar nada
+	// (nenhuma ainda tinha committado) e ambas inserir -- duas linhas pro
+	// mesmo pageview, inflando o denominador por página. Inserindo primeiro
+	// e apagando só o que tem id MENOR que o que acabou de entrar (nunca o
+	// próprio), o insert nunca é precedido por uma perda, e a segunda
+	// requisição concorrente sempre acaba limpando a primeira (quem chega
+	// por último tem o id maior e sobrevive). Escopado também por
+	// session_id -- sem isso, o trace_id de uma linha legada (v1, quando o
+	// valor vinha impresso no HTML público e se repete em dezenas de linhas
+	// diferentes) seria uma chave de DELETE não autenticada: um POST forjado
+	// só com um trace_id antigo bastaria pra apagar todas as linhas que o
+	// compartilham.
 	$ok = $wpdb->insert( $table, $valores, $formatos );
 
-	// Falha de insert era silenciosa: se a tabela não existe (instalação que
-	// não rodou o schema.sql) ou uma coluna falta (migração pendente), o dado
-	// desaparecia sem sinal nenhum.
 	if ( $ok === false ) {
+		// Falha de insert era silenciosa: se a tabela não existe (instalação
+		// que não rodou o schema.sql) ou uma coluna falta (migração
+		// pendente), o dado desaparecia sem sinal nenhum.
 		dsi_uisensor_log_falha( $wpdb->last_error );
+	} elseif ( $trace_id_valor !== '' ) {
+		$novo_id = (int) $wpdb->insert_id;
+		$wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$table} WHERE trace_id = %s AND session_id = %s AND id < %d",
+				$trace_id_valor,
+				$campos['session_id'][1],
+				$novo_id
+			)
+		);
+
+		// Gravação nova teve sucesso -- qualquer falha anterior já não
+		// reflete o estado atual do endpoint (achado em revisão externa,
+		// 2026-09-13: o aviso antigo só expirava por idade, não por sucesso,
+		// então uma falha já corrigida ficava vermelho no painel por dias).
+		delete_option( 'dsi_uisensor_ultima_falha' );
 	}
 
 	return new WP_REST_Response( null, 204 );
@@ -715,14 +763,23 @@ function dsi_uisensor_purga(): void {
 
 	// Limpa os contadores diários de descarte (uma option nova por dia,
 	// pra sempre, sem isso) -- mantém só os últimos DSI_UISENSOR_RETENCAO_DIAS.
+	// delete_option() em vez de DELETE direto na tabela (achado em revisão
+	// externa, 2026-09-13): a query direta não invalida o object cache --
+	// com cache persistente ativo, a option apagada continuava servida do
+	// cache até expirar sozinha. Impacto prático era baixo aqui (autoload=no,
+	// só a option do dia é lida), mas delete_option() é o caminho suportado
+	// e custa o mesmo.
 	$corte_opcao = 'dsi_uisensor_descartes_' . dsi_uisensor_corte( DSI_UISENSOR_RETENCAO_DIAS );
-	$wpdb->query(
+	$antigas     = $wpdb->get_col(
 		$wpdb->prepare(
-			"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name < %s",
+			"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name < %s",
 			$wpdb->esc_like( 'dsi_uisensor_descartes_' ) . '%',
 			$corte_opcao
 		)
 	);
+	foreach ( $antigas as $nome_opcao ) {
+		delete_option( $nome_opcao );
+	}
 
 	// Salt novo depois da purga: os hashes que sobraram deixam de ser
 	// vinculáveis a qualquer IP observado daqui pra frente.
@@ -1008,7 +1065,12 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 	// Prevalência POR PÁGINA, em paralelo -- não acumula chance de acender
 	// sinal com o comprimento da sessão (ver limite documentado em
 	// dsi_uisensor_wilson), então serve de contraponto quando os dois
-	// números divergem bastante.
+	// números divergem bastante. Precisa da MESMA quarentena da consulta por
+	// sessão (achado em revisão externa, 2026-09-13: sem isso, a sessão
+	// contaminada de 30 páginas/28 IPs do bug de v1 entrava com 30 páginas
+	// no denominador e 0 no numerador, diluindo o número pra baixo e fazendo
+	// o card divergir por um motivo diferente do que seu próprio texto
+	// sugere -- quem lesse concluiria o oposto do certo).
 	$rp = $wpdb->get_row(
 		$wpdb->prepare(
 			"SELECT
@@ -1018,7 +1080,8 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 			 WHERE sampled = 1
 			   AND is_dev_traffic = 0
 			   AND session_degradada = 0
-			   AND recorded_at BETWEEN %s AND %s",
+			   AND recorded_at BETWEEN %s AND %s
+			   AND {$quarentena}",
 			$inicio_sql,
 			$fim_sql
 		)
@@ -1212,6 +1275,38 @@ function dsi_uisensor_render_rulesets( string $table, string $inicio_sql, string
 	echo '</div>';
 }
 
+/**
+ * Texto "amostra de X% das sessões" pro parágrafo de topo -- derivado do que
+ * o PERÍODO realmente tem gravado, não da constante vigente agora (achado em
+ * revisão externa, 2026-09-13: o aviso de mistura só aparece com 2+ taxas
+ * distintas no período; um período inteiro sob uma taxa antiga não dispara
+ * aviso nenhum e ficava rotulado com a taxa de hoje, mesmo se BASELINE_RATE
+ * já tivesse mudado depois). Cai pra constante atual só quando o período não
+ * tem nenhuma linha amostrada ainda (nada pra derivar).
+ */
+function dsi_uisensor_baseline_rate_texto( string $table, string $inicio_sql, string $fim_sql ): string {
+	global $wpdb;
+
+	$r = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT MIN(baseline_rate) mn, MAX(baseline_rate) mx
+			 FROM {$table}
+			 WHERE sampled = 1 AND recorded_at BETWEEN %s AND %s",
+			$inicio_sql,
+			$fim_sql
+		)
+	);
+
+	if ( $r === null || $r->mn === null ) {
+		return round( DSI_UISENSOR_BASELINE_RATE * 100 ) . '%';
+	}
+
+	$mn = round( (float) $r->mn * 100 );
+	$mx = round( (float) $r->mx * 100 );
+
+	return $mn === $mx ? "{$mn}%" : "entre {$mn}% e {$mx}%";
+}
+
 /** Mesma ideia de dsi_uisensor_render_rulesets, mas pra baseline_rate -- a coluna era gravada e nunca lida. */
 function dsi_uisensor_render_baseline_rates( string $table, string $inicio_sql, string $fim_sql ): void {
 	global $wpdb;
@@ -1286,7 +1381,7 @@ function dsi_uisensor_admin_page(): void {
 	);
 
 	echo '<div class="wrap"><h1>Navegadores agênticos</h1>';
-	echo '<p style="color:#646970;max-width:80ch;">Navegador agêntico (Claude no Chrome, ChatGPT Atlas, Perplexity Comet) manda <strong>User-Agent de Chrome puro</strong> — não existe detecção por header, só por comportamento. Esta tela mede isso de duas formas: <strong>detecção</strong> (sessões que dispararam algum sinal de automação, registradas 100%) e <strong>baseline</strong> (amostra de ' . (int) round( DSI_UISENSOR_BASELINE_RATE * 100 ) . '% das sessões, sorteada às cegas, que serve de denominador). Nenhum sinal aqui prova que há um agente ou que não há uma pessoa: são evidências observáveis de interação programática.</p>';
+	echo '<p style="color:#646970;max-width:80ch;">Navegador agêntico (Claude no Chrome, ChatGPT Atlas, Perplexity Comet) manda <strong>User-Agent de Chrome puro</strong> — não existe detecção por header, só por comportamento. Esta tela mede isso de duas formas: <strong>detecção</strong> (sessões que dispararam algum sinal de automação, registradas 100%) e <strong>baseline</strong> (amostra de ' . esc_html( dsi_uisensor_baseline_rate_texto( $table, $inicio_sql, $fim_sql ) ) . ' das sessões do período, sorteada às cegas, que serve de denominador). Nenhum sinal aqui prova que há um agente ou que não há uma pessoa: são evidências observáveis de interação programática.</p>';
 
 	dsi_uisensor_aviso_backfill( $table );
 	dsi_uisensor_render_rulesets( $table, $inicio_sql, $fim_sql );
