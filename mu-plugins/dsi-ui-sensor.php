@@ -69,7 +69,7 @@ const DSI_UISENSOR_RL_JANELA     = 60;  // segundos
 const DSI_UISENSOR_RETENCAO_DIAS = 90;  // vida da linha inteira
 const DSI_UISENSOR_IP_RAW_DIAS   = 7;   // vida do client_ip BRUTO dentro da linha
 const DSI_UISENSOR_POR_PAGINA    = 100;
-const DSI_UISENSOR_RULESET_VERSION = 5; // espelha RULESET_VERSION do JS -- usado nas linhas gravadas direto pelo servidor (header flags)
+const DSI_UISENSOR_RULESET_VERSION = 6; // espelha RULESET_VERSION do JS -- usado nas linhas gravadas direto pelo servidor (header flags)
 
 /**
  * IPs da própria equipe/máquina de teste. Linhas vindas daqui recebem
@@ -243,7 +243,7 @@ function dsi_uisensor_grava_header_flags(): void {
 	// derrubando a coleta de beacon legítimo de qualquer visitante que caia
 	// no mesmo edge.
 	if ( dsi_uisensor_rate_limit_excedido( $ip, 'dsi_uis_hdr_rl_' ) ) {
-		dsi_uisensor_conta_descarte();
+		dsi_uisensor_conta_descarte( 'header' );
 		return;
 	}
 
@@ -664,16 +664,7 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 	// (2) duas requisições concorrentes pro mesmo trace_id (dois envios de
 	// sendBeacon quase simultâneos) podiam ambas fazer DELETE sem achar nada
 	// (nenhuma ainda tinha committado) e ambas inserir -- duas linhas pro
-	// mesmo pageview, inflando o denominador por página. Inserindo primeiro
-	// e apagando só o que tem id MENOR que o que acabou de entrar (nunca o
-	// próprio), o insert nunca é precedido por uma perda, e a segunda
-	// requisição concorrente sempre acaba limpando a primeira (quem chega
-	// por último tem o id maior e sobrevive). Escopado também por
-	// session_id -- sem isso, o trace_id de uma linha legada (v1, quando o
-	// valor vinha impresso no HTML público e se repete em dezenas de linhas
-	// diferentes) seria uma chave de DELETE não autenticada: um POST forjado
-	// só com um trace_id antigo bastaria pra apagar todas as linhas que o
-	// compartilham.
+	// mesmo pageview, inflando o denominador por página.
 	$ok = $wpdb->insert( $table, $valores, $formatos );
 
 	if ( $ok === false ) {
@@ -681,31 +672,82 @@ function dsi_uisensor_ingest( WP_REST_Request $request ) {
 		// que não rodou o schema.sql) ou uma coluna falta (migração
 		// pendente), o dado desaparecia sem sinal nenhum.
 		dsi_uisensor_log_falha( $wpdb->last_error );
-	} elseif ( $trace_id_valor !== '' ) {
-		$novo_id = (int) $wpdb->insert_id;
-		$wpdb->query(
-			$wpdb->prepare(
-				"DELETE FROM {$table} WHERE trace_id = %s AND session_id = %s AND id < %d",
-				$trace_id_valor,
-				$campos['session_id'][1],
-				$novo_id
-			)
-		);
-
+	} else {
 		// Gravação nova teve sucesso -- qualquer falha anterior já não
-		// reflete o estado atual do endpoint (achado em revisão externa,
-		// 2026-09-13: o aviso antigo só expirava por idade, não por sucesso,
-		// então uma falha já corrigida ficava vermelho no painel por dias).
-		delete_option( 'dsi_uisensor_ultima_falha' );
+		// reflete o estado atual do endpoint. get_option() é cacheado
+		// (praticamente de graça); delete_option() sempre roda um SELECT sem
+		// cache no wpdb -- só chamamos quando de fato existe algo a apagar,
+		// em vez de pagar essa query em TODO beacon com interação (achado em
+		// revisão externa, 2026-09-14: estava condicionado a ter trace_id,
+		// então um insert sem trace_id nunca limpava o alarme).
+		if ( get_option( 'dsi_uisensor_ultima_falha' ) ) {
+			delete_option( 'dsi_uisensor_ultima_falha' );
+		}
+
+		if ( $trace_id_valor !== '' ) {
+			$novo_id = (int) $wpdb->insert_id;
+
+			// v5 apagava por ORDEM de chegada (id menor que o recém-inserido)
+			// -- reproduzido ao vivo em produção (2026-09-14): forçando dois
+			// beacons do mesmo trace_id chegarem fora de ordem, o mais
+			// completo (5 cliques, 40 scrolls, 9 teclas) foi apagado pelo
+			// menos completo que chegou depois, reintroduzindo a truncagem
+			// que o reenvio da v4 existia pra eliminar. Os contadores só
+			// crescem dentro de um pageview, então a soma de atividade já é
+			// um "número de versão" de graça -- comparamos por isso, não por
+			// ordem de chegada: apaga só quem tem atividade MENOR OU IGUAL à
+			// que acabamos de gravar (nunca a mais completa), e se sobrar
+			// outra linha depois disso, ela é que era mais completa -- a
+			// obsoleta então é esta que acabamos de inserir. Funciona
+			// independente de qual requisição chega primeiro. Escopado
+			// também por session_id -- sem isso, o trace_id de uma linha
+			// legada (v1, quando o valor vinha impresso no HTML público e se
+			// repete em dezenas de linhas diferentes) seria uma chave de
+			// DELETE não autenticada.
+			$atividade = (int) $campos['n_clicks'][1] + (int) $campos['n_scrolls'][1]
+				+ (int) $campos['n_keydowns'][1] + (int) $campos['n_inputs'][1];
+
+			$wpdb->query(
+				$wpdb->prepare(
+					"DELETE FROM {$table} WHERE trace_id = %s AND session_id = %s AND id <> %d
+					   AND ( COALESCE(n_clicks,0) + COALESCE(n_scrolls,0) + COALESCE(n_keydowns,0) + COALESCE(n_inputs,0) ) <= %d",
+					$trace_id_valor,
+					$campos['session_id'][1],
+					$novo_id,
+					$atividade
+				)
+			);
+
+			$sobrou = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$table} WHERE trace_id = %s AND session_id = %s AND id <> %d",
+					$trace_id_valor,
+					$campos['session_id'][1],
+					$novo_id
+				)
+			);
+			if ( $sobrou > 0 ) {
+				$wpdb->delete( $table, [ 'id' => $novo_id ], [ '%d' ] );
+			}
+		}
 	}
 
 	return new WP_REST_Response( null, 204 );
 }
 
-/** Contador de beacons descartados por rate limit, por dia (só números). */
-function dsi_uisensor_conta_descarte(): void {
-	$chave = 'dsi_uisensor_descartes_' . current_time( 'Y-m-d' );
-	$atual = (int) get_option( $chave, 0 );
+/**
+ * Contador de descartes por rate limit, por dia (só números). $tipo separa o
+ * balde do beacon (essas linhas afetam o denominador de prevalência) do
+ * balde do header flag (nunca afeta -- essas linhas são sampled=0 e nunca
+ * entram em nenhuma taxa). Somar os dois no mesmo número superestimava o
+ * dano ao denominador no aviso do painel (achado em revisão externa,
+ * 2026-09-14). Prefixos com o MESMO formato (base + data) em famílias
+ * separadas -- dsi_uisensor_purga() precisa varrer as duas.
+ */
+function dsi_uisensor_conta_descarte( string $tipo = 'beacon' ): void {
+	$prefixo = $tipo === 'header' ? 'dsi_uisensor_desc_hdr_' : 'dsi_uisensor_descartes_';
+	$chave   = $prefixo . current_time( 'Y-m-d' );
+	$atual   = (int) get_option( $chave, 0 );
 	update_option( $chave, $atual + 1, false );
 }
 
@@ -778,6 +820,20 @@ function dsi_uisensor_purga(): void {
 		)
 	);
 	foreach ( $antigas as $nome_opcao ) {
+		delete_option( $nome_opcao );
+	}
+
+	// Mesma limpeza pro balde de descarte do header flag (prefixo separado
+	// desde a v6, ver dsi_uisensor_conta_descarte).
+	$corte_opcao_hdr = 'dsi_uisensor_desc_hdr_' . dsi_uisensor_corte( DSI_UISENSOR_RETENCAO_DIAS );
+	$antigas_hdr     = $wpdb->get_col(
+		$wpdb->prepare(
+			"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s AND option_name < %s",
+			$wpdb->esc_like( 'dsi_uisensor_desc_hdr_' ) . '%',
+			$corte_opcao_hdr
+		)
+	);
+	foreach ( $antigas_hdr as $nome_opcao ) {
 		delete_option( $nome_opcao );
 	}
 
@@ -1143,6 +1199,19 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 		);
 	}
 
+	// Contador separado do de beacon desde a v6 (ver dsi_uisensor_conta_descarte):
+	// linha de header flag é sampled=0 e nunca entra em nenhum denominador --
+	// misturar os dois números no mesmo aviso superestimava o dano.
+	$descartes_hdr = (int) get_option( 'dsi_uisensor_desc_hdr_' . current_time( 'Y-m-d' ), 0 );
+	if ( $descartes_hdr > 0 ) {
+		printf(
+			'<div style="background:#fcf9e8;border:1px solid #dba617;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;">
+				<strong>%d requisições de header descartadas hoje por rate limit.</strong> Não afeta nenhum denominador (essas linhas não fazem parte da amostra) -- é só sinal de que GETs com header hostil estão sendo bloqueados antes de gravar.
+			</div>',
+			$descartes_hdr
+		);
+	}
+
 	$falha = get_option( 'dsi_uisensor_ultima_falha' );
 	if ( is_array( $falha ) && ! empty( $falha['erro'] ) ) {
 		// Aviso expira sozinho depois de alguns dias -- sem isso, uma falha
@@ -1171,6 +1240,14 @@ function dsi_uisensor_render_sessoes( string $table, string $inicio_sql, string 
 	global $wpdb;
 
 	$quarentena = dsi_uisensor_sql_quarentena( $table );
+
+	// group_concat_max_len padrão do MySQL é 1024 bytes -- uma sessão longa
+	// com várias combinações distintas de motivo estoura isso em silêncio, e
+	// o corte cai no meio de um nome de motivo (explode(',') e
+	// dsi_uisensor_motivo_label() depois exibem lixo cru na coluna "Motivos").
+	// Nunca reportado em 6 rodadas de revisão, mas a sessão de 30 páginas já
+	// conhecida é candidata (achado em revisão externa, 2026-09-14).
+	$wpdb->query( 'SET SESSION group_concat_max_len = 8192' );
 
 	$sessoes = $wpdb->get_results(
 		$wpdb->prepare(

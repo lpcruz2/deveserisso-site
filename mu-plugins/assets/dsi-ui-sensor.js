@@ -143,7 +143,28 @@
 	//       Corrigido: so resolve a parada pendente em flush final -- o caso
 	//       que motivou o fix original (saida rapida de pagina) e sempre um
 	//       gatilho terminal, entao nada se perde.
-	var RULESET_VERSION = 5;
+	//  v6 (2026-09-14): sexta rodada de revisao externa achou 2 problemas que
+	//     mudam sinal (categoria nova: "corrigido num lugar, nao no gemeo" --
+	//     mesma familia do achado do toque de celular, so aparece perguntando
+	//     "onde mais isso vale?" em vez de "isso esta certo?"):
+	//     - `std()` ainda dividia por `n` (populacional) mesmo depois da v4 ter
+	//       trocado pra STDDEV_SAMP no SQL do painel -- so que o SQL e
+	//       descritivo (coluna "Ritmo"), quem de fato aciona
+	//       `timing_regular_demais` e este `std()` aqui. Com n=5 (o minimo do
+	//       gate), o fator de correcao e sqrt(5/4)=1,118: o CV efetivo era
+	//       5,6%, nao os 5% pretendidos -- sempre na direcao de falso positivo.
+	//     - `scroll_multiplo_viewport` guardava so a posicao da parada e
+	//       avaliava contra `window.innerHeight`/`scrollHeight-clientHeight`
+	//       do momento do FLUSH, nao do momento da parada. No mobile
+	//       (Chrome/Safari), a barra de URL recolher/reaparecer muda esses
+	//       valores em ~56-100px -- bem acima da tolerancia de +-4px -- o que
+	//       acontece em quase toda sessao de leitura com scroll. Efeito
+	//       observado: falso NEGATIVO sistematico (o sinal some no mobile,
+	//       onde esta a maior parte do trafego), nao falso positivo.
+	//       Corrigido: cada parada agora guarda o vh/docMax que valiam quando
+	//       ela foi registrada, e e avaliada contra esses valores, nao os
+	//       atuais.
+	var RULESET_VERSION = 6;
 
 	if ( window.__dsiUiSensorLoaded ) { return; }
 	window.__dsiUiSensorLoaded = true;
@@ -392,7 +413,20 @@
 	function registraParada() {
 		scrollStopPendente = false;
 		if ( scrollStops.length < MAX_SCROLL_STOPS ) {
-			scrollStops.push( scrollEl.scrollTop );
+			// Guarda vh/docMax do MOMENTO da parada, nao so a posicao -- no
+			// mobile (Chrome/Safari) window.innerHeight muda ~56-100px quando a
+			// barra de URL recolhe/reaparece, o que acontece em quase toda
+			// sessao de leitura com rolagem. Avaliar a parada depois, no flush,
+			// contra um vh diferente do que valia quando ela aconteceu, faz o
+			// calculo de multiplo (e o de fim-de-documento, que sofre do mesmo
+			// problema via clientHeight) errar por dezenas de pixels -- exatamente
+			// a faixa que a tolerancia de +-4px existe pra rejeitar (achado em
+			// revisao externa, 2026-09-14).
+			scrollStops.push( {
+				pos: scrollEl.scrollTop,
+				vh: window.innerHeight,
+				docMax: ( scrollEl.scrollHeight - scrollEl.clientHeight ) || 0
+			} );
 		}
 	}
 
@@ -491,7 +525,14 @@
 		if ( arr.length < 2 || m === null ) { return null; }
 		var s = 0;
 		for ( var i = 0; i < arr.length; i++ ) { s += Math.pow( arr[ i ] - m, 2 ); }
-		return Math.sqrt( s / arr.length );
+		// Amostral (n-1), nao populacional -- com poucas amostras a populacional
+		// SUBESTIMA a variancia real e faz ritmo humano variavel parecer cadencia
+		// de maquina. A v4 corrigiu isso no SQL do painel (STDDEV_SAMP) mas nao
+		// aqui, no calculo que de fato aciona timing_regular_demais -- mesmo erro,
+		// no lugar que importa (achado em revisao externa, 2026-09-14). Com
+		// n=5 (o minimo que o gate exige), o fator de correcao e sqrt(5/4)=1,118:
+		// o limiar efetivo de CV era 5,6% em vez dos 5% pretendidos.
+		return Math.sqrt( s / ( arr.length - 1 ) );
 	}
 
 	function percentile( arr, p ) {
@@ -509,23 +550,21 @@
 	var TOL_PX = 4;
 
 	function contaParadasEmMultiplo() {
-		var vh = window.innerHeight;
-		if ( ! vh ) { return { total: 0, multiplos: 0, maiorMultiplo: 0 }; }
-
-		var docMax = ( scrollEl.scrollHeight - scrollEl.clientHeight ) || 0;
-
 		var multiplos = 0;
 		var maior     = 0;
 
 		for ( var i = 0; i < scrollStops.length; i++ ) {
-			var pos = scrollStops[ i ];
+			var stop = scrollStops[ i ];
+			if ( ! stop.vh ) { continue; }
 
 			// Parada no fim do documento nao e evidencia de nada: e onde
-			// qualquer leitor que terminou a pagina para.
-			if ( docMax > 0 && Math.abs( pos - docMax ) <= TOL_PX ) { continue; }
+			// qualquer leitor que terminou a pagina para. docMax e vh sao os
+			// que valiam QUANDO a parada aconteceu, nao o valor atual no
+			// momento do flush (ver registraParada).
+			if ( stop.docMax > 0 && Math.abs( stop.pos - stop.docMax ) <= TOL_PX ) { continue; }
 
-			var k = Math.round( pos / vh );
-			if ( k >= 1 && Math.abs( pos - k * vh ) <= TOL_PX ) {
+			var k = Math.round( stop.pos / stop.vh );
+			if ( k >= 1 && Math.abs( stop.pos - k * stop.vh ) <= TOL_PX ) {
 				multiplos++;
 				if ( k > maior ) { maior = k; }
 			}
