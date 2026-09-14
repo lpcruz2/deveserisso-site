@@ -985,13 +985,93 @@ function dsi_uisensor_motivo_label( string $motivo ): string {
 }
 
 /**
+ * Descrição de uma linha do que o motivo mede e por que indica automação --
+ * complementa dsi_uisensor_motivo_label() (rótulo curto, usado nas tabelas de
+ * log/Diagnóstico) sem alterar o que ela devolve, pra não arriscar os call
+ * sites já existentes. Usada pela tabela de sinais (bloco 5, task V1).
+ */
+function dsi_uisensor_motivo_descricao( string $motivo ): string {
+	return [
+		'webdriver'                       => 'O navegador se declara automatizado (navigator.webdriver) — Selenium/Playwright sem disfarce',
+		'clique_sem_mousemove'            => 'Clique sem nenhum movimento de mouse antes; humano move o cursor até o alvo',
+		'movimento_mouse_sintetico'       => 'Houve movimento, mas quase em linha reta ou com poucos pontos — falta a curvatura do pulso',
+		'timing_regular_demais'           => 'Intervalo entre ações uniforme demais (variação < 5,6%); humano hesita e lê',
+		'viewport_automacao_sem_plugins'  => 'Janela em resolução típica de automação e nenhum plugin declarado',
+		'sem_idiomas'                     => 'Navegador não declara nenhum idioma; navegador real sempre declara',
+		'clique_duracao_impossivel'       => 'Pressionar e soltar o botão em menos de 20 ms — abaixo do piso físico do músculo',
+		'digitacao_impossivel'            => 'Tecla pressionada e solta em menos de 15 ms na média',
+		'scroll_multiplo_viewport'        => 'Rolagem para em múltiplos exatos da altura da tela, fora do fim da página — passo fixo, cego ao conteúdo',
+		'clique_nao_confiavel'            => 'Clique disparado por JavaScript, não pelo mouse — só script gera isso',
+		'tecla_nao_confiavel'             => 'Mesma coisa para teclado',
+		'input_nao_confiavel'             => 'Campo preenchido por script. Ambíguo: gerenciador de senha e tradutor também fazem isso',
+		'evento_nao_confiavel'            => 'Legado da v1: juntava clique, tecla e input sintéticos num motivo só',
+		'fetch_metadata_impossivel'       => 'Cabeçalhos Sec-Fetch-* numa combinação que navegador real não produz',
+		'client_hints_incoerente'         => 'User-Agent diz um navegador, Sec-Ch-Ua diz outro',
+	][ $motivo ] ?? '';
+}
+
+/**
+ * A partir de que ruleset_version cada motivo é confiável (sem falso
+ * positivo conhecido já corrigido), e por quê -- usado pelo marcador ⚠ da
+ * tabela de sinais (bloco 5, task V1). `evento_nao_confiavel` (legado,
+ * nenhuma linha nova o emite) é tratado como caso especial pelo chamador,
+ * não entra neste mapa. Ausência no mapa = confiável desde v1 (os 5 sinais
+ * clássicos de automação, sem falso positivo documentado em seis rodadas de
+ * revisão até 2026-09-14).
+ *
+ * @return array{0:int,1:string} versão mínima confiável, motivo do aviso
+ */
+function dsi_uisensor_confiabilidade_motivo( string $motivo ): array {
+	return [
+		'clique_duracao_impossivel' => [ 4, 'toque de celular dava dwell exatamente 0 antes da v4' ],
+		'digitacao_impossivel'      => [ 4, 'auto-repeat de tecla (segurar seta) disparava antes da v4' ],
+		'timing_regular_demais'     => [ 6, 'auto-repeat (corrigido v4) + desvio populacional em vez de amostral (corrigido v6)' ],
+		'scroll_multiplo_viewport'  => [ 6, 'poluição de parada (corrigido v5) + viewport avaliado no flush, não na parada (corrigido v6)' ],
+		'tecla_nao_confiavel'       => [ 5, 'e.repeat saía antes de contar isTrusted, corrigido na v5' ],
+		'clique_nao_confiavel'      => [ 2, 'separado do evento_nao_confiavel colapsado, na v2' ],
+		'input_nao_confiavel'       => [ 2, 'separado do evento_nao_confiavel colapsado, na v2' ],
+		'fetch_metadata_impossivel' => [ 4, 'vinha do HTML cacheável, podia herdar header de outro visitante, antes da v4' ],
+		'client_hints_incoerente'   => [ 4, 'mesma causa do fetch_metadata_impossivel' ],
+	][ $motivo ] ?? [ 1, '' ];
+}
+
+/**
+ * Data (Y-m-d) do início da régua vigente -- MIN(recorded_at) entre as
+ * linhas já gravadas com o ruleset_version atual. Usado como default do
+ * filtro de período (bloco 0, task V1): comparar antes/depois de uma troca
+ * de régua não é válido, e o default antigo (7 dias fixos) permitia isso por
+ * acidente sempre que uma régua nova tivesse menos de 7 dias de vida.
+ *
+ * Null quando ainda não há NENHUMA linha na régua atual (instalação nova, ou
+ * logo depois de subir RULESET_VERSION) -- dsi_uisensor_periodo() cai pro
+ * fallback de 7 dias nesse caso.
+ */
+function dsi_uisensor_inicio_regua_atual( string $table ): ?string {
+	global $wpdb;
+
+	$inicio = $wpdb->get_var(
+		$wpdb->prepare(
+			"SELECT MIN(DATE(recorded_at)) FROM {$table} WHERE ruleset_version = %d",
+			DSI_UISENSOR_RULESET_VERSION
+		)
+	);
+
+	return $inicio ?: null;
+}
+
+/**
  * Período do filtro. O helper do painel de bots vive em outro arquivo do site
  * de origem (dsi-ai-bots-admin.php) e NÃO acompanha este repositório -- sem a
  * guarda, abrir o painel numa instalação limpa dava fatal error.
  *
+ * $default_inicio (Y-m-d ou null): default do filtro quando a URL não traz
+ * `data_inicio` -- desde a task V1, é o início da régua vigente (ver
+ * dsi_uisensor_inicio_regua_atual), não mais "últimos 7 dias" fixo. Null cai
+ * pro fallback de 7 dias (régua sem nenhuma linha ainda).
+ *
  * @return array{0:string,1:string,2:string,3:string}
  */
-function dsi_uisensor_periodo(): array {
+function dsi_uisensor_periodo( ?string $default_inicio ): array {
 	if ( function_exists( 'dsi_agentmd_periodo_from_request' ) ) {
 		return dsi_agentmd_periodo_from_request();
 	}
@@ -1003,8 +1083,10 @@ function dsi_uisensor_periodo(): array {
 		return preg_match( '/^\d{4}-\d{2}-\d{2}$/', $valor ) ? $valor : $padrao;
 	};
 
+	$padrao_inicio = $default_inicio ?? gmdate( 'Y-m-d', strtotime( $hoje ) - 6 * DAY_IN_SECONDS );
+
 	$fim    = $valida( 'data_fim', $hoje );
-	$inicio = $valida( 'data_inicio', gmdate( 'Y-m-d', strtotime( $hoje ) - 6 * DAY_IN_SECONDS ) );
+	$inicio = $valida( 'data_inicio', $padrao_inicio );
 
 	if ( $inicio > $fim ) {
 		[ $inicio, $fim ] = [ $fim, $inicio ];
@@ -1071,14 +1153,16 @@ function dsi_uisensor_sql_quarentena( string $table ): string {
 }
 
 /**
- * Prevalência estimada -- a resposta pra "que fração das visitas parece vir
- * de um agente".
+ * Núcleo da prevalência por sessão -- "que fração das visitas parece vir de
+ * um agente". Separado de qualquer renderização (task V1) pra alimentar os
+ * blocos 1 e 2 sem rodar a mesma query duas vezes.
  *
  * CALCULADA SÓ SOBRE A AMOSTRA, de propósito. As sessões flagradas fora da
  * amostra entram no banco 100%, então têm viés de seleção por construção:
  * dividir por elas daria um número inventado.
  *
- * LIMITES que o card precisa dizer em voz alta, porque nenhum deles é óbvio:
+ * LIMITES que quem exibe isso precisa dizer em voz alta, porque nenhum deles
+ * é óbvio:
  *  - o denominador é "sessões COM interação", não "todas as visitas";
  *  - agente puramente leitor (caso Manus etapa 1) não gera beacon e portanto
  *    não está em nenhum dos dois lados da conta -- o número SUBESTIMA;
@@ -1088,8 +1172,10 @@ function dsi_uisensor_sql_quarentena( string $table ): string {
  *    uma "sessão" de 1 página cada vez, inflando o denominador por sessão
  *    sem a mesma chance de acender sinal que uma sessão real de várias
  *    páginas teria -- excluída aqui.
+ *
+ * @return array{amostradas:int,flagradas:int,p:?float,inf:?float,sup:?float,confiavel:bool}
  */
-function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, string $fim_sql ): void {
+function dsi_uisensor_prevalencia_dados( string $table, string $inicio_sql, string $fim_sql ): array {
 	global $wpdb;
 
 	$quarentena = dsi_uisensor_sql_quarentena( $table );
@@ -1116,17 +1202,32 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 
 	[ $p, $inf, $sup ] = dsi_uisensor_wilson( $flagradas, $amostradas );
 
-	$confiavel = $amostradas >= 100;
+	return [
+		'amostradas' => $amostradas,
+		'flagradas'  => $flagradas,
+		'p'          => $p,
+		'inf'        => $inf,
+		'sup'        => $sup,
+		'confiavel'  => $amostradas >= 100,
+	];
+}
 
-	// Prevalência POR PÁGINA, em paralelo -- não acumula chance de acender
-	// sinal com o comprimento da sessão (ver limite documentado em
-	// dsi_uisensor_wilson), então serve de contraponto quando os dois
-	// números divergem bastante. Precisa da MESMA quarentena da consulta por
-	// sessão (achado em revisão externa, 2026-09-13: sem isso, a sessão
-	// contaminada de 30 páginas/28 IPs do bug de v1 entrava com 30 páginas
-	// no denominador e 0 no numerador, diluindo o número pra baixo e fazendo
-	// o card divergir por um motivo diferente do que seu próprio texto
-	// sugere -- quem lesse concluiria o oposto do certo).
+/**
+ * Prevalência POR PÁGINA -- não acumula chance de acender sinal com o
+ * comprimento da sessão (ver limite documentado em dsi_uisensor_wilson),
+ * então serve de contraponto de consistência quando os dois números
+ * divergem bastante. Movida para o Diagnóstico na task V1 (era um card ao
+ * lado da prevalência por sessão; virou uma checagem, não a resposta
+ * principal). Precisa da MESMA quarentena da consulta por sessão (achado em
+ * revisão externa, 2026-09-13: sem isso, a sessão contaminada de 30
+ * páginas/28 IPs do bug de v1 entrava com 30 páginas no denominador e 0 no
+ * numerador, diluindo o número pra baixo).
+ */
+function dsi_uisensor_render_prevalencia_por_pagina( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
+
+	$quarentena = dsi_uisensor_sql_quarentena( $table );
+
 	$rp = $wpdb->get_row(
 		$wpdb->prepare(
 			"SELECT
@@ -1146,53 +1247,32 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 	$pag_flagradas  = (int) ( $rp->flagradas ?? 0 );
 	$pag_pct        = $pag_amostradas > 0 ? ( $pag_flagradas / $pag_amostradas ) * 100 : null;
 
-	echo '<div style="display:flex;gap:16px;margin:20px 0;flex-wrap:wrap;">';
 	printf(
-		'<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;min-width:300px;box-sizing:border-box;">
-			<div style="font-size:13px;color:#646970;">Sessões com sinal de automação observável</div>
-			<div style="font-size:36px;font-weight:600;line-height:1.2;color:%s;">%s</div>
-			<div style="font-size:13px;color:#646970;">%s</div>
-			<div style="font-size:12px;color:#646970;margin-top:8px;line-height:1.5;">
-				Entre sessões sorteadas <strong>com interação</strong>. Agente que apenas lê não gera beacon e não entra em nenhum dos dois lados da conta — este número subestima. Sensível ao comprimento típico de sessão do período (ver "por página" ao lado).
-			</div>
-		</div>
-		<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;min-width:260px;box-sizing:border-box;">
-			<div style="font-size:13px;color:#646970;">Páginas com sinal de automação (não agrupado por sessão)</div>
-			<div style="font-size:36px;font-weight:600;line-height:1.2;">%s</div>
+		'<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;min-width:260px;box-sizing:border-box;">
+			<div style="font-size:13px;color:#646970;">Prevalência por página (contraponto de consistência)</div>
+			<div style="font-size:28px;font-weight:600;line-height:1.2;">%s</div>
 			<div style="font-size:13px;color:#646970;">%d de %d páginas sorteadas</div>
 			<div style="font-size:12px;color:#646970;margin-top:8px;line-height:1.5;">
-				Não acumula chance de acender sinal com sessões longas — se divergir muito do número por sessão, o comprimento de sessão do período está distorcendo a outra métrica.
+				Não acumula chance de acender sinal com sessões longas — se divergir muito do número por sessão (bloco 2), o comprimento de sessão do período está distorcendo a métrica por sessão.
 			</div>
 		</div>',
-		$confiavel ? '#1d2327' : '#8c6d1f',
-		$p === null ? '—' : esc_html( sprintf( '%.1f%%', $p * 100 ) ),
-		$p === null
-			? 'sem amostra no período'
-			: esc_html( sprintf(
-				'IC95%% Wilson: %.1f%%–%.1f%% · %d de %d sessões sorteadas',
-				$inf * 100,
-				$sup * 100,
-				$flagradas,
-				$amostradas
-			) ),
 		$pag_pct === null ? '—' : esc_html( sprintf( '%.1f%%', $pag_pct ) ),
 		$pag_flagradas,
 		$pag_amostradas
 	);
+}
 
-	if ( ! $confiavel ) {
-		printf(
-			'<div style="background:#fcf9e8;border:1px solid #dba617;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;">
-				<strong>Amostra ainda pequena (%d sessões).</strong> Abaixo de ~100 sessões sorteadas o intervalo é maior que a própria diferença que se quer medir. Trate como sinal de que a coleta está funcionando, não como número para decidir nada.
-			</div>',
-			$amostradas
-		);
-	}
-
+/**
+ * Avisos de descarte por rate limit (beacon e header, contadores separados
+ * desde a v6) e de falha de gravação. Movidos para o Diagnóstico na task V1
+ * -- eram três das cinco caixas coloridas que apareciam antes de qualquer
+ * dado no painel antigo.
+ */
+function dsi_uisensor_avisos_descarte_falha( string $table ): void {
 	$descartes = (int) get_option( 'dsi_uisensor_descartes_' . current_time( 'Y-m-d' ), 0 );
 	if ( $descartes > 0 ) {
 		printf(
-			'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;">
+			'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;margin-bottom:12px;">
 				<strong>%d beacons descartados hoje por rate limit.</strong> O denominador do período está incompleto nessa medida. A chave do balde é o IP do edge do CDN, então sessão de navegação rápida (o padrão de um agente) é a mais afetada.
 			</div>',
 			$descartes
@@ -1205,7 +1285,7 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 	$descartes_hdr = (int) get_option( 'dsi_uisensor_desc_hdr_' . current_time( 'Y-m-d' ), 0 );
 	if ( $descartes_hdr > 0 ) {
 		printf(
-			'<div style="background:#fcf9e8;border:1px solid #dba617;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;">
+			'<div style="background:#fcf9e8;border:1px solid #dba617;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;margin-bottom:12px;">
 				<strong>%d requisições de header descartadas hoje por rate limit.</strong> Não afeta nenhum denominador (essas linhas não fazem parte da amostra) -- é só sinal de que GETs com header hostil estão sendo bloqueados antes de gravar.
 			</div>',
 			$descartes_hdr
@@ -1220,7 +1300,7 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 		$idade_falha = current_time( 'timestamp' ) - strtotime( (string) $falha['quando'] );
 		if ( $idade_falha <= 3 * DAY_IN_SECONDS ) {
 			printf(
-				'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;">
+				'<div style="background:#fcf0f1;border:1px solid #d63638;padding:20px;max-width:46ch;box-sizing:border-box;font-size:13px;line-height:1.5;margin-bottom:12px;">
 					<strong>Última falha de gravação:</strong> %s<br><code>%s</code><br>Migração de schema pendente?
 				</div>',
 				esc_html( (string) $falha['quando'] ),
@@ -1228,7 +1308,6 @@ function dsi_uisensor_render_prevalencia( string $table, string $inicio_sql, str
 			);
 		}
 	}
-	echo '</div>';
 }
 
 /**
@@ -1414,25 +1493,544 @@ function dsi_uisensor_render_baseline_rates( string $table, string $inicio_sql, 
 	echo '</div>';
 }
 
-function dsi_uisensor_admin_page(): void {
+/** true quando o período selecionado inclui alguma linha de régua anterior à atual (ou anterior ao versionamento, ruleset_version NULL). */
+function dsi_uisensor_periodo_tem_regua_antiga( string $table, string $inicio_sql, string $fim_sql ): bool {
 	global $wpdb;
-	$table = $wpdb->prefix . 'dsi_ui_flagged_traces';
 
-	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_uisensor_periodo();
-
-	// As três consultas abaixo excluem linha de baseline (heuristic_reasons
-	// vazio) de propósito -- esta tela e a tabela "Sessões flagradas" são
-	// sobre DETECÇÃO. A linha de baseline sem motivo só entra no cálculo de
-	// prevalência e na visão por sessão.
-	$total_periodo = (int) $wpdb->get_var(
+	$rv_min = $wpdb->get_var(
 		$wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table}
-			 WHERE heuristic_reasons <> '' AND is_dev_traffic = 0
-			   AND recorded_at BETWEEN %s AND %s",
+			"SELECT MIN(COALESCE(ruleset_version, 0)) FROM {$table} WHERE recorded_at BETWEEN %s AND %s",
 			$inicio_sql,
 			$fim_sql
 		)
 	);
+
+	return $rv_min !== null && (int) $rv_min < DSI_UISENSOR_RULESET_VERSION;
+}
+
+/**
+ * Roda $fn com output buffering e devolve o HTML gerado em vez de ecoar --
+ * permite mover funções de render existentes (que já ecoam direto) pro
+ * Diagnóstico (task V1) sem reescrever o corpo de cada uma.
+ */
+function dsi_uisensor_capturar( callable $fn, ...$args ): string {
+	ob_start();
+	$fn( ...$args );
+	return (string) ob_get_clean();
+}
+
+/** Frase de uma linha resumindo o caso mais forte do bloco 1 -- ver dsi_uisensor_render_bloco1(). */
+function dsi_uisensor_frase_caso_forte( object $row ): string {
+	$motivos = array_values( array_filter( array_map( 'trim', explode( ',', $row->heuristic_reasons ) ) ) );
+
+	$descricoes = [];
+	foreach ( $motivos as $m ) {
+		$desc         = dsi_uisensor_motivo_descricao( $m );
+		$descricoes[] = esc_html( dsi_uisensor_motivo_label( $m ) ) . ( $desc !== '' ? ' — ' . esc_html( $desc ) : '' );
+	}
+
+	$quem = ( $row->bot_label && $row->bot_label !== 'desconhecido' )
+		? 'Um acesso de <code>' . esc_html( $row->bot_label ) . '</code>'
+		: 'Um acesso';
+
+	if ( count( $descricoes ) >= 2 ) {
+		return $quem . ' disparou ' . count( $descricoes ) . ' sinais independentes: ' . implode( '; ', $descricoes ) . '.';
+	}
+
+	return $quem . ' disparou ' . ( $descricoes[0] ?? '' ) . '.';
+}
+
+/**
+ * Bloco 1 (task V1) -- "Tem navegador com automação de IA acessando o
+ * site?" (pergunta 1 do gestor, 2026-09-14). Resposta em frase, não em
+ * número: três estados possíveis, nessa precedência -- confirmado > sem
+ * evidência > ainda coletando. "Sem evidência" e "ainda coletando" se
+ * distinguem só pelo tamanho da amostra de baseline (mesma amostra do
+ * bloco 2, recebida por parâmetro pra não rodar a query duas vezes).
+ */
+function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
+
+	$quarentena = dsi_uisensor_sql_quarentena( $table );
+
+	// "Caso confirmado" = sessão com pelo menos uma página com 2+ sinais
+	// independentes OU com um sinal que nunca teve falso positivo conhecido
+	// (webdriver/clique_nao_confiavel/tecla_nao_confiavel). Quarentena
+	// aplicada aqui mesmo não estando na lista literal da Armadilha 1 (que
+	// fala em blocos 2/3): isto é uma contagem POR SESSÃO, e uma sessão
+	// contaminada (múltiplos visitantes reais somados sob o mesmo
+	// session_id, bug de v1) combinaria sinais de pessoas diferentes num
+	// "caso confirmado" que não existe. session_id <> '' exclui as linhas de
+	// header flag (session_id vazio por design, ver Armadilha 2) -- sem
+	// isso, uma linha de header com os dois motivos de servidor juntos
+	// (fetch_metadata_impossivel + client_hints_incoerente = 2 sinais)
+	// contaria como "sessão" via a string vazia compartilhada.
+	$casos = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT session_id, url_path, heuristic_reasons, bot_label, recorded_at,
+			        ( LENGTH(heuristic_reasons) - LENGTH(REPLACE(heuristic_reasons, ',', '')) + 1 ) n_sinais
+			   FROM {$table}
+			  WHERE is_dev_traffic = 0 AND session_id <> '' AND heuristic_reasons <> ''
+			    AND recorded_at BETWEEN %s AND %s AND {$quarentena}
+			    AND (
+			         ( LENGTH(heuristic_reasons) - LENGTH(REPLACE(heuristic_reasons, ',', '')) + 1 ) >= 2
+			      OR FIND_IN_SET(%s, heuristic_reasons)
+			      OR FIND_IN_SET(%s, heuristic_reasons)
+			      OR FIND_IN_SET(%s, heuristic_reasons)
+			      )
+			  ORDER BY n_sinais DESC, recorded_at DESC",
+			$inicio_sql,
+			$fim_sql,
+			'webdriver',
+			'clique_nao_confiavel',
+			'tecla_nao_confiavel'
+		)
+	);
+
+	$n_sessoes_confirmadas = count( array_unique( wp_list_pluck( $casos, 'session_id' ) ) );
+
+	if ( $n_sessoes_confirmadas > 0 ) {
+		$fundo = '#fcf9e8';
+		$cor   = '#8c6d1f';
+		$texto = 'Sim, com ' . $n_sessoes_confirmadas . ' ' . ( $n_sessoes_confirmadas === 1 ? 'caso confirmado' : 'casos confirmados' );
+	} elseif ( $prevalencia['amostradas'] < 100 ) {
+		$fundo = '#f0f0f1';
+		$cor   = '#646970';
+		$texto = 'Ainda coletando';
+	} else {
+		$fundo = '#f0f0f1';
+		$cor   = '#646970';
+		$texto = 'Sem evidência no período';
+	}
+
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;margin:16px 0;">';
+	echo '<div style="font-size:13px;color:#646970;">Tem navegador com automação de IA acessando o site?</div>';
+	printf(
+		'<div style="display:inline-block;background:%s;color:%s;font-weight:600;font-size:22px;padding:6px 14px;border-radius:4px;margin:8px 0;">%s</div>',
+		esc_attr( $fundo ),
+		esc_attr( $cor ),
+		esc_html( $texto )
+	);
+
+	if ( $n_sessoes_confirmadas > 0 ) {
+		echo '<p style="max-width:80ch;">' . dsi_uisensor_frase_caso_forte( $casos[0] ) . '</p>';
+
+		// Força da evidência: distribuição de quantos motivos cada página
+		// flagrada disparou -- 1 sinal só é fraco, 2-3 juntos é evidência
+		// muito mais forte, e o painel antigo não distinguia os dois casos.
+		$distribuicao = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT n_sinais, COUNT(*) total FROM (
+				   SELECT ( LENGTH(heuristic_reasons) - LENGTH(REPLACE(heuristic_reasons, ',', '')) + 1 ) n_sinais
+				     FROM {$table}
+				    WHERE is_dev_traffic = 0 AND session_id <> '' AND heuristic_reasons <> ''
+				      AND recorded_at BETWEEN %s AND %s AND {$quarentena}
+				 ) x GROUP BY n_sinais ORDER BY n_sinais",
+				$inicio_sql,
+				$fim_sql
+			)
+		);
+		$total_registros = array_sum( array_map( 'intval', wp_list_pluck( $distribuicao, 'total' ) ) );
+		$partes = [];
+		foreach ( $distribuicao as $d ) {
+			$partes[] = (int) $d->total . ' com ' . (int) $d->n_sinais . ( (int) $d->n_sinais === 1 ? ' sinal' : ' sinais' );
+		}
+		echo '<p style="font-size:13px;color:#646970;max-width:80ch;">Força da evidência: dos ' . (int) $total_registros . ' registros flagrados do período, ' . esc_html( implode( ', ', $partes ) ) . '.</p>';
+	}
+
+	echo '</div>';
+}
+
+/**
+ * Bloco 2 (task V1) -- "Quantos % das visitas?" (pergunta 2 do gestor).
+ * Reusa a mesma amostra do bloco 1 (dsi_uisensor_prevalencia_dados) pra não
+ * rodar a query duas vezes. Abaixo de 100 sessões sorteadas, NÃO mostra
+ * percentual nenhum -- é o ganho central do bloco: o painel antigo mostraria
+ * 0,0% com 12 visitas exatamente do mesmo jeito que mostraria 0,0% com 500,
+ * e as duas coisas significam o oposto uma da outra.
+ */
+function dsi_uisensor_render_bloco2( array $prevalencia, string $table ): void {
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;margin:16px 0;">';
+	echo '<div style="font-size:13px;color:#646970;">Quantos % das visitas parecem automação?</div>';
+
+	if ( ! $prevalencia['confiavel'] ) {
+		$meta       = 500;
+		$ritmo      = dsi_uisensor_ritmo_sessoes_dia( $table );
+		$faltam_100 = max( 0, 100 - $prevalencia['amostradas'] );
+		$faltam_500 = max( 0, $meta - $prevalencia['amostradas'] );
+		$progresso  = min( 100, round( ( $prevalencia['amostradas'] / $meta ) * 100 ) );
+
+		printf(
+			'<div style="font-size:28px;font-weight:600;color:#8c6d1f;margin:8px 0;">Ainda coletando</div>
+			<div style="background:#f0f0f1;border-radius:4px;height:10px;max-width:400px;overflow:hidden;margin-bottom:8px;">
+				<div style="background:#2271b1;height:100%%;width:%d%%;"></div>
+			</div>
+			<div style="font-size:13px;color:#646970;">%d de ~%d visitas</div>',
+			(int) $progresso,
+			$prevalencia['amostradas'],
+			$meta
+		);
+
+		if ( $ritmo > 0 ) {
+			$dias_100 = (int) ceil( $faltam_100 / $ritmo );
+			$dias_500 = (int) ceil( $faltam_500 / $ritmo );
+			printf(
+				'<p style="font-size:13px;color:#646970;max-width:70ch;">No ritmo observado (~%s sessões/dia), faltam ~%d dias (%s) para a amostra mínima de 100 -- onde a coleta já pode ser tratada como funcionando, não como número pra decidir investimento -- e ~%d dias (%s) para 500, onde o intervalo de confiança fica estreito o suficiente pra isso: com prevalência real de 5%%, o IC95%% de Wilson em n=100 é 2,1%%–11,2%% (largo demais), em n=500 é 3,4%%–7,3%%.</p>',
+				esc_html( number_format( $ritmo, 1 ) ),
+				$dias_100,
+				esc_html( gmdate( 'd/m', current_time( 'timestamp' ) + $dias_100 * DAY_IN_SECONDS ) ),
+				$dias_500,
+				esc_html( gmdate( 'd/m', current_time( 'timestamp' ) + $dias_500 * DAY_IN_SECONDS ) )
+			);
+		}
+	} else {
+		printf(
+			'<div style="font-size:36px;font-weight:600;color:#1d2327;margin:8px 0;">%s</div>
+			<div style="font-size:13px;color:#646970;">IC95%% Wilson: %s–%s · %d de %d sessões sorteadas</div>',
+			esc_html( sprintf( '%.1f%%', $prevalencia['p'] * 100 ) ),
+			esc_html( sprintf( '%.1f%%', $prevalencia['inf'] * 100 ) ),
+			esc_html( sprintf( '%.1f%%', $prevalencia['sup'] * 100 ) ),
+			$prevalencia['flagradas'],
+			$prevalencia['amostradas']
+		);
+	}
+
+	echo '</div>';
+}
+
+/**
+ * Ritmo de sessões/dia dos últimos 7 dias -- MEDIANA, não média, pra não
+ * deixar um único dia de teste pesado (13/09/2026: 76 sessões por causa dos
+ * testes dos três produtos, contra ~20/dia orgânico) distorcer a estimativa
+ * de quantos dias faltam pra amostra ficar confiável (bloco 2). Não existe
+ * sinal confiável na própria linha pra separar "dia com muito teste" de
+ * "dia com tráfego orgânico alto" -- boa parte dos testes daquele dia não
+ * usou o cookie ?dsi_debug=1 e por isso está com is_dev_traffic=0, como
+ * tráfego real; mediana é a forma simples de não deixar esse tipo de
+ * outlier dominar a média, sem precisar de um limiar arbitrário ou de uma
+ * data marcada no código.
+ */
+function dsi_uisensor_ritmo_sessoes_dia( string $table ): float {
+	global $wpdb;
+
+	$quarentena = dsi_uisensor_sql_quarentena( $table );
+
+	$linhas = $wpdb->get_col(
+		$wpdb->prepare(
+			"SELECT COUNT(DISTINCT session_id) FROM {$table}
+			  WHERE sampled = 1 AND is_dev_traffic = 0 AND session_degradada = 0
+			    AND session_id <> '' AND recorded_at >= %s AND {$quarentena}
+			  GROUP BY DATE(recorded_at)",
+			gmdate( 'Y-m-d 00:00:00', current_time( 'timestamp' ) - 6 * DAY_IN_SECONDS )
+		)
+	);
+
+	if ( ! $linhas ) {
+		return 0.0;
+	}
+
+	$valores = array_map( 'intval', $linhas );
+	sort( $valores );
+	$n    = count( $valores );
+	$meio = intdiv( $n, 2 );
+
+	return $n % 2 === 0 ? ( $valores[ $meio - 1 ] + $valores[ $meio ] ) / 2 : (float) $valores[ $meio ];
+}
+
+/**
+ * Bloco 3 (task V1) -- histórico diário (pedido 4 do gestor: "eu sempre
+ * preciso ver histórico, não adianta dar o dado só do dia"). HTML/CSS puro
+ * com divs, sem lib nenhuma -- poucas barras, wp-admin não deve puxar CDN,
+ * e o CSP do site é restritivo (script-src 'self' 'unsafe-inline' + poucos
+ * domínios, ver CLAUDE.md). Faixa de cor por dia marca troca de régua: sem
+ * isso o gráfico mentiria por construção -- um pico de detecção num dia com
+ * régua antiga (13/09: testes dos 3 produtos, 4 sinais ainda com falso
+ * positivo conhecido) parece achado, e não é.
+ */
+function dsi_uisensor_render_bloco3_grafico( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
+
+	$quarentena = dsi_uisensor_sql_quarentena( $table );
+
+	$dias = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT DATE(recorded_at) dia,
+			        COUNT(DISTINCT session_id) sessoes,
+			        COUNT(DISTINCT CASE WHEN heuristic_reasons <> '' THEN session_id END) com_evidencia,
+			        MIN(COALESCE(ruleset_version, 0)) rv_min,
+			        MAX(COALESCE(ruleset_version, 0)) rv_max
+			   FROM {$table}
+			  WHERE is_dev_traffic = 0 AND session_id <> ''
+			    AND recorded_at BETWEEN %s AND %s AND {$quarentena}
+			  GROUP BY dia ORDER BY dia",
+			$inicio_sql,
+			$fim_sql
+		)
+	);
+
+	echo '<div style="margin:16px 0;">';
+	echo '<h2 style="margin-bottom:4px;">Histórico diário</h2>';
+
+	if ( ! $dias ) {
+		echo '<p style="color:#646970;">Nenhum dado no período.</p></div>';
+		return;
+	}
+
+	$max_sessoes      = max( 1, ...array_map( 'intval', wp_list_pluck( $dias, 'sessoes' ) ) );
+	$tem_regua_antiga = false;
+	$tem_regua_atual  = false;
+
+	echo '<div style="display:flex;align-items:flex-end;gap:6px;height:170px;padding:12px 0;overflow-x:auto;">';
+	foreach ( $dias as $d ) {
+		$sessoes   = (int) $d->sessoes;
+		$evidencia = (int) $d->com_evidencia;
+		$pct       = $sessoes > 0 ? ( $evidencia / $sessoes ) * 100 : 0;
+		$h_total   = max( 4, (int) round( ( $sessoes / $max_sessoes ) * 120 ) );
+		// min-height 3px pra 1 caso ser visível -- não empilhado (volume e
+		// taxa têm ordens de grandeza diferentes; empilhada, a fatia de
+		// evidência desaparece).
+		$h_evid = $evidencia > 0 ? max( 3, (int) round( ( $evidencia / $max_sessoes ) * 120 ) ) : 0;
+
+		$regua_antiga = (int) $d->rv_max < DSI_UISENSOR_RULESET_VERSION;
+		if ( $regua_antiga ) {
+			$tem_regua_antiga = true;
+		} else {
+			$tem_regua_atual = true;
+		}
+		$cor_fundo_dia = $regua_antiga ? 'var(--bg-warning)' : 'var(--bg-accent)';
+
+		printf(
+			'<div style="flex:0 0 auto;width:44px;text-align:center;background:%s;border-radius:4px;padding:4px 2px;">
+				<div style="font-size:11px;color:#1d2327;">%d</div>
+				<div style="position:relative;height:120px;width:100%%;display:flex;align-items:flex-end;justify-content:center;">
+					<div style="position:absolute;bottom:0;width:60%%;background:#dcdcde;height:%dpx;border-radius:2px;"></div>
+					<div style="position:absolute;bottom:0;width:60%%;background:#8c6d1f;height:%dpx;border-radius:2px;"></div>
+				</div>
+				<div style="font-size:11px;color:#1d2327;margin-top:2px;">%s</div>
+				<div style="font-size:10px;color:#646970;">%s</div>
+			</div>',
+			esc_attr( $cor_fundo_dia ),
+			$sessoes,
+			$h_total,
+			$h_evid,
+			esc_html( gmdate( 'd/m', strtotime( $d->dia ) ) ),
+			esc_html( sprintf( '%.0f%%', $pct ) )
+		);
+	}
+	echo '</div>';
+
+	echo '<p style="font-size:12px;color:#646970;">Barra clara = visitas com interação · barra escura sobreposta = com evidência de automação (não empilhada) · número acima = total de visitas · % abaixo = fração com evidência.</p>';
+
+	if ( $tem_regua_antiga ) {
+		printf(
+			'<p style="font-size:12px;"><span style="background:var(--bg-warning);padding:2px 6px;border-radius:3px;">réguas v1–v%d · não comparável</span>%s<span style="background:var(--bg-accent);padding:2px 6px;border-radius:3px;">régua v%d</span></p>',
+			DSI_UISENSOR_RULESET_VERSION - 1,
+			$tem_regua_atual ? ' &nbsp; ' : '',
+			DSI_UISENSOR_RULESET_VERSION
+		);
+	}
+
+	// Com 30+ dias de histórico, o % dia-a-dia fica ruidoso demais pra ler --
+	// trocar o rótulo por média móvel de 7 dias. Fora do escopo desta task
+	// (V1), só anotado aqui pra não esquecer.
+
+	echo '</div>';
+}
+
+/**
+ * Resolve um url_path pra título de post/página, ou uma classificação por
+ * prefixo quando não resolve (Home, Tag, Categoria) -- sem isso a coluna do
+ * bloco 4 fica uma lista de slugs, ilegível pra quem não decorou a
+ * estrutura do site. Cacheado por request -- o bloco 4 chama isso até 20
+ * vezes (LIMIT da query).
+ */
+function dsi_uisensor_titulo_de_path( string $url_path ): string {
+	static $cache = [];
+	if ( isset( $cache[ $url_path ] ) ) {
+		return $cache[ $url_path ];
+	}
+
+	$post_id = url_to_postid( home_url( $url_path ) );
+	if ( $post_id > 0 ) {
+		$titulo = get_the_title( $post_id );
+		return $cache[ $url_path ] = ( $titulo !== '' ? $titulo : $url_path );
+	}
+
+	$caminho = trim( $url_path, '/' );
+	if ( $caminho === '' ) {
+		return $cache[ $url_path ] = 'Home';
+	}
+	if ( strpos( $caminho, 'tag/' ) === 0 ) {
+		return $cache[ $url_path ] = 'Tag: ' . substr( $caminho, 4 );
+	}
+
+	$segmentos = array_values( array_filter( explode( '/', $caminho ) ) );
+	if ( count( $segmentos ) === 1 ) {
+		return $cache[ $url_path ] = 'Categoria: ' . $segmentos[0];
+	}
+
+	return $cache[ $url_path ] = $url_path;
+}
+
+/**
+ * Bloco 4 (task V1) -- "Quais conteúdos são mais acessados por automação?"
+ * (pergunta 3 do gestor). Não existia NENHUMA agregação por URL antes desta
+ * task -- só url_path solto na tabela de log de 20 colunas. Sem quarentena
+ * de propósito (Armadilha 1): é log/inventário de página, não taxa -- uma
+ * página individual de uma sessão contaminada ainda foi uma visita real com
+ * um sinal real.
+ */
+function dsi_uisensor_render_bloco4_conteudos( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
+
+	$linhas = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT url_path, COUNT(*) paginas,
+			        SUM(heuristic_reasons <> '') com_evidencia,
+			        COUNT(DISTINCT session_id) sessoes
+			   FROM {$table}
+			  WHERE is_dev_traffic = 0 AND url_path <> ''
+			    AND recorded_at BETWEEN %s AND %s
+			  GROUP BY url_path
+			  ORDER BY com_evidencia DESC, paginas DESC
+			  LIMIT 20",
+			$inicio_sql,
+			$fim_sql
+		)
+	);
+
+	echo '<div style="margin:16px 0;">';
+	echo '<h2 style="margin-bottom:4px;">Conteúdos mais acessados por automação</h2>';
+
+	if ( ! $linhas ) {
+		echo '<p style="color:#646970;">Nenhum dado no período.</p></div>';
+		return;
+	}
+
+	echo '<table class="widefat striped"><thead><tr><th>Conteúdo</th><th title="Não é o total de visitas do post -- é quantas visitas COM ALGUMA INTERAÇÃO o sensor registrou. Com BASELINE_RATE=1.0 as duas ficam próximas, mas não são iguais; o denominador real de visitas viria do GSC, não desta tabela.">Visitas registradas pelo sensor</th><th>Com evidência</th><th>Sessões</th></tr></thead><tbody>';
+
+	foreach ( $linhas as $l ) {
+		printf(
+			'<tr><td>%s<br><code style="font-size:11px;color:#646970;">%s</code></td><td>%d</td><td>%d</td><td>%d</td></tr>',
+			esc_html( dsi_uisensor_titulo_de_path( $l->url_path ) ),
+			esc_html( $l->url_path ),
+			(int) $l->paginas,
+			(int) $l->com_evidencia,
+			(int) $l->sessoes
+		);
+	}
+	echo '</tbody></table>';
+
+	echo '<p style="font-size:12px;color:#646970;max-width:80ch;">Ordenado por contagem absoluta de evidência, nunca por proporção — com denominadores de 1 a 40 visitas, ordenar por % põe no topo justamente o que não tem volume. <strong>Uma página com 1 de 1 visita não significa 100% de automação.</strong></p>';
+
+	if ( dsi_uisensor_periodo_tem_regua_antiga( $table, $inicio_sql, $fim_sql ) ) {
+		echo '<p style="font-size:12px;color:#8c6d1f;max-width:80ch;">O período inclui régua anterior à v' . (int) DSI_UISENSOR_RULESET_VERSION . '. O padrão de quais páginas aparecem no topo é <strong>hipótese, não achado</strong> -- parte vem de sinais com falso positivo já corrigido e das primeiras horas de teste, de antes do marcador de tráfego interno existir.</p>';
+	}
+
+	echo '</div>';
+}
+
+/**
+ * Bloco 5 (task V1) -- tabela de sinais (pedido 5 do gestor: listar os
+ * motivos disparados, o que cada um mede e o volume). Conta por motivo
+ * ISOLADO via FIND_IN_SET, não por combinação -- agrupar por combinação (o
+ * painel antigo, preservado como "legado" no Diagnóstico) faz cada conjunto
+ * distinto de motivos virar uma linha própria, parte do porquê a tela
+ * antiga ficou ilegível. FIND_IN_SET é exato pra lista separada por vírgula
+ * (Armadilha 5) -- LIKE '%motivo%' daria falso positivo entre nomes com
+ * prefixo comum. Sem quarentena (Armadilha 1): log/inventário de motivo,
+ * não taxa.
+ */
+function dsi_uisensor_render_bloco5_sinais( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
+
+	echo '<div style="margin:16px 0;">';
+	echo '<h2 style="margin-bottom:4px;">Sinais disparados</h2>';
+	echo '<table class="widefat striped"><thead><tr><th>Sinal</th><th>O que mede</th><th>Páginas</th><th>Sessões</th><th>Visto</th></tr></thead><tbody>';
+
+	$nunca_observados = [];
+	$alguma_linha     = false;
+
+	foreach ( DSI_UISENSOR_MOTIVOS_VALIDOS as $motivo ) {
+		$r = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT COUNT(*) paginas, COUNT(DISTINCT NULLIF(session_id, '')) sessoes,
+				        MIN(DATE(recorded_at)) visto_de, MAX(DATE(recorded_at)) visto_ate,
+				        MIN(ruleset_version) rv_min
+				   FROM {$table}
+				  WHERE is_dev_traffic = 0 AND FIND_IN_SET(%s, heuristic_reasons)
+				    AND recorded_at BETWEEN %s AND %s",
+				$motivo,
+				$inicio_sql,
+				$fim_sql
+			)
+		);
+
+		$paginas = (int) ( $r->paginas ?? 0 );
+		if ( $paginas === 0 ) {
+			$nunca_observados[] = $motivo;
+			continue;
+		}
+		$alguma_linha = true;
+
+		// Marcador ⚠: vários sinais tiveram falso positivo conhecido
+		// corrigido em réguas recentes -- mostrar o volume histórico sem
+		// marcar isso é o problema de interpretação que esta task existe
+		// pra resolver (clique_duracao_impossivel aparece como o sinal mais
+		// forte quando quase todas as ocorrências antigas eram toque de
+		// celular, bug da v4).
+		$aviso = '';
+		if ( $motivo === 'evento_nao_confiavel' ) {
+			$aviso = ' <span title="Legado da v1 -- nenhuma linha nova emite este motivo." style="color:#646970;">(legado)</span>';
+		} else {
+			[ $min_confiavel, $motivo_aviso ] = dsi_uisensor_confiabilidade_motivo( $motivo );
+			$rv_min = $r->rv_min !== null ? (int) $r->rv_min : null;
+			if ( $rv_min === null || $rv_min < $min_confiavel ) {
+				$aviso = ' <span title="' . esc_attr( $motivo_aviso ?: 'linha anterior ao versionamento de ruleset' ) . '" style="color:#d63638;cursor:help;">⚠</span>';
+			}
+		}
+
+		printf(
+			'<tr><td><code>%s</code>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%s a %s</td></tr>',
+			esc_html( dsi_uisensor_motivo_label( $motivo ) ),
+			$aviso,
+			esc_html( dsi_uisensor_motivo_descricao( $motivo ) ),
+			$paginas,
+			(int) ( $r->sessoes ?? 0 ),
+			esc_html( (string) $r->visto_de ),
+			esc_html( (string) $r->visto_ate )
+		);
+	}
+
+	if ( ! $alguma_linha ) {
+		echo '<tr><td colspan="5">Nenhum sinal disparado no período.</td></tr>';
+	}
+	echo '</tbody></table>';
+
+	// Zeros são informação, não vazio -- ver Armadilha correspondente na
+	// task V1: zero em clique_nao_confiavel/input_nao_confiavel é resposta
+	// pra pergunta 1 (Comet e Manus, que vazam por esses sinais, não
+	// passaram por aqui em tráfego orgânico neste período).
+	if ( $nunca_observados ) {
+		echo '<details style="margin-top:12px;"><summary style="cursor:pointer;color:#646970;">' . count( $nunca_observados ) . ' sinais nunca observados no período</summary>';
+		echo '<p style="font-size:12px;color:#646970;max-width:80ch;margin-top:8px;">Zero é informação, não vazio: por exemplo, zero em <code>clique_nao_confiavel</code> e <code>input_nao_confiavel</code> significa que os produtos que vazam por esses sinais (Comet e Manus) não passaram por aqui em tráfego orgânico neste período.</p>';
+		echo '<table class="widefat striped"><thead><tr><th>Sinal</th><th>O que mede</th></tr></thead><tbody>';
+		foreach ( $nunca_observados as $motivo ) {
+			printf(
+				'<tr><td><code>%s</code></td><td>%s</td></tr>',
+				esc_html( dsi_uisensor_motivo_label( $motivo ) ),
+				esc_html( dsi_uisensor_motivo_descricao( $motivo ) )
+			);
+		}
+		echo '</tbody></table></details>';
+	}
+
+	echo '</div>';
+}
+
+/** "Por combinação de motivo" -- painel antigo, agrupava por combinação exata em vez de motivo isolado (ver bloco 5). Preservado no Diagnóstico, nada apagado. */
+function dsi_uisensor_render_combinacoes_legado( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
 
 	$por_motivo = $wpdb->get_results(
 		$wpdb->prepare(
@@ -1444,6 +2042,23 @@ function dsi_uisensor_admin_page(): void {
 			$fim_sql
 		)
 	);
+
+	if ( ! $por_motivo ) {
+		return;
+	}
+
+	echo '<h3>Por combinação de motivo (legado)</h3>';
+	echo '<table class="widefat striped"><thead><tr><th>Motivos</th><th>Páginas</th></tr></thead><tbody>';
+	foreach ( $por_motivo as $m ) {
+		$rotulos = implode( ', ', array_map( 'dsi_uisensor_motivo_label', explode( ',', $m->heuristic_reasons ) ) );
+		printf( '<tr><td>%s</td><td>%d</td></tr>', esc_html( $rotulos ), (int) $m->total );
+	}
+	echo '</tbody></table>';
+}
+
+/** Log de páginas com sinal, 20 colunas -- painel antigo. Preservado no Diagnóstico: foi o que tornou possível achar bugs em seis rodadas de revisão externa. */
+function dsi_uisensor_render_log_paginas( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
 
 	$linhas = $wpdb->get_results(
 		$wpdb->prepare(
@@ -1457,42 +2072,7 @@ function dsi_uisensor_admin_page(): void {
 		)
 	);
 
-	echo '<div class="wrap"><h1>Navegadores agênticos</h1>';
-	echo '<p style="color:#646970;max-width:80ch;">Navegador agêntico (Claude no Chrome, ChatGPT Atlas, Perplexity Comet) manda <strong>User-Agent de Chrome puro</strong> — não existe detecção por header, só por comportamento. Esta tela mede isso de duas formas: <strong>detecção</strong> (sessões que dispararam algum sinal de automação, registradas 100%) e <strong>baseline</strong> (amostra de ' . esc_html( dsi_uisensor_baseline_rate_texto( $table, $inicio_sql, $fim_sql ) ) . ' das sessões do período, sorteada às cegas, que serve de denominador). Nenhum sinal aqui prova que há um agente ou que não há uma pessoa: são evidências observáveis de interação programática.</p>';
-
-	dsi_uisensor_aviso_backfill( $table );
-	dsi_uisensor_render_rulesets( $table, $inicio_sql, $fim_sql );
-	dsi_uisensor_render_baseline_rates( $table, $inicio_sql, $fim_sql );
-	dsi_uisensor_render_prevalencia( $table, $inicio_sql, $fim_sql );
-
-	echo '<form method="get" style="margin:16px 0;display:flex;gap:8px;align-items:end;flex-wrap:wrap;">';
-	echo '<input type="hidden" name="page" value="dsi-ui-sensor">';
-	echo '<label>De <input type="date" name="data_inicio" value="' . esc_attr( $inicio_input ) . '"></label>';
-	echo '<label>Até <input type="date" name="data_fim" value="' . esc_attr( $fim_input ) . '"></label>';
-	echo '<button type="submit" class="button">Filtrar</button>';
-	echo '</form>';
-
-	printf(
-		'<div style="background:#fff;border:1px solid #ccd0d4;width:220px;padding:20px;box-sizing:border-box;margin-bottom:24px;">
-			<div style="font-size:13px;color:#646970;">Páginas com sinal no período</div>
-			<div style="font-size:36px;font-weight:600;">%d</div>
-		</div>',
-		$total_periodo
-	);
-
-	if ( $por_motivo ) {
-		echo '<h2>Por combinação de motivo</h2>';
-		echo '<table class="widefat striped"><thead><tr><th>Motivos</th><th>Páginas</th></tr></thead><tbody>';
-		foreach ( $por_motivo as $m ) {
-			$rotulos = implode( ', ', array_map( 'dsi_uisensor_motivo_label', explode( ',', $m->heuristic_reasons ) ) );
-			printf( '<tr><td>%s</td><td>%d</td></tr>', esc_html( $rotulos ), (int) $m->total );
-		}
-		echo '</tbody></table>';
-	}
-
-	dsi_uisensor_render_sessoes( $table, $inicio_sql, $fim_sql );
-
-	echo '<h2 style="margin-top:32px;">Páginas com sinal (' . (int) DSI_UISENSOR_POR_PAGINA . ' mais recentes)</h2>';
+	echo '<h3>Páginas com sinal (' . (int) DSI_UISENSOR_POR_PAGINA . ' mais recentes)</h3>';
 	echo '<table class="widefat striped"><thead><tr><th>Data</th><th>URL</th><th>Motivos</th><th>Cliente (UA)</th><th>Rede</th><th>País</th><th>Cliques</th><th>Scrolls</th><th>Teclas</th><th>Inputs</th><th title="Fração de cada tipo de ação sobre o total da página, não contagem bruta">Perfil de ação</th><th>Viewport</th><th title="navigator.webdriver">WebDriver</th><th title="Houve mousemove antes do 1º clique?">Mousemove antes</th><th title="Comprimento do caminho / distância em linha reta -- perto de 1.0 = trajetória sintética">Retidão</th><th title="Distância total percorrida pelo mouse na sessão inteira, em pixels">Mouse (px)</th><th title="mousedown→mouseup do 1º clique. Negativo = timeStamp inconsistente de evento sintético">Duração clique (ms)</th><th title="keydown→keyup médio, pareado por tecla">Duração tecla (ms)</th><th title="Parada final de scroll / fim rolável do documento. Iguais = leu até o fim; diferentes com múltiplo exato = passo fixo de tela">Scroll (parada/fim)</th><th title="Paradas em múltiplo exato da tela, fora do fim do documento">Paradas múltiplo</th></tr></thead><tbody>';
 
 	if ( ! $linhas ) {
@@ -1541,9 +2121,92 @@ function dsi_uisensor_admin_page(): void {
 	}
 
 	echo '</tbody></table>';
+}
+
+/**
+ * Painel reorganizado em cinco blocos (task V1, pedido literal do gestor,
+ * 2026-09-14): o painel antigo era uma superfície de depuração, não de
+ * resposta. Cada bloco responde uma pergunta específica, nessa ordem; tudo
+ * que existia antes continua existindo, só deixou de ser a primeira coisa
+ * na tela -- ver <details id="dsi-diagnostico"> no fim da função.
+ */
+function dsi_uisensor_admin_page(): void {
+	global $wpdb;
+	$table = $wpdb->prefix . 'dsi_ui_flagged_traces';
+
+	$default_inicio = dsi_uisensor_inicio_regua_atual( $table );
+	[ $inicio_sql, $fim_sql, $inicio_input, $fim_input ] = dsi_uisensor_periodo( $default_inicio );
+
+	echo '<style>:root{--bg-warning:#fcf9e8;--bg-accent:#eaf2fa;}</style>';
+	echo '<div class="wrap"><h1>Navegadores agênticos</h1>';
+
+	// Diagnóstico -- captura com output buffering em vez de reescrever cada
+	// função de render pra devolver string; nenhuma delas foi apagada, só
+	// deixam de ser exibidas antes de qualquer dado (eram até cinco caixas
+	// coloridas antes da task V1: backfill, mistura de régua, mistura de
+	// taxa, descartes, falha de gravação).
+	$avisos = array_filter(
+		[
+			dsi_uisensor_capturar( 'dsi_uisensor_aviso_backfill', $table ),
+			dsi_uisensor_capturar( 'dsi_uisensor_render_rulesets', $table, $inicio_sql, $fim_sql ),
+			dsi_uisensor_capturar( 'dsi_uisensor_render_baseline_rates', $table, $inicio_sql, $fim_sql ),
+			dsi_uisensor_capturar( 'dsi_uisensor_avisos_descarte_falha', $table ),
+		],
+		static function ( string $html ): bool { return trim( $html ) !== ''; }
+	);
+	$n_avisos = count( $avisos );
+
+	// Bloco 0 -- cabeçalho e janela padrão. "Desde a régua atual" em vez de
+	// "últimos 7 dias" fixo: comparar antes/depois de uma troca de régua não
+	// é válido, e o default antigo permitia isso por acidente.
+	printf(
+		'<p style="color:#646970;">Régua atual: <strong>v%d</strong>%s.%s</p>',
+		(int) DSI_UISENSOR_RULESET_VERSION,
+		$default_inicio !== null
+			? ', desde ' . esc_html( gmdate( 'd/m/Y', strtotime( $default_inicio ) ) )
+			: ' (ainda sem dados gravados nesta régua)',
+		$n_avisos > 0
+			? ' <a href="#dsi-diagnostico">' . (int) $n_avisos . ' ' . ( $n_avisos === 1 ? 'aviso' : 'avisos' ) . ' de diagnóstico</a>'
+			: ''
+	);
+
+	echo '<p style="color:#646970;max-width:80ch;">Navegador agêntico (Claude no Chrome, ChatGPT Atlas, Perplexity Comet) manda <strong>User-Agent de Chrome puro</strong> — não existe detecção por header, só por comportamento. Nenhum sinal aqui prova que há um agente ou que não há uma pessoa: são evidências observáveis de interação programática.</p>';
+
+	echo '<form method="get" style="margin:16px 0;display:flex;gap:8px;align-items:end;flex-wrap:wrap;">';
+	echo '<input type="hidden" name="page" value="dsi-ui-sensor">';
+	echo '<label>De <input type="date" name="data_inicio" value="' . esc_attr( $inicio_input ) . '"></label>';
+	echo '<label>Até <input type="date" name="data_fim" value="' . esc_attr( $fim_input ) . '"></label>';
+	echo '<button type="submit" class="button">Filtrar</button>';
+	echo '</form>';
+
+	$prevalencia = dsi_uisensor_prevalencia_dados( $table, $inicio_sql, $fim_sql );
+
+	// Blocos 1-5, nessa ordem -- responde as 3 perguntas do gestor (tem
+	// automação? quantos %? quais conteúdos?) mais os 2 pedidos
+	// complementares (histórico diário, tabela de sinais).
+	dsi_uisensor_render_bloco1( $prevalencia, $table, $inicio_sql, $fim_sql );
+	dsi_uisensor_render_bloco2( $prevalencia, $table );
+	dsi_uisensor_render_bloco3_grafico( $table, $inicio_sql, $fim_sql );
+	dsi_uisensor_render_bloco4_conteudos( $table, $inicio_sql, $fim_sql );
+	dsi_uisensor_render_bloco5_sinais( $table, $inicio_sql, $fim_sql );
+
+	echo '<details id="dsi-diagnostico" style="margin-top:32px;border-top:1px solid #ccd0d4;padding-top:16px;">';
+	echo '<summary style="cursor:pointer;font-size:16px;font-weight:600;">Diagnóstico (' . (int) $n_avisos . ' ' . ( $n_avisos === 1 ? 'aviso' : 'avisos' ) . ')</summary>';
+	echo '<div style="margin-top:16px;">';
+
+	foreach ( $avisos as $html ) {
+		echo $html; // já escapado internamente por cada função de origem
+	}
+
+	echo '<div style="display:flex;gap:16px;margin:20px 0;flex-wrap:wrap;">';
+	dsi_uisensor_render_prevalencia_por_pagina( $table, $inicio_sql, $fim_sql );
+	echo '</div>';
+
+	dsi_uisensor_render_sessoes( $table, $inicio_sql, $fim_sql );
+	dsi_uisensor_render_combinacoes_legado( $table, $inicio_sql, $fim_sql );
+	dsi_uisensor_render_log_paginas( $table, $inicio_sql, $fim_sql );
 
 	$ultima_purga = get_option( 'dsi_uisensor_ultima_purga' );
-
 	printf(
 		'<p style="color:#646970;max-width:80ch;margin-top:24px;font-size:13px;line-height:1.6;">
 			<strong>Retenção:</strong> IP bruto é apagado da linha após %d dias; <code>ip_hash</code> (HMAC com salt do site) e <code>ip_prefix</code> (/24) seguem até %d dias, quando a linha inteira sai. O salt rotaciona junto com a purga — depois disso os hashes antigos deixam de ser vinculáveis a qualquer IP novo. Comparação por <code>ip_hash</code> só vale dentro do mesmo <code>ip_salt_epoch</code>. Última purga automática: %s (depende do wp-cron continuar rodando -- se essa data ficar velha, a promessa de retenção acima não está mais sendo cumprida).
@@ -1553,5 +2216,6 @@ function dsi_uisensor_admin_page(): void {
 		$ultima_purga ? esc_html( (string) $ultima_purga ) : 'nunca rodou ainda'
 	);
 
+	echo '</div></details>';
 	echo '</div>';
 }
