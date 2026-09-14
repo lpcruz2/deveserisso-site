@@ -1615,17 +1615,23 @@ function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $
 		$texto = 'Sem evidência no período';
 	}
 
-	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;margin:16px 0;">';
+	// max-width no CARTÃO inteiro, não só no texto -- um <div> sem largura
+	// própria estica até o fim do .wrap, e um <p> com max-width dentro dele
+	// deixa um vão vazio à direita, dentro da própria borda/fundo do
+	// cartão: visualmente parece "duas colunas, conteúdo só na primeira".
+	// Mesmo padrão já usado nos avisos mais antigos deste arquivo (ver
+	// dsi_uisensor_avisos_descarte_falha, max-width no <div>, não no <p>).
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:24px;margin:16px 0;max-width:800px;box-sizing:border-box;">';
 	echo '<div style="font-size:13px;color:#646970;">Tem navegador com automação de IA acessando o site?</div>';
 	printf(
-		'<div style="display:inline-block;background:%s;color:%s;font-weight:600;font-size:22px;padding:6px 14px;border-radius:4px;margin:8px 0;">%s</div>',
+		'<div style="display:inline-block;background:%s;color:%s;font-weight:600;font-size:22px;padding:8px 16px;border-radius:4px;margin:12px 0;">%s</div>',
 		esc_attr( $fundo ),
 		esc_attr( $cor ),
 		esc_html( $texto )
 	);
 
 	if ( $n_sessoes_confirmadas > 0 ) {
-		echo '<p style="max-width:80ch;">' . dsi_uisensor_frase_caso_forte( $casos[0] ) . '</p>';
+		echo '<p style="line-height:1.6;margin-top:16px;">' . dsi_uisensor_frase_caso_forte( $casos[0] ) . '</p>';
 
 		// Força da evidência: distribuição de quantos motivos cada página
 		// flagrada disparou -- 1 sinal só é fraco, 2-3 juntos é evidência
@@ -1647,7 +1653,7 @@ function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $
 		foreach ( $distribuicao as $d ) {
 			$partes[] = (int) $d->total . ' com ' . (int) $d->n_sinais . ( (int) $d->n_sinais === 1 ? ' sinal' : ' sinais' );
 		}
-		echo '<p style="font-size:13px;color:#646970;max-width:80ch;">Força da evidência: dos ' . (int) $total_registros . ' registros flagrados do período, ' . esc_html( implode( ', ', $partes ) ) . '.</p>';
+		echo '<p style="font-size:13px;color:#646970;line-height:1.6;margin-top:12px;">Força da evidência: dos ' . (int) $total_registros . ' registros flagrados do período, ' . esc_html( implode( ', ', $partes ) ) . '.</p>';
 	}
 
 	echo '</div>';
@@ -1662,7 +1668,10 @@ function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $
  * e as duas coisas significam o oposto uma da outra.
  */
 function dsi_uisensor_render_bloco2( array $prevalencia, string $table ): void {
-	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:20px;margin:16px 0;">';
+	// Mesmo ajuste do bloco 1: max-width no CARTÃO inteiro, não só no texto
+	// de dentro -- senão o card estica até o fim do .wrap e o parágrafo
+	// mais estreito deixa um vão vazio à direita, dentro da própria borda.
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:24px;margin:16px 0;max-width:800px;box-sizing:border-box;">';
 	echo '<div style="font-size:13px;color:#646970;">Quantos % das visitas parecem automação?</div>';
 
 	if ( ! $prevalencia['confiavel'] ) {
@@ -1673,8 +1682,8 @@ function dsi_uisensor_render_bloco2( array $prevalencia, string $table ): void {
 		$progresso  = min( 100, round( ( $prevalencia['amostradas'] / $meta ) * 100 ) );
 
 		printf(
-			'<div style="font-size:28px;font-weight:600;color:#8c6d1f;margin:8px 0;">Ainda coletando</div>
-			<div style="background:#f0f0f1;border-radius:4px;height:10px;max-width:400px;overflow:hidden;margin-bottom:8px;">
+			'<div style="font-size:28px;font-weight:600;color:#8c6d1f;margin:12px 0;">Ainda coletando</div>
+			<div style="background:#f0f0f1;border-radius:4px;height:10px;overflow:hidden;margin-bottom:10px;">
 				<div style="background:#2271b1;height:100%%;width:%d%%;"></div>
 			</div>
 			<div style="font-size:13px;color:#646970;">%d de ~%d visitas</div>',
@@ -1687,7 +1696,7 @@ function dsi_uisensor_render_bloco2( array $prevalencia, string $table ): void {
 			$dias_100 = (int) ceil( $faltam_100 / $ritmo );
 			$dias_500 = (int) ceil( $faltam_500 / $ritmo );
 			printf(
-				'<p style="font-size:13px;color:#646970;max-width:70ch;">No ritmo observado (~%s sessões/dia), faltam ~%d dias (%s) para a amostra mínima de 100 -- onde a coleta já pode ser tratada como funcionando, não como número pra decidir investimento -- e ~%d dias (%s) para 500, onde o intervalo de confiança fica estreito o suficiente pra isso: com prevalência real de 5%%, o IC95%% de Wilson em n=100 é 2,1%%–11,2%% (largo demais), em n=500 é 3,4%%–7,3%%.</p>',
+				'<p style="font-size:13px;color:#646970;line-height:1.6;margin-top:14px;">No ritmo observado (~%s sessões/dia), faltam ~%d dias (%s) para a amostra mínima de 100 -- onde a coleta já pode ser tratada como funcionando, não como número pra decidir investimento -- e ~%d dias (%s) para 500, onde o intervalo de confiança fica estreito o suficiente pra isso: com prevalência real de 5%%, o IC95%% de Wilson em n=100 é 2,1%%–11,2%% (largo demais), em n=500 é 3,4%%–7,3%%.</p>',
 				esc_html( number_format( $ritmo, 1 ) ),
 				$dias_100,
 				esc_html( gmdate( 'd/m', current_time( 'timestamp' ) + $dias_100 * DAY_IN_SECONDS ) ),
@@ -1697,8 +1706,8 @@ function dsi_uisensor_render_bloco2( array $prevalencia, string $table ): void {
 		}
 	} else {
 		printf(
-			'<div style="font-size:36px;font-weight:600;color:#1d2327;margin:8px 0;">%s</div>
-			<div style="font-size:13px;color:#646970;">IC95%% Wilson: %s–%s · %d de %d sessões sorteadas</div>',
+			'<div style="font-size:36px;font-weight:600;color:#1d2327;margin:12px 0;">%s</div>
+			<div style="font-size:13px;color:#646970;line-height:1.6;">IC95%% Wilson: %s–%s · %d de %d sessões sorteadas</div>',
 			esc_html( sprintf( '%.1f%%', $prevalencia['p'] * 100 ) ),
 			esc_html( sprintf( '%.1f%%', $prevalencia['inf'] * 100 ) ),
 			esc_html( sprintf( '%.1f%%', $prevalencia['sup'] * 100 ) ),
@@ -1831,7 +1840,7 @@ function dsi_uisensor_render_bloco3_grafico( string $table, string $inicio_sql, 
 	}
 	echo '</div>';
 
-	echo '<p style="font-size:12px;color:#646970;">Barra clara = visitas com interação · barra escura sobreposta = com evidência de automação (não empilhada) · número acima = total de visitas · % abaixo = fração com evidência.</p>';
+	echo '<p style="font-size:12px;color:#646970;line-height:1.6;margin-top:12px;">Barra clara = visitas com interação · barra escura sobreposta = com evidência de automação (não empilhada) · número acima = total de visitas · % abaixo = fração com evidência.</p>';
 
 	if ( $tem_regua_antiga ) {
 		printf(
@@ -1933,10 +1942,10 @@ function dsi_uisensor_render_bloco4_conteudos( string $table, string $inicio_sql
 	}
 	echo '</tbody></table>';
 
-	echo '<p style="font-size:12px;color:#646970;max-width:80ch;">Ordenado por contagem absoluta de evidência, nunca por proporção — com denominadores de 1 a 40 visitas, ordenar por % põe no topo justamente o que não tem volume. <strong>Uma página com 1 de 1 visita não significa 100% de automação.</strong></p>';
+	echo '<p style="font-size:12px;color:#646970;max-width:80ch;line-height:1.6;margin-top:12px;">Ordenado por contagem absoluta de evidência, nunca por proporção — com denominadores de 1 a 40 visitas, ordenar por % põe no topo justamente o que não tem volume. <strong>Uma página com 1 de 1 visita não significa 100% de automação.</strong></p>';
 
 	if ( dsi_uisensor_periodo_tem_regua_antiga( $table, $inicio_sql, $fim_sql ) ) {
-		echo '<p style="font-size:12px;color:#8c6d1f;max-width:80ch;">O período inclui régua anterior à v' . (int) DSI_UISENSOR_RULESET_VERSION . '. O padrão de quais páginas aparecem no topo é <strong>hipótese, não achado</strong> -- parte vem de sinais com falso positivo já corrigido e das primeiras horas de teste, de antes do marcador de tráfego interno existir.</p>';
+		echo '<p style="font-size:12px;color:#8c6d1f;max-width:80ch;line-height:1.6;margin-top:8px;">O período inclui régua anterior à v' . (int) DSI_UISENSOR_RULESET_VERSION . '. O padrão de quais páginas aparecem no topo é <strong>hipótese, não achado</strong> -- parte vem de sinais com falso positivo já corrigido e das primeiras horas de teste, de antes do marcador de tráfego interno existir.</p>';
 	}
 
 	echo '</div>';
@@ -2025,7 +2034,7 @@ function dsi_uisensor_render_bloco5_sinais( string $table, string $inicio_sql, s
 	// passaram por aqui em tráfego orgânico neste período).
 	if ( $nunca_observados ) {
 		echo '<details style="margin-top:12px;"><summary style="cursor:pointer;color:#646970;">' . count( $nunca_observados ) . ' sinais nunca observados no período</summary>';
-		echo '<p style="font-size:12px;color:#646970;max-width:80ch;margin-top:8px;">Zero é informação, não vazio: por exemplo, zero em <code>clique_nao_confiavel</code> e <code>input_nao_confiavel</code> significa que os produtos que vazam por esses sinais (Comet e Manus) não passaram por aqui em tráfego orgânico neste período.</p>';
+		echo '<p style="font-size:12px;color:#646970;max-width:80ch;line-height:1.6;margin-top:8px;">Zero é informação, não vazio: por exemplo, zero em <code>clique_nao_confiavel</code> e <code>input_nao_confiavel</code> significa que os produtos que vazam por esses sinais (Comet e Manus) não passaram por aqui em tráfego orgânico neste período.</p>';
 		echo '<table class="widefat striped"><thead><tr><th>Sinal</th><th>O que mede</th></tr></thead><tbody>';
 		foreach ( $nunca_observados as $motivo ) {
 			printf(
@@ -2038,34 +2047,6 @@ function dsi_uisensor_render_bloco5_sinais( string $table, string $inicio_sql, s
 	}
 
 	echo '</div>';
-}
-
-/** "Por combinação de motivo" -- painel antigo, agrupava por combinação exata em vez de motivo isolado (ver bloco 5). Preservado no Diagnóstico, nada apagado. */
-function dsi_uisensor_render_combinacoes_legado( string $table, string $inicio_sql, string $fim_sql ): void {
-	global $wpdb;
-
-	$por_motivo = $wpdb->get_results(
-		$wpdb->prepare(
-			"SELECT heuristic_reasons, COUNT(*) AS total FROM {$table}
-			 WHERE heuristic_reasons <> '' AND is_dev_traffic = 0
-			   AND recorded_at BETWEEN %s AND %s
-			 GROUP BY heuristic_reasons ORDER BY total DESC",
-			$inicio_sql,
-			$fim_sql
-		)
-	);
-
-	if ( ! $por_motivo ) {
-		return;
-	}
-
-	echo '<h3>Por combinação de motivo (legado)</h3>';
-	echo '<table class="widefat striped"><thead><tr><th>Motivos</th><th>Páginas</th></tr></thead><tbody>';
-	foreach ( $por_motivo as $m ) {
-		$rotulos = implode( ', ', array_map( 'dsi_uisensor_motivo_label', explode( ',', $m->heuristic_reasons ) ) );
-		printf( '<tr><td>%s</td><td>%d</td></tr>', esc_html( $rotulos ), (int) $m->total );
-	}
-	echo '</tbody></table>';
 }
 
 /** Log de páginas com sinal, 20 colunas -- painel antigo. Preservado no Diagnóstico: foi o que tornou possível achar bugs em seis rodadas de revisão externa. */
@@ -2172,7 +2153,7 @@ function dsi_uisensor_admin_page(): void {
 	// "últimos 7 dias" fixo: comparar antes/depois de uma troca de régua não
 	// é válido, e o default antigo permitia isso por acidente.
 	printf(
-		'<p style="color:#646970;">Régua atual: <strong>v%d</strong>%s.%s</p>',
+		'<p style="color:#646970;line-height:1.6;margin-bottom:16px;">Régua atual: <strong>v%d</strong>%s.%s</p>',
 		(int) DSI_UISENSOR_RULESET_VERSION,
 		$default_inicio !== null
 			? ', desde ' . esc_html( gmdate( 'd/m/Y', strtotime( $default_inicio ) ) )
@@ -2182,7 +2163,7 @@ function dsi_uisensor_admin_page(): void {
 			: ''
 	);
 
-	echo '<p style="color:#646970;max-width:80ch;">Navegador agêntico (Claude no Chrome, ChatGPT Atlas, Perplexity Comet) manda <strong>User-Agent de Chrome puro</strong> — não existe detecção por header, só por comportamento. Nenhum sinal aqui prova que há um agente ou que não há uma pessoa: são evidências observáveis de interação programática.</p>';
+	echo '<p style="color:#646970;max-width:80ch;line-height:1.6;margin-bottom:20px;">Navegador agêntico (Claude no Chrome, ChatGPT Atlas, Perplexity Comet) manda <strong>User-Agent de Chrome puro</strong> — não existe detecção por header, só por comportamento. Nenhum sinal aqui prova que há um agente ou que não há uma pessoa: são evidências observáveis de interação programática.</p>';
 
 	echo '<form method="get" style="margin:16px 0;display:flex;gap:8px;align-items:end;flex-wrap:wrap;">';
 	echo '<input type="hidden" name="page" value="dsi-ui-sensor">';
@@ -2193,12 +2174,13 @@ function dsi_uisensor_admin_page(): void {
 
 	$prevalencia = dsi_uisensor_prevalencia_dados( $table, $inicio_sql, $fim_sql );
 
-	// Blocos 1-5, nessa ordem -- responde as 3 perguntas do gestor (tem
-	// automação? quantos %? quais conteúdos?) mais os 2 pedidos
-	// complementares (histórico diário, tabela de sinais).
+	// Histórico diário (bloco 3) primeiro, logo abaixo da data -- pedido do
+	// gestor 2026-09-14: dá o contexto de tendência antes do resumo em
+	// frase. Blocos 1/2/4/5 respondem as 3 perguntas do gestor (tem
+	// automação? quantos %? quais conteúdos?) mais a tabela de sinais.
+	dsi_uisensor_render_bloco3_grafico( $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_bloco1( $prevalencia, $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_bloco2( $prevalencia, $table );
-	dsi_uisensor_render_bloco3_grafico( $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_bloco4_conteudos( $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_bloco5_sinais( $table, $inicio_sql, $fim_sql );
 
@@ -2215,7 +2197,6 @@ function dsi_uisensor_admin_page(): void {
 	echo '</div>';
 
 	dsi_uisensor_render_sessoes( $table, $inicio_sql, $fim_sql );
-	dsi_uisensor_render_combinacoes_legado( $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_log_paginas( $table, $inicio_sql, $fim_sql );
 
 	$ultima_purga = get_option( 'dsi_uisensor_ultima_purga' );
