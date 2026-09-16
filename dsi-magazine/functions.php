@@ -1829,6 +1829,8 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		return new WP_REST_Response( [ 'erro' => $extraido->get_error_message() ], 502 );
 	}
 
+	$estado_antes = $estado;
+
 	// RF2: mescla por cima do estado acumulado, sem apagar campos ja preenchidos.
 	foreach ( DSI_BILHETEIRO_CAMPOS as $campo ) {
 		$valor = $extraido['parametros'][ $campo ] ?? null;
@@ -1849,6 +1851,15 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// RF3: plataforma + 1 sinal adicional, OU 3 perguntas, OU pedido de pular.
 	$criterio_real = ( $estado['plataforma'] !== null && $tem_sinal );
 	$deve_parar    = $pedido_pular || $criterio_real || $perguntas_feitas >= DSI_BILHETEIRO_LIMITE_PERGUNTAS;
+
+	dsi_bilheteiro_registrar_interacao( [
+		'mensagem'         => $mensagem,
+		'estado_antes'     => $estado_antes,
+		'estado_depois'    => $estado,
+		'pedido_pular'     => $pedido_pular,
+		'perguntas_feitas' => $perguntas_feitas,
+		'pronto'           => $deve_parar,
+	] );
 
 	if ( $deve_parar ) {
 		// Ordem importa: se o criterio "de verdade" ja foi atingido, usa a
@@ -1935,5 +1946,60 @@ function dsi_bilheteiro_extrair( string $mensagem, string $api_key ) {
 	}
 
 	return $extraido;
+}
+
+// =============================================================================
+// 32. LOG do bilheteiro conversacional (2026-09-16)
+// =============================================================================
+// Até aqui nenhuma interação ficava registrada em lugar nenhum (nem GA, nem
+// banco) -- pedido explícito do gestor pra poder analisar depois e melhorar
+// a extração/prioridade de perguntas. Por decisão dele: NÃO grava IP nem
+// qualquer identificador do visitante (site sem login, LGPD) -- só o
+// conteúdo da conversa (mensagem, estado antes/depois, se ficou pronto).
+function dsi_bilheteiro_log_table_name(): string {
+	global $wpdb;
+	return $wpdb->prefix . 'dsi_bilheteiro_log';
+}
+
+add_action( 'init', function (): void {
+	$versao_atual = '1.0';
+	if ( get_option( 'dsi_bilheteiro_log_versao' ) === $versao_atual ) {
+		return;
+	}
+	global $wpdb;
+	require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+	$tabela          = dsi_bilheteiro_log_table_name();
+	$charset_collate = $wpdb->get_charset_collate();
+	$sql             = "CREATE TABLE {$tabela} (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		criado_em DATETIME NOT NULL,
+		mensagem TEXT NOT NULL,
+		estado_antes TEXT NOT NULL,
+		estado_depois TEXT NOT NULL,
+		pedido_pular TINYINT(1) NOT NULL DEFAULT 0,
+		perguntas_feitas SMALLINT UNSIGNED NOT NULL,
+		pronto TINYINT(1) NOT NULL DEFAULT 0,
+		PRIMARY KEY  (id),
+		KEY criado_em (criado_em)
+	) {$charset_collate};";
+	dbDelta( $sql );
+	update_option( 'dsi_bilheteiro_log_versao', $versao_atual );
+} );
+
+function dsi_bilheteiro_registrar_interacao( array $dados ): void {
+	global $wpdb;
+	$wpdb->insert(
+		dsi_bilheteiro_log_table_name(),
+		[
+			'criado_em'        => current_time( 'mysql' ),
+			'mensagem'         => $dados['mensagem'],
+			'estado_antes'     => wp_json_encode( $dados['estado_antes'] ),
+			'estado_depois'    => wp_json_encode( $dados['estado_depois'] ),
+			'pedido_pular'     => $dados['pedido_pular'] ? 1 : 0,
+			'perguntas_feitas' => $dados['perguntas_feitas'],
+			'pronto'           => $dados['pronto'] ? 1 : 0,
+		],
+		[ '%s', '%s', '%s', '%s', '%d', '%d', '%d' ]
+	);
 }
 
