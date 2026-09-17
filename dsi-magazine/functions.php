@@ -1098,8 +1098,8 @@ function dsi_dados_tecnicos_meta_box_render( WP_Post $post ): void {
 	wp_nonce_field( 'dsi_dados_tecnicos_save', 'dsi_dados_tecnicos_nonce' );
 	$raw = get_post_meta( $post->ID, '_dsi_dados_tecnicos_raw', true );
 	?>
-	<p style="margin-top:0">Cole o texto bruto da ficha técnica, no mesmo formato de sempre ("* Campo: valor", um por linha). Aparece automaticamente como box no topo do artigo e vira dados estruturados (schema.org) — não precisa colar HTML no corpo do post. "Tipo", "Emoção principal" e "Baseado em fatos reais" são opcionais — usados pelo CineQuiz, não aparecem no schema.org.</p>
-	<textarea name="dsi_dados_tecnicos_raw" rows="10" style="width:100%;font-family:inherit" placeholder="Dados Técnicos&#10;&#10;* Nome: ...&#10;* Tipo: Filme&#10;* Direção: ...&#10;* Elenco principal: ...&#10;* Ano: ...&#10;* Duração: ...&#10;* Gênero: ...&#10;* Emoção principal: rir, medo, chorar, adrenalina ou paixão&#10;* Baseado em fatos reais: Sim ou Não"><?php echo esc_textarea( $raw ); ?></textarea>
+	<p style="margin-top:0">Cole o texto bruto da ficha técnica, no mesmo formato de sempre ("* Campo: valor", um por linha). Aparece automaticamente como box no topo do artigo e vira dados estruturados (schema.org) — não precisa colar HTML no corpo do post. "Tipo", "Temas", "Emoção principal" e "Baseado em fatos reais" são opcionais — usados pelo CineQuiz, não aparecem no schema.org.</p>
+	<textarea name="dsi_dados_tecnicos_raw" rows="10" style="width:100%;font-family:inherit" placeholder="Dados Técnicos&#10;&#10;* Nome: ...&#10;* Tipo: Filme&#10;* Direção: ...&#10;* Elenco principal: ...&#10;* Ano: ...&#10;* Duração: ...&#10;* Gênero: ...&#10;* Temas: vingança, viagem no tempo, thriller psicológico&#10;* Emoção principal: rir, medo, chorar, adrenalina ou paixão&#10;* Baseado em fatos reais: Sim ou Não"><?php echo esc_textarea( $raw ); ?></textarea>
 	<?php
 }
 
@@ -1217,6 +1217,16 @@ function dsi_parse_dados_tecnicos( string $raw ): array {
 			case 'generos':
 			case 'genero(s)':
 				$data['genero'] = array_map( 'trim', explode( ',', dsi_dt_markdown_link_to_plain( $f['value'] ) ) );
+				break;
+			// Keywords do TMDB (ex: "vingança", "viagem no tempo", "thriller
+			// psicologico") -- mais especifico que Genero pra alimentar o
+			// Corredor de Pôsteres do roteiro da Jornada do Espectador (ver
+			// docs/roteiro-jornada-do-espectador.md no repo CineQuiz). Campo
+			// novo, cobertura zero no corpus até que os posts sejam
+			// reprocessados -- só soma pontuação, nunca desclassifica (ver
+			// dsi_recomendar_filme).
+			case 'temas':
+				$data['temas'] = array_map( 'trim', explode( ',', dsi_dt_markdown_link_to_plain( $f['value'] ) ) );
 				break;
 			// "Tipo: Série" -> 'serie' (default 'filme' quando o campo não existe, ver uso
 			// no JSON-LD — todo o histórico de posts preenchidos antes desse campo existir
@@ -1549,6 +1559,7 @@ add_action( 'rest_api_init', function (): void {
 			'tipo'                => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
 			'emocao'              => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
 			'genero'              => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+			'temas'               => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
 			'baseado_fatos_reais' => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
 			'q'                   => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
 			'limite'              => [ 'required' => false, 'sanitize_callback' => 'absint' ],
@@ -1599,6 +1610,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	$filtro_tipo   = $req->get_param( 'tipo' ) ? dsi_dt_normalize_key( $req->get_param( 'tipo' ) ) : null;
 	$filtro_emocao = $req->get_param( 'emocao' ) ? dsi_dt_normalize_key( $req->get_param( 'emocao' ) ) : null;
 	$filtro_genero = $req->get_param( 'genero' ) ? dsi_dt_normalize_key( $req->get_param( 'genero' ) ) : null;
+	$filtro_temas  = $req->get_param( 'temas' ) ? dsi_dt_normalize_key( $req->get_param( 'temas' ) ) : null;
 	$filtro_fatos  = $req->get_param( 'baseado_fatos_reais' ) ? dsi_dt_normalize_key( $req->get_param( 'baseado_fatos_reais' ) ) : null;
 
 	$candidatos = [];
@@ -1633,6 +1645,14 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 				}
 			}
 		}
+		if ( $filtro_temas !== null && ! empty( $d['temas'] ) ) {
+			foreach ( $d['temas'] as $t ) {
+				if ( strpos( dsi_dt_normalize_key( $t ), $filtro_temas ) !== false ) {
+					$pontos++;
+					break;
+				}
+			}
+		}
 		if ( $filtro_fatos !== null && isset( $d['baseado_fatos_reais'] ) ) {
 			$quer_sim = strpos( $filtro_fatos, 'sim' ) === 0;
 			if ( $d['baseado_fatos_reais'] === $quer_sim ) {
@@ -1655,6 +1675,13 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// como se fosse a recomendação, só porque era o único post com Netflix +
 	// ficha técnica -- nenhuma comédia do site tem essa categoria ainda.
 	// Tratar como "sem recomendação" é mais honesto que forçar um palpite.
+	//
+	// "Temas" fica de fora desse gatilho de propósito: é campo novo (ver
+	// seção 28, "Temas"), cobertura zero no corpus até os posts serem
+	// reprocessados -- se entrasse aqui, qualquer busca que pedisse Temas
+	// devolveria vazio sempre, mesmo quando Plataforma/Tipo/Emoção/Gênero já
+	// dariam uma recomendação boa sozinhos. Enquanto a cobertura for baixa,
+	// Temas só desempata/pontua, nunca decide "não achamos nada".
 	$pediu_algum_soft = ( $filtro_emocao !== null || $filtro_genero !== null || $filtro_fatos !== null );
 	if ( $pediu_algum_soft && ! empty( $candidatos ) && $candidatos[0]['pontos'] === 0 ) {
 		$candidatos = [];
@@ -1673,6 +1700,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			'elenco'              => $d['elenco'] ?? [],
 			'ano'                 => $d['ano'] ?? null,
 			'genero'              => $d['genero'] ?? [],
+			'temas'               => $d['temas'] ?? [],
 			'emocao'              => $d['emocao'] ?? [],
 			'baseado_fatos_reais' => $d['baseado_fatos_reais'] ?? null,
 			'poster'              => get_the_post_thumbnail_url( $post->ID, 'dsi-poster' ) ?: null,
