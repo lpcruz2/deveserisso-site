@@ -1098,7 +1098,7 @@ function dsi_dados_tecnicos_meta_box_render( WP_Post $post ): void {
 	wp_nonce_field( 'dsi_dados_tecnicos_save', 'dsi_dados_tecnicos_nonce' );
 	$raw = get_post_meta( $post->ID, '_dsi_dados_tecnicos_raw', true );
 	?>
-	<p style="margin-top:0">Cole o texto bruto da ficha técnica, no mesmo formato de sempre ("* Campo: valor", um por linha). Aparece automaticamente como box no topo do artigo e vira dados estruturados (schema.org) — não precisa colar HTML no corpo do post. "Tipo", "Temas", "Emoção principal" e "Baseado em fatos reais" são opcionais — usados pelo CineQuiz, não aparecem no schema.org.</p>
+	<p style="margin-top:0">Cole o texto bruto da ficha técnica, no mesmo formato de sempre ("* Campo: valor", um por linha). Aparece automaticamente como box no topo do artigo e vira dados estruturados (schema.org) — não precisa colar HTML no corpo do post. "Tipo", "Temas", "Emoção principal" e "Baseado em fatos reais" são opcionais — usados pelo CineQuiz, não aparecem no schema.org. <strong>"Temas": sempre em português</strong> — a API de keywords do TMDB não tem parâmetro de idioma (diferente da de gêneros) e devolve tudo em inglês, então traduza na hora de colar (ex: "revenge" → "vingança", "time travel" → "viagem no tempo").</p>
 	<textarea name="dsi_dados_tecnicos_raw" rows="10" style="width:100%;font-family:inherit" placeholder="Dados Técnicos&#10;&#10;* Nome: ...&#10;* Tipo: Filme&#10;* Direção: ...&#10;* Elenco principal: ...&#10;* Ano: ...&#10;* Duração: ...&#10;* Gênero: ...&#10;* Temas: vingança, viagem no tempo, thriller psicológico&#10;* Emoção principal: rir, medo, chorar, adrenalina ou paixão&#10;* Baseado em fatos reais: Sim ou Não"><?php echo esc_textarea( $raw ); ?></textarea>
 	<?php
 }
