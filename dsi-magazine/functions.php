@@ -1567,11 +1567,12 @@ add_action( 'rest_api_init', function (): void {
 	] );
 } );
 
-// "Filtro real" só pra Plataforma (categoria, na WP_Query) e Tipo (filme/série
-// desclassifica quem não bate — mesmo espírito da pergunta 1/3 do quiz, que já
-// são as únicas com filtro de banco de verdade). Emoção/Gênero/Baseado em
-// fatos reais só somam pontuação: com poucos posts preenchidos, um filtro
-// rígido demais devolveria lista vazia com frequência.
+// "Filtro real" (desclassifica quem não bate) só pra Tipo (filme/série) --
+// Plataforma virou pontuação em 2026-09-17 (decisão do gestor: travar a
+// busca só em cima da plataforma pedida limitava demais a escolha, já que
+// nem todo post tem categoria de plataforma marcada). Emoção/Gênero/Temas/
+// Baseado em fatos reais/Plataforma só somam pontuação: com poucos posts
+// preenchidos, um filtro rígido demais devolveria lista vazia com frequência.
 function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// CORS aberto (mesmo padrão já usado no .well-known/ai-catalog.json): dado
 	// público e read-only, chamado tanto pelo JS do próprio site (mesma
@@ -1585,7 +1586,11 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	$query_args = [
 		'post_type'      => 'post',
 		'post_status'    => 'publish',
-		'posts_per_page' => 30,
+		// Sem o filtro rígido de plataforma (ver comentário acima), a busca
+		// agora varre o corpus inteiro de posts com ficha técnica (~200 hoje)
+		// em vez de só os 30 mais recentes -- senão emoção/gênero/tema
+		// perderiam candidatos bons só por serem posts mais antigos.
+		'posts_per_page' => 300,
 		'meta_query'     => [
 			[
 				'key'     => '_dsi_dados_tecnicos_raw',
@@ -1595,11 +1600,6 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		],
 	];
 
-	$plataforma = $req->get_param( 'plataforma' );
-	if ( $plataforma ) {
-		$query_args['category_name'] = sanitize_title( $plataforma );
-	}
-
 	$q = $req->get_param( 'q' );
 	if ( $q ) {
 		$query_args['s'] = $q;
@@ -1607,6 +1607,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 
 	$query = new WP_Query( $query_args );
 
+	$filtro_plataforma = $req->get_param( 'plataforma' ) ? sanitize_title( $req->get_param( 'plataforma' ) ) : null;
 	$filtro_tipo   = $req->get_param( 'tipo' ) ? dsi_dt_normalize_key( $req->get_param( 'tipo' ) ) : null;
 	$filtro_emocao = $req->get_param( 'emocao' ) ? dsi_dt_normalize_key( $req->get_param( 'emocao' ) ) : null;
 	$filtro_genero = $req->get_param( 'genero' ) ? dsi_dt_normalize_key( $req->get_param( 'genero' ) ) : null;
@@ -1629,6 +1630,9 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		}
 
 		$pontos = 0;
+		if ( $filtro_plataforma !== null && has_category( $filtro_plataforma, $post ) ) {
+			$pontos++;
+		}
 		if ( $filtro_emocao !== null && ! empty( $d['emocao'] ) ) {
 			foreach ( $d['emocao'] as $e ) {
 				if ( strpos( dsi_dt_normalize_key( $e ), $filtro_emocao ) !== false ) {
@@ -1682,7 +1686,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// devolveria vazio sempre, mesmo quando Plataforma/Tipo/Emoção/Gênero já
 	// dariam uma recomendação boa sozinhos. Enquanto a cobertura for baixa,
 	// Temas só desempata/pontua, nunca decide "não achamos nada".
-	$pediu_algum_soft = ( $filtro_emocao !== null || $filtro_genero !== null || $filtro_fatos !== null );
+	$pediu_algum_soft = ( $filtro_plataforma !== null || $filtro_emocao !== null || $filtro_genero !== null || $filtro_fatos !== null );
 	if ( $pediu_algum_soft && ! empty( $candidatos ) && $candidatos[0]['pontos'] === 0 ) {
 		$candidatos = [];
 	}
