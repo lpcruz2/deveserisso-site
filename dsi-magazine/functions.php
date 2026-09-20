@@ -1781,7 +1781,11 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			'temas'               => $d['temas'] ?? [],
 			'emocao'              => $d['emocao'] ?? [],
 			'baseado_fatos_reais' => $d['baseado_fatos_reais'] ?? null,
-			'sinopse'             => dsi_excerpt( 200, $post->ID ),
+			// dsi_excerpt() devolve esc_html() (pensado pra embutir em HTML);
+			// aqui o valor vai pro JSON e o front usa .textContent, entao
+			// precisa decodificar de volta (senao "&nbsp;" aparece literal
+			// na tela em vez de virar espaço) -- achado do gestor 2026-09-20.
+			'sinopse'             => html_entity_decode( dsi_excerpt( 200, $post->ID ), ENT_QUOTES, 'UTF-8' ),
 			'poster'              => get_the_post_thumbnail_url( $post->ID, 'dsi-poster' ) ?: null,
 			'link'                => get_permalink( $post ),
 			'score'               => $c['score'],
