@@ -1659,7 +1659,10 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 
 	$query = new WP_Query( $query_args );
 
-	$filtro_plataforma = $req->get_param( 'plataforma' ) ? sanitize_title( $req->get_param( 'plataforma' ) ) : null;
+	// plataforma aceita mais de uma (achado do gestor 2026-09-20: bilheteiro
+	// precisa aceitar mais de um streaming) -- "Netflix, Amazon Prime" vira
+	// duas categorias, pontua se bater em QUALQUER uma delas.
+	$filtro_plataforma = array_map( 'sanitize_title', dsi_score_csv_para_array( $req->get_param( 'plataforma' ) ) );
 	$filtro_tipo   = $req->get_param( 'tipo' ) ? dsi_dt_normalize_key( $req->get_param( 'tipo' ) ) : null;
 	$filtro_emocao = $req->get_param( 'emocao' ) ? dsi_dt_normalize_key( $req->get_param( 'emocao' ) ) : null;
 	$filtro_genero = $req->get_param( 'genero' ) ? dsi_dt_normalize_key( $req->get_param( 'genero' ) ) : null;
@@ -1715,7 +1718,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 				}
 			}
 		}
-		if ( $filtro_plataforma !== null && has_category( $filtro_plataforma, $post ) ) {
+		if ( $filtro_plataforma && has_category( $filtro_plataforma, $post ) ) {
 			$score += DSI_SCORE_PESO_PLATAFORMA * $fator_plataforma;
 		}
 		if ( $temas_pessoa ) {
@@ -1755,7 +1758,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// <= 0, devolver vazio é mais honesto que forçar um palpite. Fatores de
 	// insistência nunca zeram sozinhos, então isso continua raro de acontecer
 	// à toa.
-	$pediu_algum_soft = ( $filtro_plataforma !== null || $filtro_emocao !== null || $filtro_genero !== null || $filtro_fatos !== null );
+	$pediu_algum_soft = ( ! empty( $filtro_plataforma ) || $filtro_emocao !== null || $filtro_genero !== null || $filtro_fatos !== null );
 	if ( $pediu_algum_soft && ! empty( $candidatos ) && $candidatos[0]['score'] <= 0 ) {
 		$candidatos = [];
 	}
@@ -1778,6 +1781,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			'temas'               => $d['temas'] ?? [],
 			'emocao'              => $d['emocao'] ?? [],
 			'baseado_fatos_reais' => $d['baseado_fatos_reais'] ?? null,
+			'sinopse'             => dsi_excerpt( 200, $post->ID ),
 			'poster'              => get_the_post_thumbnail_url( $post->ID, 'dsi-poster' ) ?: null,
 			'link'                => get_permalink( $post ),
 			'score'               => $c['score'],
@@ -1863,7 +1867,7 @@ const DSI_BILHETEIRO_LIMITE_PERGUNTAS    = 3;
 const DSI_BILHETEIRO_SEM_PREFERENCIA = '__sem_preferencia__';
 
 const DSI_BILHETEIRO_PERGUNTAS = [
-	'plataforma'  => 'Onde você vai assistir — Netflix, Amazon Prime, Globoplay, Telecine ou Disney+?',
+	'plataforma'  => 'Onde você pode assistir? Pode ser mais de um: Netflix, Amazon Prime, Globoplay, Telecine ou Disney+.',
 	'tipo'        => 'Filme ou série?',
 	'emocao'      => 'Que emoção você quer sentir agora — rir, ter medo, chorar, adrenalina ou se apaixonar?',
 	'genero'      => 'Que gênero te chama mais atenção hoje — ação, comédia, terror, romance, drama...?',
@@ -1943,7 +1947,9 @@ Você é um extrator de parâmetros para um quiz de recomendação de filmes/sé
 A cada mensagem do visitante, extraia APENAS o que foi dito NESTA mensagem.
 
 Campos possíveis:
-- plataforma: Netflix, Amazon Prime, Globoplay, Telecine ou Disney+
+- plataforma: uma ou mais entre Netflix, Amazon Prime, Globoplay, Telecine
+  ou Disney+. Se a pessoa citar mais de uma, junte separado por vírgula
+  (ex: "Netflix, Amazon Prime")
 - tipo: filme ou serie
 - emocao: rir, medo, chorar, adrenalina ou paixao
 - genero: qualquer genero livre mencionado (comedia, terror, acao, romance, etc.)
@@ -2068,6 +2074,9 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// preenchidos. Antes de sobrescrever, checa reforco de confirmacao
 	// (fator de insistencia, PRD secao 5) nos 3 obrigatorios.
 	foreach ( DSI_BILHETEIRO_CAMPOS as $campo ) {
+		if ( $campo === 'plataforma' ) {
+			continue; // tratado abaixo -- aceita mais de um streaming, uniao entre turnos
+		}
 		$valor = $extraido['parametros'][ $campo ] ?? null;
 		if ( $valor === null || $valor === '' ) {
 			continue;
@@ -2079,6 +2088,33 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 			}
 		}
 		$estado[ $campo ] = $valor;
+	}
+	// plataforma: uniao normalizada, pessoa pode ter mais de um streaming --
+	// nao sobrescreve o que ja foi dito num turno anterior (achado do gestor
+	// 2026-09-20: "bilheteiro precisa aceitar mais de um streaming"). Repetir
+	// uma plataforma ja conhecida conta como reforco de confirmacao; citar
+	// uma nova so soma ao conjunto.
+	$plataforma_nova = $extraido['parametros']['plataforma'] ?? null;
+	if ( $plataforma_nova !== null && $plataforma_nova !== '' ) {
+		$itens_atuais  = $estado['plataforma'] ? array_filter( array_map( 'trim', explode( ',', $estado['plataforma'] ) ) ) : [];
+		$chaves_atuais = array_map( 'dsi_dt_normalize_key', $itens_atuais );
+		$houve_repeticao = false;
+		foreach ( array_filter( array_map( 'trim', explode( ',', $plataforma_nova ) ) ) as $item ) {
+			$chave = dsi_dt_normalize_key( $item );
+			if ( in_array( $chave, $chaves_atuais, true ) ) {
+				$houve_repeticao = true;
+			} else {
+				$itens_atuais[]  = $item;
+				$chaves_atuais[] = $chave;
+			}
+		}
+		if ( $houve_repeticao ) {
+			$atual = $estado['confirmacoes']['plataforma'] ?? 1;
+			$estado['confirmacoes']['plataforma'] = min( $atual + 1, 3 );
+		} elseif ( ! isset( $estado['confirmacoes']['plataforma'] ) ) {
+			$estado['confirmacoes']['plataforma'] = 1;
+		}
+		$estado['plataforma'] = implode( ', ', $itens_atuais );
 	}
 	// exclusoes: uniao normalizada, nunca sobrescreve (PRD secao 3, campo opcional).
 	$exclusoes_novas = array_filter( (array) ( $extraido['exclusoes'] ?? [] ) );
