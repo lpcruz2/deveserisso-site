@@ -49,6 +49,39 @@ RewriteRule ^melhores-series-policiais-para-ver-na-netflix-em-2020/?$ https://de
 </IfModule>
 # END 301 - Slug sem ano
 
+# BEGIN 301 - Conteudo fora de escopo removido (2026-09-20)
+# Levantamento de posts sem nenhuma impressao no GSC (16 meses) -- 24 posts
+# fora do escopo editorial do site (games, NFT/NBA Top Shot, futebol, musica)
+# movidos pra lixeira e redirecionados pra home.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^legends-of-runeterra-beta-aberto-ganha-data-de-lancamento/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^mortal-kombat-11-final-da-liga-latina-acontece-esse-mes-no-brasil/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^super-campeoes-proximo-lancamento-do-jogo-inspirado-nos-mangas-ganha-trailer-inedito/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^relatos-apontam-que-desenvolvimento-de-resident-evil-8-recomeca-do-zero/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^bioware-confirma-que-anthem-sera-completamente-refeito/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^pokemon-home-ja-esta-disponivel-para-nintendo-switch-e-celulares/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^dragon-ball-z-kakarot-e-o-jogo-mais-vendido-de-janeiro-nos-eua/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^super-campeoes-veja-o-novo-trailer-de-captain-tsubasa-rise-of-new-champions/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^dirigente-da-naughty-dog-revela-possibilidade-de-producao-de-novo-uncharted/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^decoracao-geek-20-quadros-geek-para-decorar-sua-casa/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^quais-sao-as-atracoes-imperdiveis-do-lollapalooza-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^games-e3-2020-e-cancelada-por-causa-de-surto-de-coronavirus/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^lego-star-wars-a-saga-skywalker-novas-artes-do-jogo-foram-disponibilizadas/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^mortal-kombat-11-atualizacao-em-aftermath-tera-robocop-e-uma-nova-campanha/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^the-last-of-us-2-novo-trailer-antecipa-experiencia-mais-realista-do-jogo/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^tony-hawks-pro-skater-trilha-sonora-relancamento-ps4-xbox/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^mortal-kombat-11-trailer-apresenta-o-retorno-dos-friendships-em-nova-atualizacao/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^nba-top-shot-tudo-sobre-os-colecionaveis-digitais-de-basquete-nft/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^nba-top-shot-pack-cool-cats-sera-liberado-hoje-22-as-16h/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^badges-moments-do-nba-top-shot-o-que-elas-significam/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^nba-top-shot-pack-base-set-serie-2-sera-liberado-hoje-29-as-15h/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^sport-vence-o-bahia-pela-serie-b-do-campeonato-brasileiro/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^jogos-mais-populares-para-android/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^jogo-na-record-hoje/?$ https://deveserisso.com.br/ [R=301,L]
+</IfModule>
+# END 301 - Conteudo fora de escopo removido
+
 # BEGIN WebP Serve
 <IfModule mod_rewrite.c>
 RewriteEngine On
