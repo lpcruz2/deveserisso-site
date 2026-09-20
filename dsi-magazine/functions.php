@@ -1943,6 +1943,28 @@ function dsi_bilheteiro_campos_faltando( array $estado ): array {
 	return $faltando;
 }
 
+// Deteccao por palavra-chave das 5 plataformas fixas (PRD secao 3), como
+// rede de seguranca deterministica por cima da extracao via LLM -- ver
+// achado do gestor 2026-09-20 no comentario de uso. "prime"/"globo"
+// sozinhos ficam de fora de proposito (ambiguo com "primeiro"/"Rede
+// Globo"); exige a frase mais especifica.
+const DSI_BILHETEIRO_PLATAFORMAS_REGEX = [
+	'Netflix'      => '/netflix/i',
+	'Amazon Prime' => '/amazon|prime\s*video/i',
+	'Globoplay'    => '/globo\s*play/i',
+	'Telecine'     => '/telecine/i',
+	'Disney+'      => '/disney/i',
+];
+function dsi_bilheteiro_detectar_plataformas_texto( string $mensagem ): array {
+	$encontradas = [];
+	foreach ( DSI_BILHETEIRO_PLATAFORMAS_REGEX as $nome => $padrao ) {
+		if ( preg_match( $padrao, $mensagem ) ) {
+			$encontradas[] = $nome;
+		}
+	}
+	return $encontradas;
+}
+
 // Mesmo texto do protótipo Python (agent.py), só traduzido pra heredoc PHP.
 // A instrução de ignorar comandos embutidos na mensagem do visitante é
 // defesa contra prompt injection (RNF3 do PRD) — o campo é texto livre
@@ -2104,10 +2126,32 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// uma plataforma ja conhecida conta como reforco de confirmacao; citar
 	// uma nova so soma ao conjunto.
 	$plataforma_nova = $extraido['parametros']['plataforma'] ?? null;
+	// Rede de seguranca por palavra-chave, por cima do que o LLM extraiu --
+	// achado do gestor 2026-09-20: o DeepSeek falhou em extrair QUALQUER
+	// plataforma quando a pessoa citou duas de uma vez ("netflix e
+	// globoplay"), apesar de ser um caso claro (so emplacou no turno
+	// seguinte, quando repetiu so uma). Nunca substitui o que o LLM achou,
+	// so soma o que ele deixou passar.
+	$plataformas_no_texto = dsi_bilheteiro_detectar_plataformas_texto( $mensagem );
+	if ( $plataformas_no_texto ) {
+		$eh_qualquer = $plataforma_nova !== null && dsi_dt_normalize_key( $plataforma_nova ) === 'qualquer';
+		$itens_llm   = ( $plataforma_nova && ! $eh_qualquer )
+			? array_filter( array_map( 'trim', explode( ',', $plataforma_nova ) ) ) : [];
+		$chaves_llm  = array_map( 'dsi_dt_normalize_key', $itens_llm );
+		foreach ( $plataformas_no_texto as $item ) {
+			$chave = dsi_dt_normalize_key( $item );
+			if ( ! in_array( $chave, $chaves_llm, true ) ) {
+				$itens_llm[]  = $item;
+				$chaves_llm[] = $chave;
+			}
+		}
+		$plataforma_nova = implode( ', ', $itens_llm );
+	}
 	// "Qualquer" (achado do gestor 2026-09-20: bilheteiro nao aceitava a
 	// pessoa dizer que nao tem preferencia de plataforma, so nomes da
 	// lista fixa) -- sobrescreve direto pro sentinela, sem entrar na uniao
-	// de CSV abaixo, e libera o campo obrigatorio no mesmo turno.
+	// de CSV abaixo, e libera o campo obrigatorio no mesmo turno. So dispara
+	// se nenhuma plataforma de verdade foi detectada no texto (bloco acima).
 	if ( $plataforma_nova !== null && dsi_dt_normalize_key( $plataforma_nova ) === 'qualquer' ) {
 		$estado['plataforma'] = DSI_BILHETEIRO_SEM_PREFERENCIA;
 		if ( ! isset( $estado['confirmacoes']['plataforma'] ) ) {
