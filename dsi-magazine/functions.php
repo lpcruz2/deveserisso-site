@@ -1875,8 +1875,8 @@ const DSI_BILHETEIRO_SEM_PREFERENCIA = '__sem_preferencia__';
 const DSI_BILHETEIRO_PERGUNTAS = [
 	'plataforma'  => 'Onde você pode assistir? Pode ser mais de um: Netflix, Amazon Prime, Globoplay, Telecine ou Disney+.',
 	'tipo'        => 'Filme ou série?',
-	'emocao'      => 'Que emoção você quer sentir agora — rir, ter medo, chorar, adrenalina ou se apaixonar?',
-	'genero'      => 'Que gênero te chama mais atenção hoje — ação, comédia, terror, romance, drama...?',
+	'emocao'      => 'Que emoção você quer sentir agora? Rir, ter medo, chorar, adrenalina ou se apaixonar?',
+	'genero'      => 'Que gênero te chama mais atenção hoje? Ação, comédia, terror, romance, drama...?',
 	'texto_livre' => 'Você gostaria de me dizer mais alguma coisa antes de eu escolher seus filmes?',
 ];
 
@@ -1955,7 +1955,10 @@ A cada mensagem do visitante, extraia APENAS o que foi dito NESTA mensagem.
 Campos possíveis:
 - plataforma: uma ou mais entre Netflix, Amazon Prime, Globoplay, Telecine
   ou Disney+. Se a pessoa citar mais de uma, junte separado por vírgula
-  (ex: "Netflix, Amazon Prime")
+  (ex: "Netflix, Amazon Prime"). Se a pessoa disser que serve qualquer uma,
+  que nao tem preferencia, ou "tanto faz"/"nao importa" especificamente
+  sobre onde assistir, retorne o valor literal "qualquer" (nunca invente
+  uma plataforma da lista acima so pra preencher o campo)
 - tipo: filme ou serie
 - emocao: rir, medo, chorar, adrenalina ou paixao
 - genero: qualquer genero livre mencionado (comedia, terror, acao, romance, etc.)
@@ -2101,8 +2104,23 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// uma plataforma ja conhecida conta como reforco de confirmacao; citar
 	// uma nova so soma ao conjunto.
 	$plataforma_nova = $extraido['parametros']['plataforma'] ?? null;
+	// "Qualquer" (achado do gestor 2026-09-20: bilheteiro nao aceitava a
+	// pessoa dizer que nao tem preferencia de plataforma, so nomes da
+	// lista fixa) -- sobrescreve direto pro sentinela, sem entrar na uniao
+	// de CSV abaixo, e libera o campo obrigatorio no mesmo turno.
+	if ( $plataforma_nova !== null && dsi_dt_normalize_key( $plataforma_nova ) === 'qualquer' ) {
+		$estado['plataforma'] = DSI_BILHETEIRO_SEM_PREFERENCIA;
+		if ( ! isset( $estado['confirmacoes']['plataforma'] ) ) {
+			$estado['confirmacoes']['plataforma'] = 1;
+		}
+		$plataforma_nova = null; // ja tratado, nao processar de novo abaixo
+	}
 	if ( $plataforma_nova !== null && $plataforma_nova !== '' ) {
-		$itens_atuais  = $estado['plataforma'] ? array_filter( array_map( 'trim', explode( ',', $estado['plataforma'] ) ) ) : [];
+		// Se a pessoa ja tinha dito "qualquer" antes e agora citou uma
+		// plataforma de verdade, a preferencia especifica vale -- comeca a
+		// uniao do zero em vez de arrastar o sentinela como se fosse item.
+		$plataforma_atual = ( $estado['plataforma'] === DSI_BILHETEIRO_SEM_PREFERENCIA ) ? '' : $estado['plataforma'];
+		$itens_atuais  = $plataforma_atual ? array_filter( array_map( 'trim', explode( ',', $plataforma_atual ) ) ) : [];
 		$chaves_atuais = array_map( 'dsi_dt_normalize_key', $itens_atuais );
 		$houve_repeticao = false;
 		foreach ( array_filter( array_map( 'trim', explode( ',', $plataforma_nova ) ) ) as $item ) {
