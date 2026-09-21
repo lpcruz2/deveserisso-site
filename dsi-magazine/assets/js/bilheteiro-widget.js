@@ -29,6 +29,16 @@
 		return d.innerHTML;
 	}
 
+	// GTM ja roda no site inteiro (container GTM-NHRLL7) -- manda o evento
+	// pro dataLayer de sempre. Sem isso nao existe NENHUM jeito de saber
+	// quantos filmes foram clicados: o log do bilheteiro (wp_dsi_bilheteiro_log)
+	// so guarda quais filmes foram recomendados e o like/dislike agregado da
+	// rodada, nunca qual link especifico a pessoa abriu.
+	function track( eventName, params ) {
+		if ( ! window.dataLayer ) return;
+		window.dataLayer.push( Object.assign( { event: eventName }, params || {} ) );
+	}
+
 	function injetarEstilos() {
 		if ( document.getElementById( 'dsi-bh-estilos' ) ) return;
 		var style = document.createElement( 'style' );
@@ -76,7 +86,12 @@
 			'.dsi-bh-feedback{margin-top:6px;font-size:12px;}' +
 			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:4px 8px;' +
 			'cursor:pointer;font-size:12px;margin-top:4px;margin-right:4px;}' +
-			'@media(max-width:480px){.dsi-bh-painel{right:10px;left:10px;width:auto;bottom:80px;}}';
+			/* No celular o painel flutuante pequeno fica ilegivel quando o
+			   teclado abre pra digitar (achado do gestor 2026-09-21: "fica
+			   dificil ler o que foi dito no chat") -- no lugar de um balao no
+			   canto, ocupa a tela inteira. */
+			'@media(max-width:480px){.dsi-bh-painel.aberto{position:fixed;inset:0;width:100%;height:100%;' +
+			'max-width:100%;max-height:100%;border-radius:0;}}';
 		document.head.appendChild( style );
 	}
 
@@ -91,7 +106,7 @@
 			'</button>' +
 			'<div class="dsi-bh-painel">' +
 				'<div class="dsi-bh-cabecalho">' +
-					'<span>Crítico</span>' +
+					'<span>Curadoria Deveserisso!</span>' +
 					'<button class="dsi-bh-fechar" type="button" aria-label="Fechar">×</button>' +
 				'</div>' +
 				'<div class="dsi-bh-thread"></div>' +
@@ -192,7 +207,7 @@
 			// achado do gestor 2026-09-20: sem isso, o painel abria vazio ate a
 			// primeira pergunta chegar, e quem tava usando nao entendia o que
 			// fazer ali (ainda mais se a chamada demorasse ou desse 429).
-			addBot( 'Oi! Sou o seu crítico pessoal e vou te ajudar a encontrar o que assistir hoje.' );
+			addBot( 'Oi! Sou o seu curador pessoal e vou te ajudar a encontrar o que assistir hoje.' );
 			var carregando = addBot( '<span class="dsi-bh-digitando">...</span>' );
 			chamarBilheteiro( '' ).then( function ( data ) {
 				carregando.remove();
@@ -221,8 +236,9 @@
 
 		function montarCardsFilmes( itens ) {
 			var html = '<div class="dsi-bh-filmes">';
-			itens.forEach( function ( f ) {
-				html += '<a class="dsi-bh-filme" href="' + f.link + '" target="_blank" rel="noopener">' +
+			itens.forEach( function ( f, i ) {
+				html += '<a class="dsi-bh-filme" href="' + f.link + '" target="_blank" rel="noopener" ' +
+					'data-id="' + f.id + '" data-fonte="' + f.fonte + '" data-titulo="' + escapeHtml( f.titulo ) + '" data-posicao="' + ( i + 1 ) + '">' +
 					( f.poster ? '<img src="' + f.poster + '" alt="">' : '<div class="dsi-bh-filme-sem-poster">🎬</div>' ) +
 					'<div class="dsi-bh-filme-info"><strong>' + escapeHtml( f.titulo ) + '</strong>' +
 					'<p>' + escapeHtml( f.sinopse || '' ) + '</p></div>' +
@@ -232,6 +248,21 @@
 				'<button type="button" class="dsi-bh-fb" data-v="positivo">👍 Gostei</button>' +
 				'<button type="button" class="dsi-bh-fb" data-v="negativo">👎 Quero outras</button></div>';
 			return html;
+		}
+
+		function ligarCliquesFilmes( msgEl ) {
+			msgEl.querySelectorAll( '.dsi-bh-filme' ).forEach( function ( link ) {
+				link.addEventListener( 'click', function () {
+					track( 'widget_filme_clicado', {
+						filme_id: link.getAttribute( 'data-id' ),
+						filme_fonte: link.getAttribute( 'data-fonte' ),
+						filme_titulo: link.getAttribute( 'data-titulo' ),
+						posicao: link.getAttribute( 'data-posicao' ),
+						sessao_id: sessaoId,
+						rodada: rodadaAtual
+					} );
+				} );
+			} );
 		}
 
 		function ligarBotoesFeedback( msgEl ) {
@@ -285,6 +316,7 @@
 				itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
 				var msgEl = addBot( montarCardsFilmes( itens ) );
 				ligarBotoesFeedback( msgEl );
+				ligarCliquesFilmes( msgEl );
 			} ).catch( function () {
 				carregando.remove();
 				addBot( 'Não consegui buscar agora, tenta de novo em instantes.' );
