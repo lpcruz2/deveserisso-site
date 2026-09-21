@@ -131,6 +131,36 @@
 		var rodadaAtual     = 1;
 		var excluirFilmes   = [];
 
+		// No celular, "height:100%"/vh do CSS nao acompanha o teclado --
+		// varios navegadores so encolhem o "visual viewport" (window.
+		// visualViewport), nao o layout viewport que 100% usa como
+		// referencia (achado do gestor 2026-09-21: "quando a tela encolhe
+		// [...] o chat deveria acompanhar"). Ajusta altura/topo do painel
+		// via JS seguindo o visualViewport de verdade, só no celular e só
+		// com o painel aberto -- limpa o estilo inline no resto dos casos
+		// pra nao atrapalhar o CSS normal (painel pequeno no canto).
+		function limparAjusteTeclado() {
+			painel.style.height = '';
+			painel.style.top = '';
+		}
+		function ajustarParaTeclado() {
+			if ( ! window.visualViewport || window.innerWidth > 480 || ! painel.classList.contains( 'aberto' ) ) {
+				limparAjusteTeclado();
+				return;
+			}
+			var vv = window.visualViewport;
+			painel.style.height = vv.height + 'px';
+			painel.style.top = vv.offsetTop + 'px';
+			thread.scrollTop = thread.scrollHeight;
+		}
+		if ( window.visualViewport ) {
+			window.visualViewport.addEventListener( 'resize', ajustarParaTeclado );
+			window.visualViewport.addEventListener( 'scroll', ajustarParaTeclado );
+		}
+		// Reforco: em alguns navegadores o resize do visualViewport demora um
+		// pouco pra disparar depois do teclado abrir.
+		input.addEventListener( 'focus', function () { setTimeout( ajustarParaTeclado, 50 ); } );
+
 		function abrir() {
 			painel.classList.add( 'aberto' );
 			bolha.setAttribute( 'aria-expanded', 'true' );
@@ -138,11 +168,13 @@
 				iniciado = true;
 				iniciar();
 			}
+			ajustarParaTeclado();
 			input.focus();
 		}
 		function fecharPainel() {
 			painel.classList.remove( 'aberto' );
 			bolha.setAttribute( 'aria-expanded', 'false' );
+			limparAjusteTeclado();
 		}
 		bolha.addEventListener( 'click', function () {
 			if ( painel.classList.contains( 'aberto' ) ) fecharPainel(); else abrir();

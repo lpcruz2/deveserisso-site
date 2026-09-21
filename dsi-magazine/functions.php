@@ -2755,7 +2755,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// style.css e nao muda a cada deploy) -- sem isso o navegador de
 		// quem ja visitou o site mantem em cache a versao anterior do
 		// arquivo. Incrementar a cada mudanca real neste script.
-		'1.0.3',
+		'1.0.4',
 		true
 	);
 } );
