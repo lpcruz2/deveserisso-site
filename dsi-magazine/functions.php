@@ -2737,3 +2737,22 @@ function dsi_marcar_conteudo_publicado( WP_REST_Request $req ): WP_REST_Response
 	return new WP_REST_Response( [ 'atualizado' => true ] );
 }
 
+// =============================================================================
+// 34. WIDGET DO BILHETEIRO — bolha de chat flutuante em qualquer página
+// =============================================================================
+// Decisão do gestor 2026-09-20: segunda porta de entrada pro bilheteiro,
+// além da jornada gamificada (Corredor/Emoção) que vive só no CineQuiz-
+// deveserisso. Reaproveita 100% os mesmos endpoints REST (secao 31) —
+// nenhum backend novo, só uma apresentação nova. Sem gate de página
+// (mesmo padrão do dsi-masthead, seção 2): aparece em qualquer lugar do
+// site, igual foi pedido ("widget que chama o agente").
+add_action( 'wp_enqueue_scripts', function (): void {
+	wp_enqueue_script(
+		'dsi-bilheteiro-widget',
+		get_stylesheet_directory_uri() . '/assets/js/bilheteiro-widget.js',
+		[],
+		wp_get_theme()->get( 'Version' ),
+		true
+	);
+} );
+
