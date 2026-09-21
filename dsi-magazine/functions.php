@@ -1918,7 +1918,11 @@ function dsi_bilheteiro_proxima_pergunta( array $estado, array $contexto ): stri
 // Abertura (PRD secao 3, passo 1): recapitula o que o Corredor/Emocao ja
 // deram, como checkpoint de validacao -- se a pessoa corrigir, ja e sinal
 // novo. So aparece quando tem algo pra recapitular (minigame nao pulado e
-// campo preenchido).
+// campo preenchido). Termina em ponto, NAO em pergunta ("certo?") -- essa
+// abertura sempre vai colada com a proxima pergunta de verdade (ver uso em
+// dsi_bilheteiro_chat), e duas perguntas na mesma mensagem nunca pode
+// acontecer (achado do gestor 2026-09-20: "Onde você pode assistir?" virou
+// a segunda pergunta da mesma mensagem por causa do "certo?").
 function dsi_bilheteiro_recap_prefixo( array $estado, array $contexto ): string {
 	$partes = [];
 	if ( empty( $contexto['corredor_pulado'] ) && $estado['genero'] !== null ) {
@@ -1930,7 +1934,7 @@ function dsi_bilheteiro_recap_prefixo( array $estado, array $contexto ): string 
 	if ( ! $partes ) {
 		return '';
 	}
-	return ucfirst( implode( ' e ', $partes ) ) . ', certo? ';
+	return ucfirst( implode( ' e ', $partes ) ) . '. ';
 }
 
 function dsi_bilheteiro_campos_faltando( array $estado ): array {
