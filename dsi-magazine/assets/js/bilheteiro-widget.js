@@ -91,7 +91,7 @@
 			'</button>' +
 			'<div class="dsi-bh-painel">' +
 				'<div class="dsi-bh-cabecalho">' +
-					'<span>Bilheteiro</span>' +
+					'<span>Crítico</span>' +
 					'<button class="dsi-bh-fechar" type="button" aria-label="Fechar">×</button>' +
 				'</div>' +
 				'<div class="dsi-bh-thread"></div>' +
@@ -192,7 +192,7 @@
 			// achado do gestor 2026-09-20: sem isso, o painel abria vazio ate a
 			// primeira pergunta chegar, e quem tava usando nao entendia o que
 			// fazer ali (ainda mais se a chamada demorasse ou desse 429).
-			addBot( 'Oi! Eu sou o Bilheteiro 🎬 Vou te ajudar a encontrar o que assistir hoje. Me conta um pouco do que você tá afim...' );
+			addBot( 'Oi! Sou o seu crítico pessoal e vou te ajudar a encontrar o que assistir hoje.' );
 			var carregando = addBot( '<span class="dsi-bh-digitando">...</span>' );
 			chamarBilheteiro( '' ).then( function ( data ) {
 				carregando.remove();
