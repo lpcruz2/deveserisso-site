@@ -154,6 +154,49 @@ RewriteRule ^sessao-da-tarde-05-07-globo-exibe-hoje-o-filme-sem-reservas/?$ http
 </IfModule>
 # END 301 - Noticia/conteudo datado dentro de filmes/series
 
+# BEGIN 301 - Noticia/conteudo datado (grupo outro + revisao pontual) (2026-09-20)
+# Segunda leva: posts do grupo "outro" (catalogo do mes, cobertura de evento,
+# noticia de celebridade) que ficaram de fora da primeira limpeza por serem
+# sobre filme/serie -- mesma logica de noticia vs resenha evergreen aplicada
+# ao grupo "individual". Inclui tambem 2 casos apontados manualmente.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^resumo-de-renascer/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^trailer-do-super-bowl-22-veja-o-trailer-de-doutor-estranho-2-e-muitos-outros/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^globo-de-ouro-2021-conheca-a-lista-de-indicados-para-78a-edicao/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^qual-o-nome-do-filme-que-esta-passando-agora-na-tv/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^chadwick-boseman-e-samuel-l-jackson-estavam-planejando-filme-juntos/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^lancamentos-da-semana-no-amazon-prime-video-entre-13-09-e-19-09/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^confira-os-titulos-disney-retirados-da-netflix-em-setembro/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^dc-fandome-tudo-que-foi-apresentado-no-megaevento-da-warner/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^miley-cyrus-diz-que-adoraria-fazer-uma-serie-de-tv-novamente/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^veja-tudo-que-estara-disponivel-na-disney-a-partir-de-novembro/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^stephenie-meyer-quer-continuar-a-saga-crepusculo-com-mais-dois-livros/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^disney-plus-denuncia-da-claro-pode-impedir-lancamento-da-plataforma-no-brasil/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^filmes-que-passaram-na-sessao-da-tarde-em-julho-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^novidades-e-estreias-da-netflix-em-agosto-de-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^naya-rivera-da-serie-glee-desaparece-durante-passeio-de-barco/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^filmes-que-passaram-na-sessao-da-tarde-em-junho-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^amazon-prime-video-lancamentos-de-filmes-e-series-em-junho-de-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^nao-entre-em-panico-hoje-e-o-dia-da-toalha-ou-dia-do-orgulho-nerd/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^netflix-confira-as-novidades-que-chegam-ao-catalogo-em-junho-de-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^amazon-prime-video-lancamentos-de-filmes-e-series-em-maio-de-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^harry-potter-plataforma-traz-personalidades-lendo-primeiro-livro-da-saga/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^midnight-sun-stephenie-meyer-anuncia-lancamento-de-derivado-de-crepusculo/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^ezra-miller-no-trending-topics-entenda-o-que-aconteceu/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^estreias-novidades-lancamentos-de-marco-no-amazon-prime-video/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^filmes-e-series-removidas-da-netflix-a-pedido-de-governos/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^oscar-2020-vencedores-indicados-surpresas-polemicas-e-muito-mais/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^confira-o-teaser-das-series-da-marvel-apresentados-no-super-bowl/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^filmes-que-passaram-na-sessao-da-tarde-em-janeiro-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^pokemon-o-filme-mewtwo-contra-ataca-evolucao-ganha-data-de-estreia-na-netflix/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^netflix-ira-adicionar-21-titulos-do-studio-ghibli-ate-abril/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^onde-assistir-online-os-filmes-indicados-ao-oscar-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^pokemon-coco-novo-filme-do-anime-e-anunciado-para-2020/?$ https://deveserisso.com.br/ [R=301,L]
+RewriteRule ^the-batman-johnny-depp-pode-interpretar-o-coringa-na-sequencia/?$ https://deveserisso.com.br/ [R=301,L]
+</IfModule>
+# END 301 - Noticia/conteudo datado (grupo outro + revisao pontual)
+
 # BEGIN WebP Serve
 <IfModule mod_rewrite.c>
 RewriteEngine On
