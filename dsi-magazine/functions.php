@@ -2751,7 +2751,11 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		'dsi-bilheteiro-widget',
 		get_stylesheet_directory_uri() . '/assets/js/bilheteiro-widget.js',
 		[],
-		wp_get_theme()->get( 'Version' ),
+		// Versao propria (nao a do tema, que fica travada em "1.0.0" no
+		// style.css e nao muda a cada deploy) -- sem isso o navegador de
+		// quem ja visitou o site mantem em cache a versao anterior do
+		// arquivo. Incrementar a cada mudanca real neste script.
+		'1.0.1',
 		true
 	);
 } );

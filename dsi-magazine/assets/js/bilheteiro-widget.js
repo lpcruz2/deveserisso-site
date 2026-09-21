@@ -34,14 +34,24 @@
 		var style = document.createElement( 'style' );
 		style.id = 'dsi-bh-estilos';
 		style.textContent =
-			'.dsi-bh-bolha{position:fixed;right:20px;bottom:20px;z-index:9999;width:56px;height:56px;' +
-			'border-radius:50%;border:none;background:#c2511d;color:#fff;font-size:24px;cursor:pointer;' +
-			'box-shadow:0 4px 16px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;}' +
+			'.dsi-bh-bolha{position:fixed;right:20px;bottom:20px;z-index:9999;height:52px;' +
+			'border-radius:999px;border:none;background:#c2511d;color:#fff;font-size:14px;font-weight:600;' +
+			'cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.25);display:flex;align-items:center;' +
+			'justify-content:center;gap:8px;padding:0 18px;font-family:Manrope,system-ui,sans-serif;}' +
 			'.dsi-bh-bolha:hover{background:#a8461a;}' +
-			'.dsi-bh-painel{position:fixed;right:20px;bottom:86px;z-index:9999;width:340px;max-width:calc(100vw - 32px);' +
+			'.dsi-bh-bolha .dsi-bh-bolha-emoji{font-size:20px;}' +
+			/* .dsi-bh-painel comeca escondido (display:none) -- so o JS mostra,
+			   trocando pra classe .aberto, ao clicar na bolha (achado do gestor
+			   2026-09-20: o atributo HTML "hidden" sozinho nao bastava, porque
+			   um display:flex direto no seletor da classe tem a mesma
+			   especificidade e um CSS de autor sempre vence o estilo nativo do
+			   navegador pro atributo hidden -- o painel ficava visivel na tela
+			   mesmo com hidden=true por dentro). */
+			'.dsi-bh-painel{position:fixed;right:20px;bottom:82px;z-index:9999;width:340px;max-width:calc(100vw - 32px);' +
 			'height:480px;max-height:calc(100vh - 140px);background:#f4eee2;color:#1d1a14;border-radius:10px;' +
-			'box-shadow:0 12px 40px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden;' +
+			'box-shadow:0 12px 40px rgba(0,0,0,.3);display:none;flex-direction:column;overflow:hidden;' +
 			'font-family:Manrope,system-ui,sans-serif;font-size:13px;}' +
+			'.dsi-bh-painel.aberto{display:flex;}' +
 			'.dsi-bh-cabecalho{background:#1d1a14;color:#e8a83c;padding:12px 14px;display:flex;' +
 			'align-items:center;justify-content:space-between;font-weight:600;}' +
 			'.dsi-bh-fechar{background:none;border:none;color:#f4eee2;font-size:20px;cursor:pointer;line-height:1;}' +
@@ -76,8 +86,10 @@
 		var raiz = document.createElement( 'div' );
 		raiz.className = 'dsi-bh-widget';
 		raiz.innerHTML =
-			'<button class="dsi-bh-bolha" type="button" aria-label="Escolher um filme com o Bilheteiro" aria-expanded="false">🎬</button>' +
-			'<div class="dsi-bh-painel" hidden>' +
+			'<button class="dsi-bh-bolha" type="button" aria-expanded="false">' +
+				'<span class="dsi-bh-bolha-emoji" aria-hidden="true">🎬</span> O que assistir hoje?' +
+			'</button>' +
+			'<div class="dsi-bh-painel">' +
 				'<div class="dsi-bh-cabecalho">' +
 					'<span>Bilheteiro</span>' +
 					'<button class="dsi-bh-fechar" type="button" aria-label="Fechar">×</button>' +
@@ -105,7 +117,7 @@
 		var excluirFilmes   = [];
 
 		function abrir() {
-			painel.hidden = false;
+			painel.classList.add( 'aberto' );
 			bolha.setAttribute( 'aria-expanded', 'true' );
 			if ( ! iniciado ) {
 				iniciado = true;
@@ -114,11 +126,11 @@
 			input.focus();
 		}
 		function fecharPainel() {
-			painel.hidden = true;
+			painel.classList.remove( 'aberto' );
 			bolha.setAttribute( 'aria-expanded', 'false' );
 		}
 		bolha.addEventListener( 'click', function () {
-			if ( painel.hidden ) abrir(); else fecharPainel();
+			if ( painel.classList.contains( 'aberto' ) ) fecharPainel(); else abrir();
 		} );
 		fechar.addEventListener( 'click', fecharPainel );
 
@@ -150,8 +162,18 @@
 					contexto_minigames: { corredor_pulado: true, emocao_pulada: true }
 				} )
 			} ).then( function ( r ) {
-				if ( ! r.ok ) throw new Error( 'http ' + r.status );
-				return r.json();
+				return r.json().then( function ( body ) {
+					if ( ! r.ok ) {
+						// Mostra o motivo real (ex: "Muitas mensagens em pouco
+						// tempo...", limite RNF3) em vez de um erro generico --
+						// achado do gestor 2026-09-20: sem isso, um 429 e um erro
+						// de verdade pareciam a mesma coisa pra quem tava usando.
+						var erro = new Error( ( body && body.erro ) || ( 'http ' + r.status ) );
+						erro.mensagemAmigavel = body && body.erro;
+						throw erro;
+					}
+					return body;
+				} );
 			} );
 		}
 
@@ -166,13 +188,18 @@
 		}
 
 		function iniciar() {
+			// Mensagem de boas-vindas fixa, some na hora (nao depende da API) --
+			// achado do gestor 2026-09-20: sem isso, o painel abria vazio ate a
+			// primeira pergunta chegar, e quem tava usando nao entendia o que
+			// fazer ali (ainda mais se a chamada demorasse ou desse 429).
+			addBot( 'Oi! Eu sou o Bilheteiro 🎬 Vou te ajudar a encontrar o que assistir hoje. Me conta um pouco do que você tá afim...' );
 			var carregando = addBot( '<span class="dsi-bh-digitando">...</span>' );
 			chamarBilheteiro( '' ).then( function ( data ) {
 				carregando.remove();
 				processarResposta( data );
-			} ).catch( function () {
+			} ).catch( function ( err ) {
 				carregando.remove();
-				addBot( 'Deu um probleminha aqui, tenta recarregar a página.' );
+				addBot( ( err && err.mensagemAmigavel ) || 'Deu um probleminha aqui, tenta recarregar a página.' );
 			} );
 		}
 
@@ -186,9 +213,9 @@
 			chamarBilheteiro( texto ).then( function ( data ) {
 				carregando.remove();
 				processarResposta( data );
-			} ).catch( function () {
+			} ).catch( function ( err ) {
 				carregando.remove();
-				addBot( 'Deu um probleminha aqui, pode tentar de novo?' );
+				addBot( ( err && err.mensagemAmigavel ) || 'Deu um probleminha aqui, pode tentar de novo?' );
 			} );
 		} );
 
