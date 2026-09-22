@@ -1654,10 +1654,14 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		],
 	];
 
+	// $q NAO filtra a WP_Query (era 'query_args[s] = $q' ate 2026-09-22 --
+	// bug real achado ao vivo: "Um Maluco no Golfe" nao tem resenha no site,
+	// entao a busca textual zerava o pool de candidatos ANTES de qualquer
+	// pontuacao rodar, mesmo com genero/tema do filme citado resolvidos
+	// certinho pela base TMDB logo abaixo. q agora e so sinal de score
+	// (generos_catalogo/temas_catalogo), nunca um filtro rigido -- mesma
+	// filosofia ja usada pra emocao/genero/plataforma.
 	$q = $req->get_param( 'q' );
-	if ( $q ) {
-		$query_args['s'] = $q;
-	}
 
 	$query = new WP_Query( $query_args );
 
