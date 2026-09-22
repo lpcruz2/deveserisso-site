@@ -165,8 +165,13 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertSame( '', dsi_bilheteiro_validar_reconhecimento( 'Olha isso: https://exemplo.com' ) );
 	}
 
-	public function test_reconhecimento_rejeita_tag_html(): void {
-		$this->assertSame( '', dsi_bilheteiro_validar_reconhecimento( 'Legal! <script>alert(1)</script>' ) );
+	public function test_reconhecimento_remove_tag_html_em_vez_de_rejeitar(): void {
+		// wp_strip_all_tags roda ANTES da checagem de padrao suspeito --
+		// a tag/script ja sai limpa, sobrando so o texto seguro. O padrao
+		// "/<[a-z]/i" e defesa em profundidade pro que sobrar depois da
+		// limpeza, nao serve pra rejeitar um caso ja neutralizado como
+		// este.
+		$this->assertSame( 'Legal!', dsi_bilheteiro_validar_reconhecimento( 'Legal! <script>alert(1)</script>' ) );
 	}
 
 	public function test_reconhecimento_rejeita_mencao_a_instrucao_ou_ignore(): void {
