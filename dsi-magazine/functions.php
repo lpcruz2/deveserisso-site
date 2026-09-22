@@ -2438,7 +2438,12 @@ function dsi_bilheteiro_extrair( string $mensagem, string $api_key ) {
 				'Content-Type'  => 'application/json',
 			],
 			'body'    => wp_json_encode( [
-				'model'           => 'deepseek-chat',
+				// "deepseek-chat" era um alias que a propria DeepSeek avisou
+				// que seria desativado em 2026-07-24 (achado do gestor, ver
+				// changelog oficial da API) -- "deepseek-flash" e o nome
+				// documentado atual pro mesmo modelo (V4.1 Flash) que o
+				// alias ja apontava, zero mudanca de comportamento.
+				'model'           => 'deepseek-flash',
 				'messages'        => [
 					[ 'role' => 'system', 'content' => DSI_BILHETEIRO_INSTRUCAO ],
 					[ 'role' => 'user', 'content' => $mensagem ],
@@ -2775,7 +2780,7 @@ function dsi_classificar_filme_externo( string $titulo_mencionado ) {
 		$classificacao = wp_remote_post( 'https://api.deepseek.com/chat/completions', [
 			'headers' => [ 'Authorization' => 'Bearer ' . $deepseek_key, 'Content-Type' => 'application/json' ],
 			'body'    => wp_json_encode( [
-				'model'           => 'deepseek-chat',
+				'model'           => 'deepseek-flash', // ver nota em dsi_bilheteiro_extrair()
 				'messages'        => [
 					[ 'role' => 'system', 'content' => DSI_CLASSIFICAR_INSTRUCAO ],
 					[ 'role' => 'user', 'content' => $filme['title'] . ' — ' . $filme['overview'] ],
