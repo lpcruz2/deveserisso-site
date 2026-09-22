@@ -347,13 +347,6 @@ if ( ! function_exists( 'dsi_once_purge_litespeed' ) ) {
 // =============================================================================
 // 16. ADMIN — página DSI Conteúdo
 // =============================================================================
-add_action( 'wp_head', function (): void {
-	echo '<!-- DSI-S16-LOADED -->';
-} );
-add_action( 'admin_notices', function (): void {
-	echo '<div class="notice notice-warning"><p>DSI S16 ativo</p></div>';
-} );
-
 add_action( 'admin_menu', function (): void {
 	add_menu_page(
 		'DSI Conteúdo',
