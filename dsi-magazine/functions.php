@@ -1699,33 +1699,49 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		} else {
 			$resolvido = dsi_catalogo_tmdb_buscar_titulo( $q );
 			if ( ! is_wp_error( $resolvido ) ) {
-				$wpdb->insert( $tabela_catalogo, [
-					'tmdb_id'            => $resolvido['tmdb_id'],
-					'tipo'               => $resolvido['tipo'],
-					'titulo'             => $resolvido['titulo'],
-					'titulo_normalizado' => $resolvido['titulo_normalizado'],
-					'titulo_original'    => $resolvido['titulo_original'],
-					'ano_lancamento'     => $resolvido['ano_lancamento'],
-					'generos'            => wp_json_encode( $resolvido['generos'] ),
-					'diretor'            => $resolvido['diretor'],
-					'nota_tmdb'          => $resolvido['nota_tmdb'],
-					'temas'              => wp_json_encode( $resolvido['temas'] ),
-					'subtemas'           => wp_json_encode( $resolvido['subtemas'] ),
-					'atores'             => wp_json_encode( $resolvido['atores'] ),
-					'poster_url'         => $resolvido['poster_url'],
-					'sinopse'            => $resolvido['sinopse'],
-					'contagem_mencoes'   => 1,
-					'primeira_mencao_em' => current_time( 'mysql' ),
-					'post_id_gerado'     => $resolvido['post_id_gerado'],
-				] );
-				$catalogo = [
-					'generos'        => wp_json_encode( $resolvido['generos'] ),
-					'nota_tmdb'      => $resolvido['nota_tmdb'],
-					'temas'          => wp_json_encode( $resolvido['temas'] ),
-					'subtemas'       => wp_json_encode( $resolvido['subtemas'] ),
-					'atores'         => wp_json_encode( $resolvido['atores'] ),
-					'post_id_gerado' => $resolvido['post_id_gerado'],
-				];
+				// Bug real achado ao vivo (2026-09-22): a checagem acima usa a
+				// chave normalizada do que a PESSOA digitou (com erro de
+				// digitacao/sinonimo, ex: "Walter Mitcgy") -- nao bate com o
+				// titulo OFICIAL que a TMDB resolveu, mesmo que esse titulo ja
+				// exista na base (de um import ou mencao anterior). Sem checar
+				// de novo pelo tmdb_id resolvido, toda grafia diferente do
+				// mesmo filme virava uma linha duplicada. Aqui confere pelo
+				// tmdb_id (identificador real, nunca ambiguo) antes de inserir.
+				$catalogo_existente = $wpdb->get_row( $wpdb->prepare(
+					"SELECT * FROM {$tabela_catalogo} WHERE tmdb_id = %d", $resolvido['tmdb_id']
+				), ARRAY_A );
+				if ( $catalogo_existente ) {
+					$wpdb->update( $tabela_catalogo, [ 'contagem_mencoes' => $catalogo_existente['contagem_mencoes'] + 1 ], [ 'id' => $catalogo_existente['id'] ], [ '%d' ], [ '%d' ] );
+					$catalogo = $catalogo_existente;
+				} else {
+					$wpdb->insert( $tabela_catalogo, [
+						'tmdb_id'            => $resolvido['tmdb_id'],
+						'tipo'               => $resolvido['tipo'],
+						'titulo'             => $resolvido['titulo'],
+						'titulo_normalizado' => $resolvido['titulo_normalizado'],
+						'titulo_original'    => $resolvido['titulo_original'],
+						'ano_lancamento'     => $resolvido['ano_lancamento'],
+						'generos'            => wp_json_encode( $resolvido['generos'] ),
+						'diretor'            => $resolvido['diretor'],
+						'nota_tmdb'          => $resolvido['nota_tmdb'],
+						'temas'              => wp_json_encode( $resolvido['temas'] ),
+						'subtemas'           => wp_json_encode( $resolvido['subtemas'] ),
+						'atores'             => wp_json_encode( $resolvido['atores'] ),
+						'poster_url'         => $resolvido['poster_url'],
+						'sinopse'            => $resolvido['sinopse'],
+						'contagem_mencoes'   => 1,
+						'primeira_mencao_em' => current_time( 'mysql' ),
+						'post_id_gerado'     => $resolvido['post_id_gerado'],
+					] );
+					$catalogo = [
+						'generos'        => wp_json_encode( $resolvido['generos'] ),
+						'nota_tmdb'      => $resolvido['nota_tmdb'],
+						'temas'          => wp_json_encode( $resolvido['temas'] ),
+						'subtemas'       => wp_json_encode( $resolvido['subtemas'] ),
+						'atores'         => wp_json_encode( $resolvido['atores'] ),
+						'post_id_gerado' => $resolvido['post_id_gerado'],
+					];
+				}
 			}
 		}
 
