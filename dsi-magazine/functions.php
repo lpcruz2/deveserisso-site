@@ -4025,8 +4025,12 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// Versao propria (nao a do tema, que fica travada em "1.0.0" no
 		// style.css e nao muda a cada deploy) -- sem isso o navegador de
 		// quem ja visitou o site mantem em cache a versao anterior do
-		// arquivo. Incrementar a cada mudanca real neste script.
-		'1.0.6',
+		// arquivo. Incrementar a cada mudanca real neste script. (Achado
+		// 2026-09-22: ficou parada em 1.0.6 por varios commits que
+		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
+		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
+		// visitado o site antes.)
+		'1.0.7',
 		true
 	);
 } );
