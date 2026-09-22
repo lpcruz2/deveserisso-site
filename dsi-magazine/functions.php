@@ -1844,13 +1844,26 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	if ( $ids_finais ) {
 		$placeholders = implode( ',', array_fill( 0, count( $ids_finais ), '%d' ) );
 		$linhas_nota  = $wpdb->get_results( $wpdb->prepare(
-			"SELECT post_id_gerado, nota_tmdb FROM {$tabela_notas} WHERE post_id_gerado IN ({$placeholders})",
+			"SELECT id, post_id_gerado, nota_tmdb FROM {$tabela_notas} WHERE post_id_gerado IN ({$placeholders})",
 			...$ids_finais
 		), ARRAY_A );
 		foreach ( $linhas_nota as $linha ) {
 			if ( $linha['nota_tmdb'] !== null ) {
 				$notas_por_post[ (int) $linha['post_id_gerado'] ] = (float) $linha['nota_tmdb'];
 			}
+		}
+		// Simetria com o ramo sem_resenha abaixo (2026-09-22, achado ao
+		// montar a tabela unificada do relatorio): sem isso, um titulo que
+		// ja tem post vinculado nunca soma contagem_recomendacoes, porque
+		// esse caminho pontua direto nos posts do WP -- so cruzava com o
+		// catalogo pra pegar a nota, nunca incrementava nada.
+		$ids_catalogo_com_resenha = array_column( $linhas_nota, 'id' );
+		if ( $ids_catalogo_com_resenha ) {
+			$placeholders_cat = implode( ',', array_fill( 0, count( $ids_catalogo_com_resenha ), '%d' ) );
+			$wpdb->query( $wpdb->prepare(
+				"UPDATE {$tabela_notas} SET contagem_recomendacoes = contagem_recomendacoes + 1 WHERE id IN ({$placeholders_cat})",
+				...$ids_catalogo_com_resenha
+			) );
 		}
 	}
 
@@ -2275,6 +2288,20 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		if ( $perguntas_feitas > 0 ) {
 			return new WP_REST_Response( [ 'erro' => 'Mensagem vazia.' ], 400 );
 		}
+		// Unico lugar onde da pra saber que uma sessao nova comecou de
+		// verdade (2026-09-22, pedido do funil no relatorio) -- esse ramo so
+		// roda uma vez por sessao (perguntas_feitas > 0 ja rejeita acima),
+		// entao nao precisa de trava extra contra duplicata.
+		global $wpdb;
+		$wpdb->insert(
+			dsi_bilheteiro_log_table_name(),
+			[
+				'criado_em'   => current_time( 'mysql' ),
+				'sessao_id'   => $sessao_id,
+				'tipo_evento' => 'sessao_iniciada',
+			],
+			[ '%s', '%s', '%s' ]
+		);
 		$resposta = dsi_bilheteiro_recap_prefixo( $estado, $contexto_minigames ) . dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames );
 		return new WP_REST_Response( [
 			'estado'                       => $estado,
@@ -2738,6 +2765,24 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 		$por_tipo_evento_mapa[ $linha['tipo_evento'] ] = (int) $linha['total'];
 	}
 
+	// Funil (2026-09-22): sessoes distintas por estagio, mesma janela de
+	// $dias do resto da tela. "Abriram" so tem dado a partir de quando
+	// sessao_iniciada passou a ser logada -- sessao anterior a essa
+	// mudanca nunca vai aparecer nesse estagio (nao da pra reconstruir
+	// retroativamente algo que nunca foi registrado).
+	$funil_abriram = (int) $wpdb->get_var( $wpdb->prepare(
+		"SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE tipo_evento = 'sessao_iniciada' AND criado_em >= %s",
+		$inicio_intervalo
+	) );
+	$funil_mensagem = (int) $wpdb->get_var( $wpdb->prepare(
+		"SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE tipo_evento = 'mensagem' AND criado_em >= %s",
+		$inicio_intervalo
+	) );
+	$funil_recomendacao = (int) $wpdb->get_var( $wpdb->prepare(
+		"SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE tipo_evento = 'recomendacao' AND criado_em >= %s",
+		$inicio_intervalo
+	) );
+
 	$feedback_contagem = $wpdb->get_results( $wpdb->prepare(
 		"SELECT veredito, COUNT(*) AS total FROM {$tabela} WHERE tipo_evento = 'feedback' AND criado_em >= %s GROUP BY veredito",
 		$inicio_intervalo
@@ -2807,17 +2852,23 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 		}
 	}
 
-	// Candidatos a proxima resenha (2026-09-22): historico total, independe
-	// do seletor de dias -- mesma logica de total_geral acima. So titulos
-	// que ja foram recomendados de verdade pelo menos uma vez (nunca durante
-	// import em massa, ver dsi_recomendar_filme), ordenado pelo que mais
-	// aparece nas sugestoes.
-	$candidatos_conteudo = $wpdb->get_results(
-		"SELECT titulo, tipo, nota_tmdb, contagem_recomendacoes, contagem_mencoes
-		 FROM {$tabela_catalogo} WHERE post_id_gerado IS NULL AND contagem_recomendacoes > 0
-		 ORDER BY contagem_recomendacoes DESC LIMIT 10",
+	// Mais recomendados (2026-09-22): historico total, independe do seletor
+	// de dias -- mesma logica de total_geral acima. Unifica com/sem resenha
+	// numa tabela so (pedido do usuario) -- post_id_gerado diz o status.
+	// contagem_recomendacoes agora incrementa nas duas listas por igual
+	// (ver dsi_recomendar_filme), entao o ranking e comparavel entre quem
+	// ja tem resenha e quem nao tem.
+	$mais_recomendados_bruto = $wpdb->get_results(
+		"SELECT titulo, tipo, nota_tmdb, contagem_recomendacoes, contagem_mencoes, post_id_gerado
+		 FROM {$tabela_catalogo} WHERE contagem_recomendacoes > 0
+		 ORDER BY contagem_recomendacoes DESC LIMIT 20",
 		ARRAY_A
 	);
+	$mais_recomendados = array_map( function ( array $linha ): array {
+		$linha['post_id_gerado'] = $linha['post_id_gerado'] !== null ? (int) $linha['post_id_gerado'] : null;
+		$linha['link']           = $linha['post_id_gerado'] ? get_permalink( $linha['post_id_gerado'] ) : null;
+		return $linha;
+	}, $mais_recomendados_bruto );
 
 	return [
 		'gerado_em'          => current_time( 'mysql' ),
@@ -2830,11 +2881,14 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 		'feedback_negativo'  => $feedback_negativo,
 		'feedback_taxa_positiva' => $feedback_total > 0 ? round( $feedback_positivo / $feedback_total * 100, 1 ) : null,
 		'serie_diaria'       => $serie_diaria,
-		'top_generos'        => dsi_bilheteiro_contar_valores( $valores_genero ),
-		'top_emocoes'        => dsi_bilheteiro_contar_valores( $valores_emocao ),
-		'top_titulos'        => dsi_bilheteiro_contar_valores( $valores_titulos ),
-		'top_atores'         => dsi_bilheteiro_contar_valores( $valores_atores ),
-		'candidatos_conteudo' => $candidatos_conteudo,
+		'funil_abriram'      => $funil_abriram,
+		'funil_mensagem'     => $funil_mensagem,
+		'funil_recomendacao' => $funil_recomendacao,
+		'top_generos'        => dsi_bilheteiro_contar_valores( $valores_genero, 10 ),
+		'top_emocoes'        => dsi_bilheteiro_contar_valores( $valores_emocao, 10 ),
+		'top_titulos'        => dsi_bilheteiro_contar_valores( $valores_titulos, 10 ),
+		'top_atores'         => dsi_bilheteiro_contar_valores( $valores_atores, 10 ),
+		'mais_recomendados'  => $mais_recomendados,
 	];
 }
 
@@ -2896,30 +2950,90 @@ function dsi_bilheteiro_relatorio_admin_page(): void {
 
 	$grafico_labels = wp_json_encode( array_keys( $dados['serie_diaria'] ) );
 	$grafico_valores = wp_json_encode( array_values( $dados['serie_diaria'] ) );
+
+	// Graficos de barra top-10 (2026-09-22) -- mesmo handle dsi-chart-js do
+	// grafico diario, tudo num bloco so de inline script (mais facil de
+	// depurar que varios wp_add_inline_script espalhados).
+	$graficos_barra = [
+		'dsi-grafico-genero'  => $dados['top_generos'],
+		'dsi-grafico-emocao'  => $dados['top_emocoes'],
+		'dsi-grafico-titulos' => $dados['top_titulos'],
+		'dsi-grafico-atores'  => $dados['top_atores'],
+	];
+	$js_graficos_barra = '';
+	foreach ( $graficos_barra as $canvas_id => $itens ) {
+		if ( ! $itens ) {
+			continue;
+		}
+		$labels  = wp_json_encode( array_map( fn( $i ) => $i['rotulo'], $itens ) );
+		$valores = wp_json_encode( array_map( fn( $i ) => $i['total'], $itens ) );
+		$js_graficos_barra .= <<<JS
+			(function () {
+				var canvas = document.getElementById('{$canvas_id}');
+				if (!canvas || !window.Chart) return;
+				new Chart(canvas, {
+					type: 'bar',
+					data: { labels: {$labels}, datasets: [{ data: {$valores}, backgroundColor: '#c2511d' }] },
+					options: {
+						indexAxis: 'y',
+						scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+						plugins: { legend: { display: false } }
+					}
+				});
+			})();
+			JS;
+	}
+
 	wp_add_inline_script( 'dsi-chart-js', <<<JS
 		window.addEventListener('DOMContentLoaded', function () {
-			var canvas = document.getElementById('dsi-grafico-uso-diario');
-			if (!canvas || !window.Chart) return;
-			new Chart(canvas, {
-				type: 'line',
-				data: {
-					labels: {$grafico_labels},
-					datasets: [{
-						label: 'Interações por dia',
-						data: {$grafico_valores},
-						borderColor: '#c2511d',
-						backgroundColor: 'rgba(194,81,29,0.15)',
-						tension: 0.25,
-						fill: true,
-						pointRadius: 3
-					}]
-				},
-				options: {
-					scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-					plugins: { legend: { display: false } }
-				}
-			});
+			if (!window.Chart) {
+				console.warn('Curador: Chart.js nao carregou (dsi-chart-js) -- os graficos da tela nao vao aparecer.');
+			}
+			var canvasDiario = document.getElementById('dsi-grafico-uso-diario');
+			if (canvasDiario && window.Chart) {
+				new Chart(canvasDiario, {
+					type: 'line',
+					data: {
+						labels: {$grafico_labels},
+						datasets: [{
+							label: 'Interações por dia',
+							data: {$grafico_valores},
+							borderColor: '#c2511d',
+							backgroundColor: 'rgba(194,81,29,0.15)',
+							tension: 0.25,
+							fill: true,
+							pointRadius: 3
+						}]
+					},
+					options: {
+						scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+						plugins: { legend: { display: false } }
+					}
+				});
+			}
+			{$js_graficos_barra}
 		});
+
+		// Tabela "Filmes/series mais recomendados" ordenavel (2026-09-22) --
+		// so nas colunas numericas, le data-valor pra ordenar certo (nunca
+		// por texto). Alterna asc/desc a cada clique no mesmo cabecalho.
+		function dsiOrdenarTabela(th) {
+			var table = th.closest('table');
+			var tbody = table.querySelector('tbody');
+			var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+			var asc = th.getAttribute('data-asc') !== '1';
+			Array.prototype.forEach.call(th.parentNode.querySelectorAll('th'), function (h) {
+				h.removeAttribute('data-asc');
+			});
+			th.setAttribute('data-asc', asc ? '1' : '0');
+			var linhas = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+			linhas.sort(function (a, b) {
+				var va = parseFloat(a.children[idx].getAttribute('data-valor')) || 0;
+				var vb = parseFloat(b.children[idx].getAttribute('data-valor')) || 0;
+				return asc ? va - vb : vb - va;
+			});
+			linhas.forEach(function (tr) { tbody.appendChild(tr); });
+		}
 		JS
 	);
 	?>
@@ -2945,6 +3059,37 @@ function dsi_bilheteiro_relatorio_admin_page(): void {
 			<canvas id="dsi-grafico-uso-diario" height="90"></canvas>
 		</div>
 
+		<h2 class="title">Funil de conversão</h2>
+		<p><em>"Abriram o chat" só conta sessões a partir de 22/09/2026 — esse
+		momento não era registrado antes, não dá pra reconstruir período
+		anterior a essa data.</em></p>
+		<div style="max-width:600px">
+			<?php
+			$funil_estagios = [
+				[ 'Abriram o chat', $dados['funil_abriram'], null ],
+				[ 'Enviaram uma mensagem', $dados['funil_mensagem'], $dados['funil_abriram'] ],
+				[ 'Receberam uma recomendação', $dados['funil_recomendacao'], $dados['funil_mensagem'] ],
+			];
+			$funil_base = max( 1, $dados['funil_abriram'], $dados['funil_mensagem'], $dados['funil_recomendacao'] );
+			foreach ( $funil_estagios as [ $rotulo, $valor, $anterior ] ) :
+				$largura      = min( 100, round( $valor / $funil_base * 100 ) );
+				$pct_anterior = ( $anterior !== null && $anterior > 0 ) ? round( $valor / $anterior * 100 ) : null;
+				?>
+				<div style="margin-bottom:10px">
+					<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:2px">
+						<span><?php echo esc_html( $rotulo ); ?></span>
+						<strong>
+							<?php echo esc_html( (string) $valor ); ?>
+							<?php echo $pct_anterior !== null ? ' (' . esc_html( (string) $pct_anterior ) . '%)' : ''; ?>
+						</strong>
+					</div>
+					<div style="background:#ebe3d2;border-radius:4px;height:20px;overflow:hidden">
+						<div style="width:<?php echo esc_attr( (string) $largura ); ?>%;background:#c2511d;height:100%"></div>
+					</div>
+				</div>
+			<?php endforeach; ?>
+		</div>
+
 		<h2 class="title">Volume no período</h2>
 		<table class="widefat striped" style="max-width:600px">
 			<tbody>
@@ -2965,49 +3110,61 @@ function dsi_bilheteiro_relatorio_admin_page(): void {
 			</tbody>
 		</table>
 
-		<h2 class="title">Mais sugeridos no período</h2>
-		<div style="display:flex; gap:40px; flex-wrap:wrap;">
+		<h2 class="title">Mais sugeridos no período (top 10)</h2>
+		<div style="display:flex; gap:32px; flex-wrap:wrap;">
 			<?php
 			$colunas = [
-				'Gênero'          => $dados['top_generos'],
-				'Emoção'          => $dados['top_emocoes'],
-				'Filmes/séries'   => $dados['top_titulos'],
-				'Atores/atrizes'  => $dados['top_atores'],
+				'dsi-grafico-genero'  => [ 'Gênero', $dados['top_generos'] ],
+				'dsi-grafico-emocao'  => [ 'Emoção', $dados['top_emocoes'] ],
+				'dsi-grafico-titulos' => [ 'Filmes/séries', $dados['top_titulos'] ],
+				'dsi-grafico-atores'  => [ 'Atores/atrizes', $dados['top_atores'] ],
 			];
-			foreach ( $colunas as $titulo => $itens ) :
+			foreach ( $colunas as $canvas_id => [ $titulo, $itens ] ) :
 				?>
-				<div>
+				<div style="width:380px">
 					<h3><?php echo esc_html( $titulo ); ?></h3>
 					<?php if ( ! $itens ) : ?>
 						<p><em>Sem dados no período.</em></p>
 					<?php else : ?>
-						<ol>
-							<?php foreach ( $itens as $item ) : ?>
-								<li><?php echo esc_html( $item['rotulo'] ); ?> — <?php echo esc_html( (string) $item['total'] ); ?></li>
-							<?php endforeach; ?>
-						</ol>
+						<canvas id="<?php echo esc_attr( $canvas_id ); ?>" height="240"></canvas>
 					<?php endif; ?>
 				</div>
 			<?php endforeach; ?>
 		</div>
 
-		<h2 class="title">Candidatos a próxima resenha</h2>
-		<p><em>Histórico total (não depende do período acima) — filmes/séries sem resenha no site que já foram recomendados pelo menos uma vez, ordenados por quantas vezes apareceram na lista "também recomendamos".</em></p>
-		<?php if ( ! $dados['candidatos_conteudo'] ) : ?>
-			<p><em>Nenhum candidato ainda.</em></p>
+		<h2 class="title">Filmes/séries mais recomendados</h2>
+		<p><em>Histórico total (não depende do período acima) — todo título já
+		recomendado pelo menos uma vez, com ou sem resenha no site. Clique
+		num cabeçalho pra ordenar.</em></p>
+		<?php if ( ! $dados['mais_recomendados'] ) : ?>
+			<p><em>Nenhum dado ainda.</em></p>
 		<?php else : ?>
-			<table class="widefat striped" style="max-width:700px">
+			<table class="widefat striped" style="max-width:820px">
 				<thead>
-					<tr><th>Título</th><th>Tipo</th><th>Nota</th><th>Vezes recomendado</th><th>Vezes citado</th></tr>
+					<tr>
+						<th>Título</th>
+						<th>Tipo</th>
+						<th>Tem matéria no site?</th>
+						<th>Nota</th>
+						<th onclick="dsiOrdenarTabela(this)" style="cursor:pointer">Vezes recomendado ⇅</th>
+						<th onclick="dsiOrdenarTabela(this)" style="cursor:pointer">Vezes citado ⇅</th>
+					</tr>
 				</thead>
 				<tbody>
-					<?php foreach ( $dados['candidatos_conteudo'] as $c ) : ?>
+					<?php foreach ( $dados['mais_recomendados'] as $c ) : ?>
 						<tr>
 							<td><?php echo esc_html( $c['titulo'] ); ?></td>
 							<td><?php echo esc_html( $c['tipo'] ?: 'filme' ); ?></td>
+							<td>
+								<?php if ( $c['link'] ) : ?>
+									Sim — <a href="<?php echo esc_url( $c['link'] ); ?>" target="_blank" rel="noopener">Ver resenha</a>
+								<?php else : ?>
+									Não
+								<?php endif; ?>
+							</td>
 							<td><?php echo $c['nota_tmdb'] !== null ? esc_html( $c['nota_tmdb'] ) : '—'; ?></td>
-							<td><?php echo esc_html( (string) $c['contagem_recomendacoes'] ); ?></td>
-							<td><?php echo esc_html( (string) $c['contagem_mencoes'] ); ?></td>
+							<td data-valor="<?php echo esc_attr( (string) $c['contagem_recomendacoes'] ); ?>"><?php echo esc_html( (string) $c['contagem_recomendacoes'] ); ?></td>
+							<td data-valor="<?php echo esc_attr( (string) $c['contagem_mencoes'] ); ?>"><?php echo esc_html( (string) $c['contagem_mencoes'] ); ?></td>
 						</tr>
 					<?php endforeach; ?>
 				</tbody>
