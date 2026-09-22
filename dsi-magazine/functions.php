@@ -2472,25 +2472,56 @@ function dsi_bilheteiro_rodadas_negativas_consecutivas( string $sessao_id ): int
 // "observabilidade depende de eu escrever script toda vez"). Uma funcao
 // so alimenta os dois lugares (tela wp-admin + endpoint autenticado) pra
 // nao duplicar a consulta.
-function dsi_bilheteiro_relatorio_dados(): array {
+// Conta ocorrencias de uma lista de valores brutos (ex: todo "genero" dito
+// nas mensagens do periodo), deduplicando por normalizacao mas mantendo o
+// primeiro rotulo "bonito" visto pra exibir -- achado ao construir isso:
+// sem essa distincao contagem/rotulo, "Ação" e "ação" contam separado, e o
+// que aparece na tela e sempre a chave normalizada ("acao", sem acento).
+function dsi_bilheteiro_contar_valores( array $valores, int $top = 5 ): array {
+	$contagem = [];
+	$rotulo   = [];
+	foreach ( $valores as $valor ) {
+		if ( ! is_string( $valor ) ) {
+			continue;
+		}
+		$valor = trim( $valor );
+		if ( $valor === '' || $valor === DSI_BILHETEIRO_SEM_PREFERENCIA ) {
+			continue;
+		}
+		$chave = dsi_dt_normalize_key( $valor );
+		$contagem[ $chave ] = ( $contagem[ $chave ] ?? 0 ) + 1;
+		if ( ! isset( $rotulo[ $chave ] ) ) {
+			$rotulo[ $chave ] = $valor;
+		}
+	}
+	arsort( $contagem );
+	$top_itens = [];
+	foreach ( array_slice( $contagem, 0, $top, true ) as $chave => $total ) {
+		$top_itens[] = [ 'rotulo' => $rotulo[ $chave ], 'total' => $total ];
+	}
+	return $top_itens;
+}
+
+function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 	global $wpdb;
 	$tabela = dsi_bilheteiro_log_table_name();
-	$hoje_00h = current_time( 'Y-m-d 00:00:00' );
-	$sete_dias_atras = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - 7 * DAY_IN_SECONDS );
+	$dias   = max( 1, min( 90, $dias ) ); // sanidade -- nunca uma consulta absurda
+	$agora  = current_time( 'timestamp' );
+	$inicio_intervalo = gmdate( 'Y-m-d H:i:s', $agora - $dias * DAY_IN_SECONDS );
 
-	$por_tipo_evento = $wpdb->get_results(
-		"SELECT tipo_evento, COUNT(*) AS total FROM {$tabela} GROUP BY tipo_evento",
-		ARRAY_A
-	);
+	$por_tipo_evento = $wpdb->get_results( $wpdb->prepare(
+		"SELECT tipo_evento, COUNT(*) AS total FROM {$tabela} WHERE criado_em >= %s GROUP BY tipo_evento",
+		$inicio_intervalo
+	), ARRAY_A );
 	$por_tipo_evento_mapa = [];
 	foreach ( $por_tipo_evento as $linha ) {
 		$por_tipo_evento_mapa[ $linha['tipo_evento'] ] = (int) $linha['total'];
 	}
 
-	$feedback_contagem = $wpdb->get_results(
-		"SELECT veredito, COUNT(*) AS total FROM {$tabela} WHERE tipo_evento = 'feedback' GROUP BY veredito",
-		ARRAY_A
-	);
+	$feedback_contagem = $wpdb->get_results( $wpdb->prepare(
+		"SELECT veredito, COUNT(*) AS total FROM {$tabela} WHERE tipo_evento = 'feedback' AND criado_em >= %s GROUP BY veredito",
+		$inicio_intervalo
+	), ARRAY_A );
 	$feedback_positivo = 0;
 	$feedback_negativo = 0;
 	foreach ( $feedback_contagem as $linha ) {
@@ -2502,60 +2533,86 @@ function dsi_bilheteiro_relatorio_dados(): array {
 	}
 	$feedback_total = $feedback_positivo + $feedback_negativo;
 
-	// Genero/emocao mais pedidos nos ultimos 7 dias -- le o estado_depois
-	// (JSON) de cada mensagem, ja que nao sao colunas proprias da tabela
-	// (schema single-table generico, ver secao 32 acima). Tabela pequena
-	// (uma linha por turno de conversa), custo de fazer isso em PHP em vez
-	// de SQL e desprezivel nessa escala.
+	// Serie diaria (grafico de uso) -- preenche todo dia do intervalo com 0
+	// antes de somar, senao um dia sem nenhuma interacao simplesmente some
+	// do grafico em vez de aparecer como um vale.
+	$serie_diaria_bruta = $wpdb->get_results( $wpdb->prepare(
+		"SELECT DATE(criado_em) AS dia, COUNT(*) AS total FROM {$tabela} WHERE criado_em >= %s GROUP BY DATE(criado_em)",
+		$inicio_intervalo
+	), ARRAY_A );
+	$serie_diaria = [];
+	for ( $i = $dias - 1; $i >= 0; $i-- ) {
+		$serie_diaria[ gmdate( 'Y-m-d', $agora - $i * DAY_IN_SECONDS ) ] = 0;
+	}
+	foreach ( $serie_diaria_bruta as $linha ) {
+		if ( isset( $serie_diaria[ $linha['dia'] ] ) ) {
+			$serie_diaria[ $linha['dia'] ] = (int) $linha['total'];
+		}
+	}
+
+	// Genero/emocao/filmes-series/atores mais sugeridos no periodo -- le o
+	// estado_depois (JSON) de cada mensagem, ja que nao sao colunas
+	// proprias da tabela (schema single-table generico, ver secao 32
+	// acima). Tabela pequena (uma linha por turno de conversa), custo de
+	// fazer isso em PHP em vez de SQL e desprezivel nessa escala.
 	$mensagens_recentes = $wpdb->get_col( $wpdb->prepare(
 		"SELECT estado_depois FROM {$tabela} WHERE tipo_evento = 'mensagem' AND criado_em >= %s",
-		$sete_dias_atras
+		$inicio_intervalo
 	) );
-	$contagem_genero = [];
-	$contagem_emocao = [];
+	$valores_genero  = [];
+	$valores_emocao  = [];
+	$valores_titulos = [];
+	$valores_atores  = [];
 	foreach ( $mensagens_recentes as $json ) {
 		$estado = json_decode( (string) $json, true );
 		if ( ! is_array( $estado ) ) {
 			continue;
 		}
-		$genero = $estado['genero'] ?? null;
-		if ( is_string( $genero ) && $genero !== '' && $genero !== DSI_BILHETEIRO_SEM_PREFERENCIA ) {
-			$chave = dsi_dt_normalize_key( $genero );
-			$contagem_genero[ $chave ] = ( $contagem_genero[ $chave ] ?? 0 ) + 1;
+		if ( is_string( $estado['genero'] ?? null ) ) {
+			$valores_genero[] = $estado['genero'];
 		}
-		$emocao = $estado['emocao'] ?? null;
-		if ( is_string( $emocao ) && $emocao !== '' && $emocao !== DSI_BILHETEIRO_SEM_PREFERENCIA ) {
-			$chave = dsi_dt_normalize_key( $emocao );
-			$contagem_emocao[ $chave ] = ( $contagem_emocao[ $chave ] ?? 0 ) + 1;
+		if ( is_string( $estado['emocao'] ?? null ) ) {
+			$valores_emocao[] = $estado['emocao'];
+		}
+		// "q" aceita mais de um titulo desde 2026-09-21 (separado por virgula).
+		if ( is_string( $estado['q'] ?? null ) && $estado['q'] !== '' ) {
+			foreach ( explode( ',', $estado['q'] ) as $titulo ) {
+				$valores_titulos[] = trim( $titulo );
+			}
+		}
+		if ( is_array( $estado['atores'] ?? null ) ) {
+			foreach ( $estado['atores'] as $ator ) {
+				$valores_atores[] = $ator;
+			}
 		}
 	}
-	arsort( $contagem_genero );
-	arsort( $contagem_emocao );
 
 	return [
-		'gerado_em'              => current_time( 'mysql' ),
-		'total_geral'            => array_sum( $por_tipo_evento_mapa ),
-		'total_hoje'             => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tabela} WHERE criado_em >= %s", $hoje_00h ) ),
-		'total_7dias'            => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tabela} WHERE criado_em >= %s", $sete_dias_atras ) ),
-		'por_tipo_evento'        => $por_tipo_evento_mapa,
-		'sessoes_distintas_7dias'=> (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE criado_em >= %s", $sete_dias_atras ) ),
-		'feedback_positivo'      => $feedback_positivo,
-		'feedback_negativo'      => $feedback_negativo,
+		'gerado_em'          => current_time( 'mysql' ),
+		'dias'               => $dias,
+		'total_geral'        => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tabela}" ),
+		'total_periodo'      => array_sum( $por_tipo_evento_mapa ),
+		'por_tipo_evento'    => $por_tipo_evento_mapa,
+		'sessoes_distintas'  => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE criado_em >= %s", $inicio_intervalo ) ),
+		'feedback_positivo'  => $feedback_positivo,
+		'feedback_negativo'  => $feedback_negativo,
 		'feedback_taxa_positiva' => $feedback_total > 0 ? round( $feedback_positivo / $feedback_total * 100, 1 ) : null,
-		'top_generos_7dias'      => array_slice( $contagem_genero, 0, 5, true ),
-		'top_emocoes_7dias'      => array_slice( $contagem_emocao, 0, 5, true ),
-		'amostra_recente'        => $wpdb->get_results(
-			"SELECT criado_em, sessao_id, tipo_evento, mensagem, veredito FROM {$tabela} ORDER BY id DESC LIMIT 20",
-			ARRAY_A
-		),
+		'serie_diaria'       => $serie_diaria,
+		'top_generos'        => dsi_bilheteiro_contar_valores( $valores_genero ),
+		'top_emocoes'        => dsi_bilheteiro_contar_valores( $valores_emocao ),
+		'top_titulos'        => dsi_bilheteiro_contar_valores( $valores_titulos ),
+		'top_atores'         => dsi_bilheteiro_contar_valores( $valores_atores ),
 	];
 }
 
 add_action( 'rest_api_init', function (): void {
 	register_rest_route( 'dsi/v1', '/bilheteiro-relatorio', [
 		'methods'             => 'GET',
-		'callback'            => function () {
-			return new WP_REST_Response( dsi_bilheteiro_relatorio_dados() );
+		'args'                => [
+			'dias' => [ 'required' => false, 'default' => 7, 'sanitize_callback' => 'absint' ],
+		],
+		'callback'            => function ( WP_REST_Request $req ) {
+			return new WP_REST_Response( dsi_bilheteiro_relatorio_dados( (int) $req->get_param( 'dias' ) ) );
 		},
 		// Travado por permissao de admin -- nunca publico (achado do gestor
 		// 2026-09-22: "quero as duas", painel + endpoint, mas o endpoint
@@ -2569,13 +2626,23 @@ add_action( 'rest_api_init', function (): void {
 } );
 
 add_action( 'admin_menu', function (): void {
-	add_management_page(
+	$hook = add_management_page(
 		'Curador — Relatório',
 		'Curador',
 		'manage_options',
 		'dsi-bilheteiro-relatorio',
 		'dsi_bilheteiro_relatorio_admin_page'
 	);
+	// Chart.js so nesta pagina (nao em todo o wp-admin) -- $hook e o
+	// identificador que add_management_page devolve pra essa tela
+	// especifica, comparado contra o hook_suffix que admin_enqueue_scripts
+	// recebe a cada carregamento de pagina do admin.
+	add_action( 'admin_enqueue_scripts', function ( string $hook_atual ) use ( $hook ): void {
+		if ( $hook_atual !== $hook ) {
+			return;
+		}
+		wp_enqueue_script( 'dsi-chart-js', 'https://cdn.jsdelivr.net/npm/chart.js@4', [], '4.0.0', true );
+	} );
 } );
 
 // So o rotulo visivel muda pra "Curador" (nome do personagem pro visitante,
@@ -2584,26 +2651,79 @@ add_action( 'admin_menu', function (): void {
 // sistema, sem motivo pra renomear infra por causa de um texto de tela (ja
 // documentado quando o personagem virou "Curador" no widget).
 function dsi_bilheteiro_relatorio_admin_page(): void {
-	$dados = dsi_bilheteiro_relatorio_dados();
+	// Seletor de periodo via GET (recarrega a pagina com outro intervalo --
+	// mais simples que AJAX pra uma tela interna de baixo trafego). Sanidade
+	// contra qualquer coisa fora da lista: cai em 7.
+	$opcoes_dias = [ 7, 14, 30, 90 ];
+	$dias = isset( $_GET['dias'] ) ? absint( $_GET['dias'] ) : 7; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- so filtra uma visualizacao, nao muda estado
+	if ( ! in_array( $dias, $opcoes_dias, true ) ) {
+		$dias = 7;
+	}
+	$dados = dsi_bilheteiro_relatorio_dados( $dias );
+
+	$grafico_labels = wp_json_encode( array_keys( $dados['serie_diaria'] ) );
+	$grafico_valores = wp_json_encode( array_values( $dados['serie_diaria'] ) );
+	wp_add_inline_script( 'dsi-chart-js', <<<JS
+		window.addEventListener('DOMContentLoaded', function () {
+			var canvas = document.getElementById('dsi-grafico-uso-diario');
+			if (!canvas || !window.Chart) return;
+			new Chart(canvas, {
+				type: 'line',
+				data: {
+					labels: {$grafico_labels},
+					datasets: [{
+						label: 'Interações por dia',
+						data: {$grafico_valores},
+						borderColor: '#c2511d',
+						backgroundColor: 'rgba(194,81,29,0.15)',
+						tension: 0.25,
+						fill: true,
+						pointRadius: 3
+					}]
+				},
+				options: {
+					scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+					plugins: { legend: { display: false } }
+				}
+			});
+		});
+		JS
+	);
 	?>
 	<div class="wrap">
 		<h1>Curador — Relatório</h1>
-		<p>Gerado em <?php echo esc_html( $dados['gerado_em'] ); ?> — dados de <code>wp_dsi_bilheteiro_log</code>, sem IP nem identificador de visitante.</p>
+		<p>
+			Gerado em <?php echo esc_html( $dados['gerado_em'] ); ?> — dados de <code>wp_dsi_bilheteiro_log</code>, sem IP nem identificador de visitante.
+			Total geral desde o início: <strong><?php echo esc_html( (string) $dados['total_geral'] ); ?></strong>.
+		</p>
 
-		<h2 class="title">Volume</h2>
+		<form method="get" style="margin-bottom:16px">
+			<input type="hidden" name="page" value="dsi-bilheteiro-relatorio">
+			<label for="dsi-dias">Período: </label>
+			<select name="dias" id="dsi-dias" onchange="this.form.submit()">
+				<?php foreach ( $opcoes_dias as $opcao ) : ?>
+					<option value="<?php echo esc_attr( (string) $opcao ); ?>" <?php selected( $dias, $opcao ); ?>>Últimos <?php echo esc_html( (string) $opcao ); ?> dias</option>
+				<?php endforeach; ?>
+			</select>
+		</form>
+
+		<h2 class="title">Uso dia a dia</h2>
+		<div style="max-width:900px">
+			<canvas id="dsi-grafico-uso-diario" height="90"></canvas>
+		</div>
+
+		<h2 class="title">Volume no período</h2>
 		<table class="widefat striped" style="max-width:600px">
 			<tbody>
-				<tr><td>Total geral registrado</td><td><strong><?php echo esc_html( (string) $dados['total_geral'] ); ?></strong></td></tr>
-				<tr><td>Hoje</td><td><strong><?php echo esc_html( (string) $dados['total_hoje'] ); ?></strong></td></tr>
-				<tr><td>Últimos 7 dias</td><td><strong><?php echo esc_html( (string) $dados['total_7dias'] ); ?></strong></td></tr>
-				<tr><td>Sessões distintas (7 dias)</td><td><strong><?php echo esc_html( (string) $dados['sessoes_distintas_7dias'] ); ?></strong></td></tr>
+				<tr><td>Total no período</td><td><strong><?php echo esc_html( (string) $dados['total_periodo'] ); ?></strong></td></tr>
+				<tr><td>Sessões distintas</td><td><strong><?php echo esc_html( (string) $dados['sessoes_distintas'] ); ?></strong></td></tr>
 				<?php foreach ( $dados['por_tipo_evento'] as $tipo => $total ) : ?>
 					<tr><td>&nbsp;&nbsp;↳ tipo "<?php echo esc_html( $tipo ); ?>"</td><td><?php echo esc_html( (string) $total ); ?></td></tr>
 				<?php endforeach; ?>
 			</tbody>
 		</table>
 
-		<h2 class="title">Feedback</h2>
+		<h2 class="title">Feedback no período</h2>
 		<table class="widefat striped" style="max-width:600px">
 			<tbody>
 				<tr><td>👍 Positivo</td><td><?php echo esc_html( (string) $dados['feedback_positivo'] ); ?></td></tr>
@@ -2612,43 +2732,31 @@ function dsi_bilheteiro_relatorio_admin_page(): void {
 			</tbody>
 		</table>
 
-		<h2 class="title">Mais pedidos (7 dias)</h2>
-		<div style="display:flex; gap:40px;">
-			<div>
-				<h3>Gênero</h3>
-				<ol>
-					<?php foreach ( $dados['top_generos_7dias'] as $nome => $total ) : ?>
-						<li><?php echo esc_html( $nome ); ?> — <?php echo esc_html( (string) $total ); ?></li>
-					<?php endforeach; ?>
-				</ol>
-			</div>
-			<div>
-				<h3>Emoção</h3>
-				<ol>
-					<?php foreach ( $dados['top_emocoes_7dias'] as $nome => $total ) : ?>
-						<li><?php echo esc_html( $nome ); ?> — <?php echo esc_html( (string) $total ); ?></li>
-					<?php endforeach; ?>
-				</ol>
-			</div>
+		<h2 class="title">Mais sugeridos no período</h2>
+		<div style="display:flex; gap:40px; flex-wrap:wrap;">
+			<?php
+			$colunas = [
+				'Gênero'          => $dados['top_generos'],
+				'Emoção'          => $dados['top_emocoes'],
+				'Filmes/séries'   => $dados['top_titulos'],
+				'Atores/atrizes'  => $dados['top_atores'],
+			];
+			foreach ( $colunas as $titulo => $itens ) :
+				?>
+				<div>
+					<h3><?php echo esc_html( $titulo ); ?></h3>
+					<?php if ( ! $itens ) : ?>
+						<p><em>Sem dados no período.</em></p>
+					<?php else : ?>
+						<ol>
+							<?php foreach ( $itens as $item ) : ?>
+								<li><?php echo esc_html( $item['rotulo'] ); ?> — <?php echo esc_html( (string) $item['total'] ); ?></li>
+							<?php endforeach; ?>
+						</ol>
+					<?php endif; ?>
+				</div>
+			<?php endforeach; ?>
 		</div>
-
-		<h2 class="title">Últimas 20 linhas</h2>
-		<table class="widefat striped">
-			<thead>
-				<tr><th>Quando</th><th>Sessão</th><th>Tipo</th><th>Mensagem</th><th>Veredito</th></tr>
-			</thead>
-			<tbody>
-				<?php foreach ( $dados['amostra_recente'] as $linha ) : ?>
-					<tr>
-						<td><?php echo esc_html( $linha['criado_em'] ); ?></td>
-						<td><code><?php echo esc_html( substr( $linha['sessao_id'], 0, 8 ) ); ?></code></td>
-						<td><?php echo esc_html( $linha['tipo_evento'] ); ?></td>
-						<td><?php echo esc_html( mb_substr( (string) $linha['mensagem'], 0, 80 ) ); ?></td>
-						<td><?php echo esc_html( (string) $linha['veredito'] ); ?></td>
-					</tr>
-				<?php endforeach; ?>
-			</tbody>
-		</table>
 	</div>
 	<?php
 }
