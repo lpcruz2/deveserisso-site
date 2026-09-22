@@ -3225,13 +3225,33 @@ function dsi_catalogo_localizar_post_existente( string $titulo, string $titulo_n
 // e se ja existe resenha propria. NAO grava no banco -- cada chamador decide
 // como inserir (import em massa vs mencao ao vivo tem contagem_mencoes
 // diferente).
-function dsi_catalogo_tmdb_processar_item( array $item, string $tipo ): array {
+// Achado ao vivo 2026-09-22 (usuario reportou titulo em japones/chines nas
+// recomendacoes): pedir language=pt-BR pra TMDB nao garante traducao -- se
+// nao existe entrada em pt-BR pro titulo, a API cai pro titulo original sem
+// avisar (comum em anime/drama asiatico). Detecta script nao-latino (CJK,
+// hiragana/katakana, hangul, cirilico, arabe, tailandes) pra rejeitar esses
+// casos em vez de mostrar titulo ilegivel pro visitante brasileiro.
+function dsi_catalogo_titulo_em_script_nao_latino( string $titulo ): bool {
+	return (bool) preg_match(
+		'/[\x{4E00}-\x{9FFF}\x{3400}-\x{4DBF}\x{3040}-\x{30FF}\x{AC00}-\x{D7AF}\x{0400}-\x{04FF}\x{0600}-\x{06FF}\x{0E00}-\x{0E7F}]/u',
+		$titulo
+	);
+}
+
+// Devolve null quando o titulo nao tem traducao pt-BR de verdade (ver
+// dsi_catalogo_titulo_em_script_nao_latino acima) -- o chamador trata como
+// "nao encontrado", nunca insere na base nem mostra pro visitante.
+function dsi_catalogo_tmdb_processar_item( array $item, string $tipo ): ?array {
 	$tmdb_key        = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
 	$titulo          = $item['title'] ?? $item['name'] ?? '';
 	$titulo_original = $item['original_title'] ?? $item['original_name'] ?? '';
 	$data_lancamento = $item['release_date'] ?? $item['first_air_date'] ?? '';
 	$ano             = $data_lancamento ? (int) substr( $data_lancamento, 0, 4 ) : null;
 	$overview        = $item['overview'] ?? '';
+
+	if ( $titulo === '' || dsi_catalogo_titulo_em_script_nao_latino( $titulo ) ) {
+		return null;
+	}
 
 	$mapa_generos = dsi_catalogo_tmdb_generos_mapa();
 	$generos      = [];
@@ -3336,7 +3356,11 @@ function dsi_catalogo_tmdb_buscar_titulo( string $titulo_mencionado ) {
 	$item = $resultados[0];
 	$tipo = $item['media_type'] === 'tv' ? 'serie' : 'filme';
 
-	return dsi_catalogo_tmdb_processar_item( $item, $tipo );
+	$processado = dsi_catalogo_tmdb_processar_item( $item, $tipo );
+	if ( $processado === null ) {
+		return new WP_Error( 'dsi_tmdb_sem_titulo_pt', 'Titulo sem traducao em portugues na TMDB.' );
+	}
+	return $processado;
 }
 
 function dsi_classificar_filme_externo( string $titulo_mencionado ) {
@@ -3442,8 +3466,9 @@ function dsi_importar_catalogo_tmdb_endpoint( WP_REST_Request $req ): WP_REST_Re
 
 	global $wpdb;
 	$tabela      = dsi_filme_externo_table_name();
-	$importados  = 0;
-	$ja_existiam = 0;
+	$importados     = 0;
+	$ja_existiam    = 0;
+	$sem_titulo_pt  = 0;
 	foreach ( $itens as $item ) {
 		$existe = $wpdb->get_var( $wpdb->prepare(
 			"SELECT id FROM {$tabela} WHERE tmdb_id = %d", $item['id']
@@ -3453,6 +3478,10 @@ function dsi_importar_catalogo_tmdb_endpoint( WP_REST_Request $req ): WP_REST_Re
 			continue;
 		}
 		$processado = dsi_catalogo_tmdb_processar_item( $item, $tipo );
+		if ( $processado === null ) {
+			$sem_titulo_pt++; // titulo sem traducao pt-BR (japones/chines/etc) -- nunca importa
+			continue;
+		}
 		$wpdb->insert( $tabela, [
 			'tmdb_id'             => $processado['tmdb_id'],
 			'tipo'                => $processado['tipo'],
@@ -3478,11 +3507,12 @@ function dsi_importar_catalogo_tmdb_endpoint( WP_REST_Request $req ): WP_REST_Re
 	}
 
 	return new WP_REST_Response( [
-		'tipo'        => $tipo,
-		'pagina'      => $pagina,
-		'total_tmdb'  => $corpo_resposta['total_pages'] ?? null,
-		'importados'  => $importados,
-		'ja_existiam' => $ja_existiam,
+		'tipo'           => $tipo,
+		'pagina'         => $pagina,
+		'total_tmdb'     => $corpo_resposta['total_pages'] ?? null,
+		'importados'     => $importados,
+		'ja_existiam'    => $ja_existiam,
+		'sem_titulo_pt'  => $sem_titulo_pt,
 	] );
 }
 
