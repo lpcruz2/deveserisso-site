@@ -12,6 +12,17 @@ jobs:
         run: |
           find dsi-magazine mu-plugins -name "*.php" -print0 | xargs -0 -n1 php -l
 
+      # Testes da logica pura do bilheteiro (dsi-magazine/inc/bilheteiro-logica.php)
+      # -- adicionado 2026-09-22 depois de varias rodadas de teste manual via
+      # curl na mesma logica de estado (obrigatorios por tipo de entrada,
+      # sequencia de perguntas, sentinela de "atores", validacao do
+      # reconhecimento). So roda contra logica sem dependencia de WP/banco --
+      # ver tests/bootstrap.php.
+      - name: Run PHP unit tests
+        run: |
+          composer install --no-interaction --no-progress
+          vendor/bin/phpunit
+
       - name: Validate .htaccess syntax
         run: |
           cat > /tmp/httpd-test.conf <<'EOF'

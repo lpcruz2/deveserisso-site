@@ -3,3 +3,6 @@ node_modules/
 .sass-cache/
 wp-config.php
 *.log
+# Dependencias de dev dos testes (tests/), nunca vao pro FTP de producao.
+/vendor/
+.phpunit.cache/

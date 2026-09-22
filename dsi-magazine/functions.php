@@ -1857,6 +1857,14 @@ add_action( 'rest_api_init', function (): void {
 	] );
 } );
 
+// Logica pura do bilheteiro (campos obrigatorios por tipo de entrada,
+// proxima pergunta, validacao do reconhecimento gerado pela IA, deteccao
+// de plataforma por regex) mora em inc/bilheteiro-logica.php desde
+// 2026-09-22 -- extraida de proposito pra ser coberta por testes
+// automatizados (tests/) sem precisar de um WordPress inteiro de pe. Ver
+// o cabecalho daquele arquivo antes de mexer nela.
+require_once __DIR__ . '/inc/bilheteiro-logica.php';
+
 // Campos extraidos por turno via LLM (escalares). temas/subtemas NAO entram
 // aqui de proposito -- via de regra so chegam do Corredor de Posteres
 // (estado inicial vindo do cliente), nunca por extracao de texto livre
@@ -1865,40 +1873,12 @@ add_action( 'rest_api_init', function (): void {
 // 2026-09-21 (decisao do gestor): ator/atriz favorito virou uma das 4
 // perguntas ativas do widget/LP -- ver DSI_BILHETEIRO_INSTRUCAO.
 const DSI_BILHETEIRO_CAMPOS              = [ 'plataforma', 'tipo', 'emocao', 'genero', 'baseado_fatos_reais', 'q' ];
-const DSI_BILHETEIRO_CAMPOS_ARRAY        = [ 'temas', 'subtemas', 'atores', 'exclusoes' ];
-// Jornada gamificada (Corredor + Escolha da Emocao): emocao e pilar central,
-// tem minigame proprio.
-const DSI_BILHETEIRO_CAMPOS_OBRIGATORIOS = [ 'genero', 'emocao', 'plataforma' ];
-// Entradas sem minigame (widget flutuante + LP de chat puro, decisao do
-// gestor 2026-09-21): sem Corredor/Emocao pra gerar sinal, entao pergunta
-// direto por genero + filme/serie de referencia (substitui emocao aqui) +
-// atores + plataforma. "Atores" e campo array (nunca fica "null", so vazio)
-// -- dsi_bilheteiro_campos_faltando() e a trava do limite de perguntas
-// tratam isso separado dos escalares (ver os dois abaixo), pra nao tentar
-// gravar o sentinela DSI_BILHETEIRO_SEM_PREFERENCIA (string) num campo que
-// o JS sempre espera como array.
-const DSI_BILHETEIRO_CAMPOS_OBRIGATORIOS_CHAT = [ 'genero', 'q', 'atores', 'plataforma' ];
 const DSI_BILHETEIRO_LIMITE_PERGUNTAS    = 3;
-
-function dsi_bilheteiro_campos_obrigatorios( array $contexto ): array {
-	return ! empty( $contexto['sem_minigames'] ) ? DSI_BILHETEIRO_CAMPOS_OBRIGATORIOS_CHAT : DSI_BILHETEIRO_CAMPOS_OBRIGATORIOS;
-}
 // Sentinela pra "perguntei, insisti, a pessoa nao respondeu" -- diferente de
 // null ("ainda nao perguntei"). Nunca trava o fluxo por causa de um
 // obrigatorio sem resposta (PRD secao 3, trava de seguranca corrigida
 // 2026-09-19: so plataforma tinha essa saida antes).
 const DSI_BILHETEIRO_SEM_PREFERENCIA = '__sem_preferencia__';
-
-const DSI_BILHETEIRO_PERGUNTAS = [
-	'plataforma'  => 'Onde você pode assistir? Pode ser mais de um: Netflix, Amazon Prime, Globoplay, Telecine ou Disney+.',
-	'tipo'        => 'Filme ou série?',
-	'emocao'      => 'Que emoção você quer sentir agora? Rir, ter medo, chorar, adrenalina ou se apaixonar?',
-	'genero'      => 'Que gênero te chama mais atenção hoje? Ação, comédia, terror, romance, drama...?',
-	// Perguntas novas do fluxo sem minigame (widget/LP, decisao 2026-09-21).
-	'filmes_series' => 'Tem algum filme ou série que você curte bastante e queria ver algo parecido?',
-	'atores'        => 'Tem algum ator ou atriz que você gosta muito?',
-	'texto_livre' => 'Você gostaria de me dizer mais alguma coisa antes de eu escolher seus filmes?',
-];
 
 const DSI_BILHETEIRO_MSG_PULAR  = 'Combinado, vou com o que você já me disse!';
 const DSI_BILHETEIRO_MSG_LIMITE = 'Já tenho um bom palpite com isso tudo!';
@@ -1922,46 +1902,6 @@ function dsi_bilheteiro_reforcar_confirmacao( array &$estado, string $campo, $va
 	}
 }
 
-// RF4 revisado: so pergunta genero/emocao se o minigame correspondente foi
-// pulado (senao ja veio do Corredor/Emocao, nao reper gunta -- PRD secao 3).
-// Pra chat-so (sem_minigames): pergunta o que ainda falta, na ordem abaixo,
-// quantas vezes for preciso ate DSI_BILHETEIRO_LIMITE_PERGUNTAS -- decisao
-// do gestor 2026-09-21 ("como o LLM vai gerenciar isso pode ser em quantas
-// perguntas forem necessarias, so precisa extrair o que quero"). "Atores" e
-// array (nunca fica "null", so vazio) entao repete a mesma pergunta se a
-// pessoa nao citar nenhum -- aceitavel, o limite de perguntas ja poe um teto
-// baixo nisso.
-function dsi_bilheteiro_proxima_pergunta( array $estado, array $contexto ): string {
-	if ( ! empty( $contexto['sem_minigames'] ) ) {
-		if ( $estado['genero'] === null ) {
-			return DSI_BILHETEIRO_PERGUNTAS['genero'];
-		}
-		if ( $estado['q'] === null ) {
-			return DSI_BILHETEIRO_PERGUNTAS['filmes_series'];
-		}
-		if ( empty( $estado['atores'] ) && empty( $estado['atores_sem_preferencia'] ) ) {
-			return DSI_BILHETEIRO_PERGUNTAS['atores'];
-		}
-		if ( $estado['plataforma'] === null ) {
-			return DSI_BILHETEIRO_PERGUNTAS['plataforma'];
-		}
-		return DSI_BILHETEIRO_PERGUNTAS['texto_livre'];
-	}
-	if ( ! empty( $contexto['corredor_pulado'] ) && $estado['genero'] === null ) {
-		return DSI_BILHETEIRO_PERGUNTAS['genero'];
-	}
-	if ( ! empty( $contexto['emocao_pulada'] ) && $estado['emocao'] === null ) {
-		return DSI_BILHETEIRO_PERGUNTAS['emocao'];
-	}
-	if ( $estado['plataforma'] === null ) {
-		return DSI_BILHETEIRO_PERGUNTAS['plataforma'];
-	}
-	if ( $estado['tipo'] === null ) {
-		return DSI_BILHETEIRO_PERGUNTAS['tipo'];
-	}
-	return DSI_BILHETEIRO_PERGUNTAS['texto_livre'];
-}
-
 // Abertura (PRD secao 3, passo 1): recapitula o que o Corredor/Emocao ja
 // deram, como checkpoint de validacao -- se a pessoa corrigir, ja e sinal
 // novo. So aparece quando tem algo pra recapitular (minigame nao pulado e
@@ -1982,81 +1922,6 @@ function dsi_bilheteiro_recap_prefixo( array $estado, array $contexto ): string 
 		return '';
 	}
 	return ucfirst( implode( ' e ', $partes ) ) . '. ';
-}
-
-function dsi_bilheteiro_campos_faltando( array $estado, array $contexto = [] ): array {
-	$faltando = [];
-	foreach ( dsi_bilheteiro_campos_obrigatorios( $contexto ) as $campo ) {
-		// Campo array (ex: atores) nunca fica "null", so vazio -- checar
-		// igual aos escalares sempre diria "preenchido" mesmo sem resposta.
-		// "atores_sem_preferencia" e a saida graciosa quando a pessoa insiste
-		// que nao tem ator favorito (equivalente ao sentinela dos escalares).
-		$vazio = in_array( $campo, DSI_BILHETEIRO_CAMPOS_ARRAY, true )
-			? ( empty( $estado[ $campo ] ) && empty( $estado[ $campo . '_sem_preferencia' ] ) )
-			: $estado[ $campo ] === null;
-		if ( $vazio ) {
-			$faltando[] = $campo;
-		}
-	}
-	return $faltando;
-}
-
-// "Reconhecimento" (decisao do gestor 2026-09-22): a UNICA parte da
-// conversa gerada livremente pela IA -- a pergunta em si continua sempre
-// vindo de DSI_BILHETEIRO_PERGUNTAS (texto fixo, decidido por
-// dsi_bilheteiro_proxima_pergunta), o reconhecimento so vira uma frase de
-// abertura colada na frente. Validado aqui antes de ir pro visitante; se
-// reprovar em qualquer checagem, volta pro comportamento de sempre (so a
-// pergunta, sem reconhecimento) -- nunca fica pior que o que ja existia.
-const DSI_BILHETEIRO_RECONHECIMENTO_MAX_CHARS = 140;
-const DSI_BILHETEIRO_RECONHECIMENTO_PADROES_SUSPEITOS = [
-	'/https?:\/\//i',      // link
-	'/<[a-z]/i',            // tag HTML
-	'/instru[cç][aã]o/i',   // tentativa de falar sobre o proprio prompt
-	'/system prompt/i',
-	'/ignor[ae]/i',         // "ignore/ignora as regras"
-	'/\bprompt\b/i',
-	'/enquanto (ia|assistente|modelo)/i',
-];
-function dsi_bilheteiro_validar_reconhecimento( $texto ): string {
-	if ( ! is_string( $texto ) || trim( $texto ) === '' ) {
-		return '';
-	}
-	$texto = trim( wp_strip_all_tags( $texto ) );
-	if ( $texto === '' || mb_strlen( $texto ) > DSI_BILHETEIRO_RECONHECIMENTO_MAX_CHARS ) {
-		return '';
-	}
-	if ( strpos( $texto, '?' ) !== false ) {
-		return ''; // reconhecimento nunca e pergunta -- isso e papel da pergunta fixa
-	}
-	foreach ( DSI_BILHETEIRO_RECONHECIMENTO_PADROES_SUSPEITOS as $padrao ) {
-		if ( preg_match( $padrao, $texto ) ) {
-			return '';
-		}
-	}
-	return $texto;
-}
-
-// Deteccao por palavra-chave das 5 plataformas fixas (PRD secao 3), como
-// rede de seguranca deterministica por cima da extracao via LLM -- ver
-// achado do gestor 2026-09-20 no comentario de uso. "prime"/"globo"
-// sozinhos ficam de fora de proposito (ambiguo com "primeiro"/"Rede
-// Globo"); exige a frase mais especifica.
-const DSI_BILHETEIRO_PLATAFORMAS_REGEX = [
-	'Netflix'      => '/netflix/i',
-	'Amazon Prime' => '/amazon|prime\s*video/i',
-	'Globoplay'    => '/globo\s*play/i',
-	'Telecine'     => '/telecine/i',
-	'Disney+'      => '/disney/i',
-];
-function dsi_bilheteiro_detectar_plataformas_texto( string $mensagem ): array {
-	$encontradas = [];
-	foreach ( DSI_BILHETEIRO_PLATAFORMAS_REGEX as $nome => $padrao ) {
-		if ( preg_match( $padrao, $mensagem ) ) {
-			$encontradas[] = $nome;
-		}
-	}
-	return $encontradas;
 }
 
 // Mesmo texto do protótipo Python (agent.py), só traduzido pra heredoc PHP.

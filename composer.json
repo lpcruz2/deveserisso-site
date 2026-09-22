@@ -1,0 +1,7 @@
+{
+    "name": "deveserisso/deveserisso-site",
+    "description": "Testes automatizados da logica pura do tema dsi-magazine (nao gerencia dependencias de producao -- o tema roda direto via FTP, sem vendor/).",
+    "require-dev": {
+        "phpunit/phpunit": "^10 || ^11"
+    }
+}
