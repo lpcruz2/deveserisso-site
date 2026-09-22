@@ -2209,6 +2209,15 @@ function dsi_bilheteiro_ip_visitante(): string {
 }
 
 function dsi_bilheteiro_limite_excedido( string $ip ): bool {
+	// Allowlist de IP conhecido (dev/dono do site), configurada via
+	// DSI_BILHETEIRO_IPS_LIBERADOS em wp-config.php -- NAO e dado de
+	// visitante (regra permanente do projeto e sobre nao logar IP de
+	// visitante anonimo nas tabelas de evento; isso aqui e um IP conhecido,
+	// liberado sob pedido explicito 2026-09-22, mesmo padrao das chaves de
+	// API que ja ficam so no wp-config.php, nunca no tema).
+	if ( defined( 'DSI_BILHETEIRO_IPS_LIBERADOS' ) && in_array( $ip, DSI_BILHETEIRO_IPS_LIBERADOS, true ) ) {
+		return false;
+	}
 	$chave_min = 'dsi_bh_rl_min_' . md5( $ip );
 	$chave_dia = 'dsi_bh_rl_dia_' . md5( $ip );
 
