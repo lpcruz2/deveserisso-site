@@ -3204,7 +3204,14 @@ function dsi_catalogo_localizar_post_existente( string $titulo, string $titulo_n
 		'meta_query'     => [ [ 'key' => '_dsi_dados_tecnicos_raw', 'value' => '', 'compare' => '!=' ] ],
 	] );
 	foreach ( $query->posts as $post ) {
-		if ( dsi_dt_normalize_key( $post->post_title ) === $titulo_normalizado ) {
+		// BUG corrigido 2026-09-22 (achado ao vivo: "por que os filmes com
+		// resenha nunca tem nota?"): comparava contra $post->post_title, que
+		// e o titulo SEO da pagina ("X e bom e vale a pena assistir? ...",
+		// ver padrao do site), nunca vai bater exato com um titulo curto de
+		// filme -- por isso post_id_gerado nunca era preenchido pra posts
+		// existentes. O titulo de verdade do filme fica na ficha tecnica.
+		$d = dsi_parse_dados_tecnicos( (string) get_post_meta( $post->ID, '_dsi_dados_tecnicos_raw', true ) );
+		if ( ! empty( $d['titulo'] ) && dsi_dt_normalize_key( $d['titulo'] ) === $titulo_normalizado ) {
 			return $post->ID;
 		}
 	}
@@ -3542,6 +3549,52 @@ function dsi_backfill_nota_tmdb_endpoint( WP_REST_Request $req ): WP_REST_Respon
 		'atualizados'      => $atualizados,
 		'sem_nota_na_tmdb' => $sem_nota_na_tmdb,
 		'restantes'        => $restantes,
+	] );
+}
+
+// -------------------- Backfill de post_id_gerado (admin) --------------------
+// Corrige linhas importadas/resolvidas ANTES da correcao de
+// dsi_catalogo_localizar_post_existente (achado ao vivo 2026-09-22: comparava
+// contra $post->post_title, o titulo SEO da pagina, nunca contra o titulo de
+// verdade do filme na ficha tecnica -- por isso NENHUM post existente do
+// site nunca ganhava nota, mesmo tendo resenha). Reprocessa quem ainda esta
+// com post_id_gerado NULL usando a logica ja corrigida. Auto-drenante.
+add_action( 'rest_api_init', function (): void {
+	register_rest_route( 'dsi/v1', '/backfill-post-id-gerado', [
+		'methods'             => 'POST',
+		'callback'            => 'dsi_backfill_post_id_gerado_endpoint',
+		'permission_callback' => fn() => current_user_can( 'manage_options' ),
+		'args'                => [
+			'limite' => [ 'required' => false, 'default' => 100, 'sanitize_callback' => 'absint' ],
+		],
+	] );
+} );
+
+function dsi_backfill_post_id_gerado_endpoint( WP_REST_Request $req ): WP_REST_Response {
+	$limite = min( 200, max( 1, (int) $req->get_param( 'limite' ) ) );
+
+	global $wpdb;
+	$tabela = dsi_filme_externo_table_name();
+	$linhas = $wpdb->get_results( $wpdb->prepare(
+		"SELECT id, titulo, titulo_normalizado FROM {$tabela} WHERE post_id_gerado IS NULL ORDER BY id ASC LIMIT %d",
+		$limite
+	), ARRAY_A );
+
+	$encontrados = 0;
+	foreach ( $linhas as $linha ) {
+		$post_id = dsi_catalogo_localizar_post_existente( $linha['titulo'], $linha['titulo_normalizado'] );
+		if ( $post_id !== null ) {
+			$wpdb->update( $tabela, [ 'post_id_gerado' => $post_id ], [ 'id' => $linha['id'] ], [ '%d' ], [ '%d' ] );
+			$encontrados++;
+		}
+	}
+
+	$restantes = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tabela} WHERE post_id_gerado IS NULL" );
+
+	return new WP_REST_Response( [
+		'processados' => count( $linhas ),
+		'encontrados' => $encontrados,
+		'restantes'   => $restantes,
 	] );
 }
 
