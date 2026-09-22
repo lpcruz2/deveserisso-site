@@ -449,9 +449,10 @@
 			return msgEl;
 		}
 		function addFilmes( itens ) {
-			renderFilmes( itens );
+			var el = renderFilmes( itens );
 			historico.push( { tipo: 'filmes', itens: itens } );
 			salvarEstado();
+			return el;
 		}
 
 		function renderSemResenha( itens ) {
@@ -512,12 +513,26 @@
 					addBot( 'Não achei nada pra essa combinação ainda. Quer tentar outro gênero ou emoção?' );
 					return;
 				}
+				var elComResenha = null;
 				if ( itens.length ) {
 					itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
-					addFilmes( itens );
+					elComResenha = addFilmes( itens );
 				}
 				if ( semResenha.length ) {
+					// Achado ao vivo 2026-09-22: sem isso, "quero outras" so
+					// trocava a lista com resenha -- os externos (sem_resenha)
+					// nunca tinham exclusao nenhuma, entao repetiam sempre.
+					semResenha.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
 					addSemResenha( semResenha );
+				}
+				if ( elComResenha ) {
+					// Achado ao vivo 2026-09-22 (pedido do gestor): renderBot
+					// sempre rola pro fim -- com os dois blocos, a tela parava
+					// nos externos (sem resenha) em vez de ficar nos posts do
+					// deveserisso, que sao o conteudo prioritario (tem link
+					// "Ver resenha"). Forca a rolagem de volta pro topo do
+					// bloco com resenha depois que os dois ja renderizaram.
+					thread.scrollTop = elComResenha.offsetTop;
 				}
 			} ).catch( function () {
 				carregando.remove();

@@ -1673,6 +1673,13 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	$confirmacoes      = json_decode( (string) $req->get_param( 'confirmacoes' ), true ) ?: [];
 	$excluir_filmes    = json_decode( (string) $req->get_param( 'excluir_filmes' ), true ) ?: [];
 	$excluir_post_ids  = array_map( 'intval', array_column( array_filter( $excluir_filmes, fn( $f ) => ( $f['fonte'] ?? '' ) === 'catalogo' ), 'id' ) );
+	// Achado ao vivo 2026-09-22: "quero outras" so re-sorteava a lista com
+	// resenha -- a lista sem_resenha nunca tinha mecanismo de exclusao
+	// nenhum, entao "tentar de novo" sempre devolvia os MESMOS titulos
+	// externos (mesma pontuacao determinista, sem sinal novo pra mudar
+	// isso). Mesmo padrao do catalogo, so que por id da linha da tabela
+	// (fonte 'externo'), nao por post ID.
+	$excluir_catalogo_ids = array_map( 'intval', array_column( array_filter( $excluir_filmes, fn( $f ) => ( $f['fonte'] ?? '' ) === 'externo' ), 'id' ) );
 
 	$fator_genero     = dsi_score_fator_insistencia( (int) ( $confirmacoes['genero'] ?? 1 ) );
 	$fator_emocao     = dsi_score_fator_insistencia( (int) ( $confirmacoes['emocao'] ?? 1 ) );
@@ -1734,6 +1741,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 						'post_id_gerado'     => $resolvido['post_id_gerado'],
 					] );
 					$catalogo = [
+						'id'             => $wpdb->insert_id,
 						'generos'        => wp_json_encode( $resolvido['generos'] ),
 						'nota_tmdb'      => $resolvido['nota_tmdb'],
 						'temas'          => wp_json_encode( $resolvido['temas'] ),
@@ -1759,6 +1767,18 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			// resposta dela sempre tem prioridade sobre o sinal inferido.
 			if ( $filtro_genero === null && ! empty( $generos_catalogo ) ) {
 				$filtro_genero = dsi_dt_normalize_key( $generos_catalogo[0] );
+			}
+			// Achado ao vivo 2026-09-22 (pedido do gestor): "nao deve indicar
+			// os filmes que a pessoa citar" -- o filme citado e usado so como
+			// SINAL (genero/tema/elenco acima), nunca deve voltar como
+			// candidato na propria recomendacao. Sem isso, ele teria
+			// similaridade perfeita consigo mesmo (Jaccard=1, genero exato) e
+			// quase sempre venceria o proprio score.
+			if ( isset( $catalogo['id'] ) ) {
+				$excluir_catalogo_ids[] = (int) $catalogo['id'];
+			}
+			if ( ! empty( $catalogo['post_id_gerado'] ) ) {
+				$excluir_post_ids[] = (int) $catalogo['post_id_gerado'];
 			}
 		}
 	}
@@ -1927,6 +1947,9 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	);
 	$sem_resenha_candidatos = [];
 	foreach ( $sem_resenha_linhas as $linha ) {
+		if ( in_array( (int) $linha['id'], $excluir_catalogo_ids, true ) ) {
+			continue; // loop de feedback: ja mostrado e rejeitado nesta sessao, nunca reaparece
+		}
 		if ( $filtro_tipo !== null ) {
 			$tipo_pedido = ( strpos( $filtro_tipo, 'serie' ) !== false ) ? 'serie' : 'filme';
 			if ( ( $linha['tipo'] ?: 'filme' ) !== $tipo_pedido ) {
@@ -1994,7 +2017,10 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		) );
 	}
 
-	$sem_resenha = array_map( fn( array $c ) => array_merge( $c['dados'], [ 'nota' => $c['nota'] ] ), $sem_resenha_candidatos );
+	// 'id' e 'fonte' aqui (fonte sempre 'externo') seguem o mesmo contrato
+	// do 'id'/'fonte' de itemListElement -- e o que o widget usa pra montar
+	// excluir_filmes e nao repetir o mesmo titulo numa proxima rodada.
+	$sem_resenha = array_map( fn( array $c ) => array_merge( $c['dados'], [ 'id' => $c['id'], 'fonte' => 'externo', 'nota' => $c['nota'] ] ), $sem_resenha_candidatos );
 
 	// Registra a rodada no mesmo log do bilheteiro (tipo_evento=recomendacao)
 	// pra o feedback (dsi_recomendacao_feedback) poder referenciar por
