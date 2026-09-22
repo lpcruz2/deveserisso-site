@@ -2570,19 +2570,24 @@ add_action( 'rest_api_init', function (): void {
 
 add_action( 'admin_menu', function (): void {
 	add_management_page(
-		'Bilheteiro — Relatório',
-		'Bilheteiro',
+		'Curador — Relatório',
+		'Curador',
 		'manage_options',
 		'dsi-bilheteiro-relatorio',
 		'dsi_bilheteiro_relatorio_admin_page'
 	);
 } );
 
+// So o rotulo visivel muda pra "Curador" (nome do personagem pro visitante,
+// decisao do gestor 2026-09-21/22) -- nomes de funcao, slug da pagina, rota
+// REST e tabela continuam "bilheteiro" de proposito, e o nome interno do
+// sistema, sem motivo pra renomear infra por causa de um texto de tela (ja
+// documentado quando o personagem virou "Curador" no widget).
 function dsi_bilheteiro_relatorio_admin_page(): void {
 	$dados = dsi_bilheteiro_relatorio_dados();
 	?>
 	<div class="wrap">
-		<h1>Bilheteiro — Relatório</h1>
+		<h1>Curador — Relatório</h1>
 		<p>Gerado em <?php echo esc_html( $dados['gerado_em'] ); ?> — dados de <code>wp_dsi_bilheteiro_log</code>, sem IP nem identificador de visitante.</p>
 
 		<h2 class="title">Volume</h2>
