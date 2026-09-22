@@ -107,6 +107,12 @@
 			'.dsi-bh-msg{max-width:85%;padding:8px 11px;border-radius:10px;line-height:1.4;}' +
 			'.dsi-bh-msg--bot{background:#ebe3d2;align-self:flex-start;border-bottom-left-radius:2px;}' +
 			'.dsi-bh-msg--user{background:#c2511d;color:#fff;align-self:flex-end;border-bottom-right-radius:2px;}' +
+			/* Boxes de indicacao (2026-09-22, pedido do gestor: "os boxes
+			   precisam pegar a tela toda do chat") -- em vez de herdar o
+			   limite de 85% do balao de texto comum, essas mensagens usam a
+			   largura inteira do thread. Classe aplicada so nas mensagens que
+			   carregam .dsi-bh-filmes (ver renderFilmes/renderSemResenha). */
+			'.dsi-bh-msg--filmes{max-width:100%;align-self:stretch;background:none;padding:0;}' +
 			'.dsi-bh-digitando{opacity:.6;}' +
 			'.dsi-bh-form{display:flex;gap:6px;padding:10px;border-top:1px solid #bdb29c;}' +
 			'.dsi-bh-input{flex:1;padding:8px 10px;border:1px solid #bdb29c;border-radius:6px;font:inherit;}' +
@@ -118,14 +124,24 @@
 			'.dsi-bh-filme img{width:46px;height:68px;object-fit:cover;border-radius:4px;flex-shrink:0;}' +
 			'.dsi-bh-filme-sem-poster{width:46px;height:68px;background:#ebe3d2;border-radius:4px;' +
 			'display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}' +
-			'.dsi-bh-filme-info strong{display:block;font-size:12px;margin-bottom:2px;}' +
-			'.dsi-bh-filme-info p{margin:0;font-size:11px;color:#6a5f4d;' +
+			/* Fontes da indicacao aumentadas (2026-09-22, pedido do gestor:
+			   "a letra da indicacao esta muito pequena") -- pelo menos +1px
+			   em cada um destes, na letra e na sinopse do card. */
+			'.dsi-bh-filme-info strong{display:block;font-size:13px;margin-bottom:2px;}' +
+			'.dsi-bh-filme-info p{margin:0;font-size:12px;color:#6a5f4d;' +
 			'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
-			'.dsi-bh-sem-resenha-titulo{margin:2px 0 4px;font-size:11px;color:#6a5f4d;font-weight:600;}' +
-			'.dsi-bh-ver-resenha{display:inline-block;margin-top:2px;font-size:10px;font-weight:600;color:#c2511d;}' +
-			'.dsi-bh-feedback{margin-top:6px;font-size:12px;}' +
-			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:4px 8px;' +
-			'cursor:pointer;font-size:12px;margin-top:4px;margin-right:4px;}' +
+			'.dsi-bh-sem-resenha-titulo{margin:2px 0 4px;font-size:12px;color:#6a5f4d;font-weight:600;}' +
+			'.dsi-bh-ver-resenha{display:inline-block;margin-top:2px;font-size:11px;font-weight:600;color:#c2511d;}' +
+			/* Avaliacao (2026-09-22, pedido do gestor: "precisam ter mais
+			   espaco pra pessoas verem que eles existem") -- titulo em cima,
+			   botoes numa linha so mas ocupando a largura inteira do box
+			   (flex:1 em cada um), padding e fonte maiores que o resto do
+			   card pra virar alvo de toque obvio, nao um detalhe pequeno. */
+			'.dsi-bh-feedback{margin-top:10px;}' +
+			'.dsi-bh-feedback-titulo{display:block;margin-bottom:6px;font-size:13px;}' +
+			'.dsi-bh-feedback-botoes{display:flex;gap:8px;}' +
+			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:11px 8px;' +
+			'cursor:pointer;font-size:13px;font-weight:600;flex:1;}' +
 			/* No celular o painel flutuante pequeno fica ilegivel quando o
 			   teclado abre pra digitar (achado do gestor 2026-09-21: "fica
 			   dificil ler o que foi dito no chat") -- no lugar de um balao no
@@ -401,9 +417,12 @@
 					'<span class="dsi-bh-ver-resenha">Ver resenha →</span></div>' +
 				'</a>';
 			} );
-			html += '</div><div class="dsi-bh-feedback">Gostou das indicações? ' +
+			html += '</div><div class="dsi-bh-feedback">' +
+				'<span class="dsi-bh-feedback-titulo">Gostou das indicações?</span>' +
+				'<div class="dsi-bh-feedback-botoes">' +
 				'<button type="button" class="dsi-bh-fb" data-v="positivo">👍 Gostei</button>' +
-				'<button type="button" class="dsi-bh-fb" data-v="negativo">👎 Quero outras</button></div>';
+				'<button type="button" class="dsi-bh-fb" data-v="negativo">👎 Quero outras</button>' +
+				'</div></div>';
 			return html;
 		}
 
@@ -444,6 +463,7 @@
 		// localStorage); addFilmes tambem grava no historico e persiste.
 		function renderFilmes( itens ) {
 			var msgEl = renderBot( montarCardsFilmes( itens ) );
+			msgEl.classList.add( 'dsi-bh-msg--filmes' );
 			ligarBotoesFeedback( msgEl );
 			ligarCliquesFilmes( msgEl );
 			return msgEl;
@@ -456,7 +476,9 @@
 		}
 
 		function renderSemResenha( itens ) {
-			return renderBot( montarCardsSemResenha( itens ) );
+			var msgEl = renderBot( montarCardsSemResenha( itens ) );
+			msgEl.classList.add( 'dsi-bh-msg--filmes' );
+			return msgEl;
 		}
 		function addSemResenha( itens ) {
 			renderSemResenha( itens );
@@ -469,7 +491,11 @@
 			botoes.forEach( function ( btn ) {
 				btn.addEventListener( 'click', function () {
 					var veredito = btn.getAttribute( 'data-v' );
-					var linha = btn.parentNode;
+					// closest('.dsi-bh-feedback'), nao btn.parentNode: desde que
+					// os botoes passaram a morar num sub-div (.dsi-bh-feedback-
+					// botoes) pra ocupar a largura toda, parentNode so pegaria a
+					// linha dos botoes e deixaria o titulo "Gostou..." pendurado.
+					var linha = btn.closest( '.dsi-bh-feedback' );
 					linha.innerHTML = veredito === 'positivo' ? 'Boa escolha! 🍿' : 'Poxa, vamos tentar de novo.';
 					fetch( FEEDBACK_ENDPOINT, {
 						method: 'POST',
