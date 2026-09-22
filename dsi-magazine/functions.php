@@ -1639,10 +1639,12 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		'post_type'      => 'post',
 		'post_status'    => 'publish',
 		// Sem o filtro rígido de plataforma (ver comentário acima), a busca
-		// agora varre o corpus inteiro de posts com ficha técnica (~200 hoje)
-		// em vez de só os 30 mais recentes -- senão emoção/gênero/tema
-		// perderiam candidatos bons só por serem posts mais antigos.
-		'posts_per_page' => 300,
+		// varre o corpus inteiro de posts com ficha técnica -- senão emoção/
+		// gênero/tema perderiam candidatos bons só por serem posts mais
+		// antigos. -1 (sem teto) porque o corpus já passou de 300 (achado
+		// 2026-09-22: quase 800 hoje, o "300" antigo cortava ~500 posts sem
+		// avisar, cada vez mais à medida que o site publica).
+		'posts_per_page' => -1,
 		'meta_query'     => [
 			[
 				'key'     => '_dsi_dados_tecnicos_raw',
@@ -1678,6 +1680,73 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	$fator_genero     = dsi_score_fator_insistencia( (int) ( $confirmacoes['genero'] ?? 1 ) );
 	$fator_emocao     = dsi_score_fator_insistencia( (int) ( $confirmacoes['emocao'] ?? 1 ) );
 	$fator_plataforma = dsi_score_fator_insistencia( (int) ( $confirmacoes['plataforma'] ?? 1 ) );
+
+	// Resolucao "filme/serie citado -> sinal estruturado" (2026-09-22): antes
+	// $q so virava busca textual nos posts do site (nunca alimentava tema/
+	// genero -- por isso o peso de Jaccard de temas era sempre zero no chat).
+	// Agora consulta o catalogo importado da TMDB primeiro; em caso de miss,
+	// busca ao vivo e cacheia pra proxima vez (dsi_catalogo_tmdb_buscar_titulo,
+	// mesma funcao usada no import em massa e no endpoint antigo). Qualquer
+	// falha aqui (TMDB fora do ar, titulo nao encontrado) e silenciosa -- a
+	// recomendacao segue sem esse sinal extra, igual ao comportamento de hoje.
+	if ( $q ) {
+		global $wpdb;
+		$tabela_catalogo = dsi_filme_externo_table_name();
+		$chave_q         = dsi_dt_normalize_key( $q );
+		$catalogo        = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$tabela_catalogo} WHERE titulo_normalizado = %s", $chave_q
+		), ARRAY_A );
+
+		if ( $catalogo ) {
+			$wpdb->update( $tabela_catalogo, [ 'contagem_mencoes' => $catalogo['contagem_mencoes'] + 1 ], [ 'id' => $catalogo['id'] ], [ '%d' ], [ '%d' ] );
+		} else {
+			$resolvido = dsi_catalogo_tmdb_buscar_titulo( $q );
+			if ( ! is_wp_error( $resolvido ) ) {
+				$wpdb->insert( $tabela_catalogo, [
+					'tmdb_id'            => $resolvido['tmdb_id'],
+					'tipo'               => $resolvido['tipo'],
+					'titulo'             => $resolvido['titulo'],
+					'titulo_normalizado' => $resolvido['titulo_normalizado'],
+					'titulo_original'    => $resolvido['titulo_original'],
+					'ano_lancamento'     => $resolvido['ano_lancamento'],
+					'generos'            => wp_json_encode( $resolvido['generos'] ),
+					'diretor'            => $resolvido['diretor'],
+					'temas'              => wp_json_encode( $resolvido['temas'] ),
+					'subtemas'           => wp_json_encode( $resolvido['subtemas'] ),
+					'atores'             => wp_json_encode( $resolvido['atores'] ),
+					'poster_url'         => $resolvido['poster_url'],
+					'sinopse'            => $resolvido['sinopse'],
+					'contagem_mencoes'   => 1,
+					'primeira_mencao_em' => current_time( 'mysql' ),
+					'post_id_gerado'     => $resolvido['post_id_gerado'],
+				] );
+				$catalogo = [
+					'generos'        => wp_json_encode( $resolvido['generos'] ),
+					'temas'          => wp_json_encode( $resolvido['temas'] ),
+					'subtemas'       => wp_json_encode( $resolvido['subtemas'] ),
+					'atores'         => wp_json_encode( $resolvido['atores'] ),
+					'post_id_gerado' => $resolvido['post_id_gerado'],
+				];
+			}
+		}
+
+		if ( $catalogo ) {
+			$generos_catalogo = json_decode( $catalogo['generos'] ?? '[]', true ) ?: [];
+			$temas_catalogo   = array_merge(
+				json_decode( $catalogo['temas'] ?? '[]', true ) ?: [],
+				json_decode( $catalogo['subtemas'] ?? '[]', true ) ?: []
+			);
+			$atores_catalogo = json_decode( $catalogo['atores'] ?? '[]', true ) ?: [];
+
+			$temas_pessoa  = array_values( array_unique( array_merge( $temas_pessoa, $temas_catalogo ) ) );
+			$atores_pessoa = array_values( array_unique( array_merge( $atores_pessoa, $atores_catalogo ) ) );
+			// So preenche genero se a pessoa nao tiver dito nenhum -- a
+			// resposta dela sempre tem prioridade sobre o sinal inferido.
+			if ( $filtro_genero === null && ! empty( $generos_catalogo ) ) {
+				$filtro_genero = dsi_dt_normalize_key( $generos_catalogo[0] );
+			}
+		}
+	}
 
 	$candidatos = [];
 	foreach ( $query->posts as $post ) {
@@ -1924,6 +1993,20 @@ function dsi_bilheteiro_recap_prefixo( array $estado, array $contexto ): string 
 	return ucfirst( implode( ' e ', $partes ) ) . '. ';
 }
 
+// Lista fechada de generos (oficial TMDB, filme, pt-BR) -- decisao do gestor
+// 2026-09-22: genero e o UNICO campo obrigatorio que precisa resolver pra um
+// valor valido de verdade (os outros tres podem sair como "sem preferencia").
+// Usada tanto aqui (o LLM sempre mapeia a resposta livre da pessoa pro mais
+// proximo desta lista) quanto no catalogo TMDB importado (dsi_catalogo_tmdb_
+// generos_mapa busca a mesma lista ao vivo, com id -- aqui e so pra prompt,
+// sem id, entao fica hardcoded: e uma lista oficial estavel, TMDB quase nunca
+// muda).
+const DSI_BILHETEIRO_GENEROS_VALIDOS = [
+	'Ação', 'Aventura', 'Animação', 'Comédia', 'Crime', 'Documentário',
+	'Drama', 'Família', 'Fantasia', 'História', 'Terror', 'Música',
+	'Mistério', 'Romance', 'Ficção científica', 'Thriller', 'Guerra', 'Faroeste',
+];
+
 // Mesmo texto do protótipo Python (agent.py), só traduzido pra heredoc PHP.
 // A instrução de ignorar comandos embutidos na mensagem do visitante é
 // defesa contra prompt injection (RNF3 do PRD) — o campo é texto livre
@@ -1939,7 +2022,12 @@ Campos possíveis:
   (ex: "Netflix, Amazon Prime").
 - tipo: filme ou serie
 - emocao: rir, medo, chorar, adrenalina ou paixao
-- genero: qualquer genero livre mencionado (comedia, terror, acao, romance, etc.)
+- genero: SEMPRE um destes valores exatos, nunca texto livre: Ação, Aventura,
+  Animação, Comédia, Crime, Documentário, Drama, Família, Fantasia, História,
+  Terror, Música, Mistério, Romance, Ficção científica, Thriller, Guerra,
+  Faroeste. Mapeie qualquer resposta, mesmo indireta, pro mais próximo dessa
+  lista (ex: "curto bastante coisa de suspense" -> "Thriller"; "algo
+  emocionante com muita explosão" -> "Ação"; "gosto de rir" -> "Comédia").
 - baseado_fatos_reais: true/false, so se o visitante falar disso
 - q: titulo de filme ou serie citado como referencia POSITIVA (quer algo
   parecido). Se citar mais de um, junte separado por virgula (ex: "Matrix,
@@ -1951,14 +2039,18 @@ Campos possíveis:
 
 Genero, plataforma, q e atores sao OBRIGATORIOS pra montar uma recomendacao
 boa -- se esforce pra extrair um valor deles sempre que houver qualquer
-sinal aproveitavel na mensagem (ex: "curto bastante coisa de suspense" conta
-como genero). So devolva o valor literal "qualquer" pra plataforma/genero/q,
-ou o valor literal "nenhum" dentro da lista de atores, quando a pessoa
-EXPLICITAMENTE insistir que nao tem preferencia ou nao quer informar aquele
-campo especifico (ex: "tanto faz a plataforma", "nao tenho um ator
-favorito", "pode ser qualquer genero") -- nunca deduza isso so por a
-mensagem nao mencionar o campo, e nunca invente um valor da lista fixa de
-plataformas so pra preencher.
+sinal aproveitavel na mensagem. So devolva o valor literal "qualquer" pra
+plataforma/q, ou o valor literal "nenhum" dentro da lista de atores, quando a
+pessoa EXPLICITAMENTE insistir que nao tem preferencia ou nao quer informar
+aquele campo especifico (ex: "tanto faz a plataforma", "nao tenho um ator
+favorito") -- nunca deduza isso so por a mensagem nao mencionar o campo, e
+nunca invente um valor da lista fixa de plataformas so pra preencher.
+
+Genero e DIFERENTE dos outros tres: NUNCA aceite "qualquer"/"tanto faz"/"não
+sei"/"surpreenda" como resposta de gênero -- deixe genero como null nesse
+caso (nunca "qualquer", nunca invente um gênero) e use o campo
+"reconhecimento" (abaixo) pra insistir com jeito, sugerindo 2-3 gêneros da
+lista fechada em vez de repetir a pergunta igual.
 
 Se o visitante pedir explicitamente para pular as perguntas, ser surpreendido,
 ou "so mostra algo", marque pedido_pular=true.
@@ -2100,10 +2192,21 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		if ( $valor === null || $valor === '' ) {
 			continue;
 		}
-		// "Qualquer" tambem vale pra genero/q agora (decisao do gestor
-		// 2026-09-21: sao obrigatorios no fluxo sem minigame, entao precisam
-		// da mesma saida graciosa que plataforma ja tinha -- ver instrucao).
-		if ( in_array( $campo, [ 'genero', 'q' ], true ) && dsi_dt_normalize_key( (string) $valor ) === 'qualquer' ) {
+		// Genero NAO aceita "qualquer" (decisao do gestor 2026-09-22): e o
+		// UNICO campo em que a pessoa precisa escolher um valor de verdade --
+		// aceitar essa fuga cedo tiraria a unica informacao que sempre
+		// pontua alto no score (DSI_SCORE_PESO_GENERO = 30). Ignora a
+		// extracao por completo (mantem o campo como estava) em vez de virar
+		// sentinela -- o LLM insiste com jeito via "reconhecimento" (ver
+		// DSI_BILHETEIRO_INSTRUCAO); so vira DSI_BILHETEIRO_SEM_PREFERENCIA
+		// no limite de perguntas, como ultimo recurso (loop mais abaixo).
+		if ( $campo === 'genero' && dsi_dt_normalize_key( (string) $valor ) === 'qualquer' ) {
+			continue;
+		}
+		// "Qualquer" continua valendo pra "q" (decisao do gestor 2026-09-21:
+		// e obrigatorio no fluxo sem minigame, precisa da mesma saida
+		// graciosa que plataforma ja tinha).
+		if ( $campo === 'q' && dsi_dt_normalize_key( (string) $valor ) === 'qualquer' ) {
 			$valor = DSI_BILHETEIRO_SEM_PREFERENCIA;
 		}
 		if ( in_array( $campo, DSI_BILHETEIRO_CAMPOS_OBRIGATORIOS, true ) ) {
@@ -2819,7 +2922,12 @@ function dsi_filme_externo_table_name(): string {
 }
 
 add_action( 'init', function (): void {
-	$versao_atual = '1.0';
+	// 1.1 (2026-09-22): tabela deixa de ser so cache de mencao avulsa e vira
+	// o catalogo do Curador (import em massa TMDB + resolucao ao vivo, ver
+	// dsi_catalogo_tmdb_processar_item). post_id_gerado passa a tambem ser
+	// preenchido por cross-reference direto contra posts existentes, nao so
+	// pelo pipeline editorial de "liberado_em".
+	$versao_atual = '1.1';
 	if ( get_option( 'dsi_filme_externo_cache_versao' ) === $versao_atual ) {
 		return;
 	}
@@ -2830,8 +2938,13 @@ add_action( 'init', function (): void {
 	$sql             = "CREATE TABLE {$tabela} (
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 		tmdb_id BIGINT UNSIGNED NULL,
+		tipo VARCHAR(10) NULL,
 		titulo VARCHAR(255) NOT NULL,
 		titulo_normalizado VARCHAR(255) NOT NULL,
+		titulo_original VARCHAR(255) NULL,
+		ano_lancamento SMALLINT UNSIGNED NULL,
+		generos TEXT NULL,
+		diretor VARCHAR(255) NULL,
 		temas TEXT NULL,
 		subtemas TEXT NULL,
 		atores TEXT NULL,
@@ -2884,6 +2997,172 @@ function dsi_classificar_filme_externo_endpoint( WP_REST_Request $req ): WP_REST
 	return new WP_REST_Response( $resultado );
 }
 
+// Mapa id->nome dos generos oficiais da TMDB em pt-BR (filme e serie tem
+// tabelas de id diferentes). Cacheado 30 dias -- e uma lista fixa que a TMDB
+// quase nunca muda, nao vale bater na API a cada chamada.
+function dsi_catalogo_tmdb_generos_mapa(): array {
+	$cache = get_transient( 'dsi_tmdb_generos_mapa' );
+	if ( is_array( $cache ) ) {
+		return $cache;
+	}
+	$mapa     = [ 'filme' => [], 'serie' => [] ];
+	$tmdb_key = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
+	if ( empty( $tmdb_key ) ) {
+		return $mapa;
+	}
+	foreach ( [ 'filme' => 'movie', 'serie' => 'tv' ] as $chave_local => $endpoint ) {
+		$resp = wp_remote_get( add_query_arg( [
+			'language' => 'pt-BR',
+			'api_key'  => $tmdb_key,
+		], "https://api.themoviedb.org/3/genre/{$endpoint}/list" ), [ 'timeout' => 15 ] );
+		if ( is_wp_error( $resp ) ) {
+			continue;
+		}
+		foreach ( json_decode( wp_remote_retrieve_body( $resp ), true )['genres'] ?? [] as $g ) {
+			$mapa[ $chave_local ][ (int) $g['id'] ] = $g['name'];
+		}
+	}
+	set_transient( 'dsi_tmdb_generos_mapa', $mapa, 30 * DAY_IN_SECONDS );
+	return $mapa;
+}
+
+// Cross-reference simples: o titulo ja tem resenha publicada no site? Usa a
+// busca nativa do WP pra achar candidatos e so aceita quando o titulo
+// normalizado bate exato -- evita falso positivo de busca textual solta
+// (ex: "Matrix" nao pode casar com um post que so cita Matrix de passagem).
+function dsi_catalogo_localizar_post_existente( string $titulo, string $titulo_normalizado ): ?int {
+	$query = new WP_Query( [
+		'post_type'      => 'post',
+		'post_status'    => 'publish',
+		's'              => $titulo,
+		'posts_per_page' => 5,
+		'meta_query'     => [ [ 'key' => '_dsi_dados_tecnicos_raw', 'value' => '', 'compare' => '!=' ] ],
+	] );
+	foreach ( $query->posts as $post ) {
+		if ( dsi_dt_normalize_key( $post->post_title ) === $titulo_normalizado ) {
+			return $post->ID;
+		}
+	}
+	return null;
+}
+
+// Processa UM item cru da TMDB (de /search/multi, /movie/popular ou
+// /tv/popular -- os tres devolvem o mesmo formato de item) em tudo que o
+// catalogo do Curador precisa: elenco/diretor (credits), generos oficiais
+// (mapa acima), tema/subtema (LLM na sinopse, mesmo prompt/config de sempre)
+// e se ja existe resenha propria. NAO grava no banco -- cada chamador decide
+// como inserir (import em massa vs mencao ao vivo tem contagem_mencoes
+// diferente).
+function dsi_catalogo_tmdb_processar_item( array $item, string $tipo ): array {
+	$tmdb_key        = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
+	$titulo          = $item['title'] ?? $item['name'] ?? '';
+	$titulo_original = $item['original_title'] ?? $item['original_name'] ?? '';
+	$data_lancamento = $item['release_date'] ?? $item['first_air_date'] ?? '';
+	$ano             = $data_lancamento ? (int) substr( $data_lancamento, 0, 4 ) : null;
+	$overview        = $item['overview'] ?? '';
+
+	$mapa_generos = dsi_catalogo_tmdb_generos_mapa();
+	$generos      = [];
+	foreach ( ( $item['genre_ids'] ?? [] ) as $gid ) {
+		if ( isset( $mapa_generos[ $tipo ][ (int) $gid ] ) ) {
+			$generos[] = $mapa_generos[ $tipo ][ (int) $gid ];
+		}
+	}
+
+	$elenco  = [];
+	$diretor = null;
+	if ( $tmdb_key ) {
+		$endpoint_credits = $tipo === 'serie' ? 'tv' : 'movie';
+		$credits = wp_remote_get( "https://api.themoviedb.org/3/{$endpoint_credits}/{$item['id']}/credits?api_key={$tmdb_key}&language=pt-BR", [ 'timeout' => 15 ] );
+		if ( ! is_wp_error( $credits ) ) {
+			$corpo  = json_decode( wp_remote_retrieve_body( $credits ), true );
+			$elenco = array_map( fn( $p ) => $p['name'], array_slice( $corpo['cast'] ?? [], 0, 5 ) );
+			// Series nao tem um "diretor" unico equivalente (creditos variam
+			// por episodio/temporada) -- fica null de proposito, sem inventar.
+			if ( $tipo !== 'serie' ) {
+				foreach ( $corpo['crew'] ?? [] as $pessoa ) {
+					if ( ( $pessoa['job'] ?? '' ) === 'Director' ) {
+						$diretor = $pessoa['name'];
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	$temas    = [];
+	$subtemas = [];
+	$deepseek_key = defined( 'DSI_DEEPSEEK_KEY' ) ? DSI_DEEPSEEK_KEY : '';
+	if ( $deepseek_key && ! empty( $overview ) ) {
+		$classificacao = wp_remote_post( 'https://api.deepseek.com/chat/completions', [
+			'headers' => [ 'Authorization' => 'Bearer ' . $deepseek_key, 'Content-Type' => 'application/json' ],
+			'body'    => wp_json_encode( [
+				'model'           => 'deepseek-flash', // ver nota em dsi_bilheteiro_extrair()
+				'messages'        => [
+					[ 'role' => 'system', 'content' => DSI_CLASSIFICAR_INSTRUCAO ],
+					[ 'role' => 'user', 'content' => $titulo . ' — ' . $overview ],
+				],
+				'response_format' => [ 'type' => 'json_object' ],
+				'temperature'     => 0,
+			] ),
+			'timeout' => 20,
+		] );
+		if ( ! is_wp_error( $classificacao ) ) {
+			$corpo    = json_decode( wp_remote_retrieve_body( $classificacao ), true );
+			$json     = json_decode( $corpo['choices'][0]['message']['content'] ?? '', true );
+			$temas    = $json['temas'] ?? [];
+			$subtemas = $json['subtemas'] ?? [];
+		}
+	}
+
+	$chave = dsi_dt_normalize_key( $titulo );
+
+	return [
+		'tmdb_id'            => (int) $item['id'],
+		'titulo'             => $titulo,
+		'titulo_normalizado' => $chave,
+		'titulo_original'    => $titulo_original,
+		'tipo'               => $tipo,
+		'ano_lancamento'     => $ano,
+		'generos'            => $generos,
+		'diretor'            => $diretor,
+		'atores'             => $elenco,
+		'temas'              => $temas,
+		'subtemas'           => $subtemas,
+		'poster_url'         => ! empty( $item['poster_path'] ) ? 'https://image.tmdb.org/t/p/w500' . $item['poster_path'] : null,
+		'sinopse'            => $overview,
+		'post_id_gerado'     => dsi_catalogo_localizar_post_existente( $titulo, $chave ),
+	];
+}
+
+// Busca um titulo citado (filme OU serie) via /search/multi -- usado tanto
+// pelo endpoint antigo de classificacao quanto pelo fallback ao vivo do
+// /recomendar-filme quando o titulo nao esta no catalogo importado.
+function dsi_catalogo_tmdb_buscar_titulo( string $titulo_mencionado ) {
+	$tmdb_key = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
+	if ( empty( $tmdb_key ) ) {
+		return new WP_Error( 'dsi_tmdb_sem_chave', 'TMDB nao configurado.' );
+	}
+
+	$busca = wp_remote_get( add_query_arg( [
+		'query'    => $titulo_mencionado,
+		'language' => 'pt-BR',
+		'api_key'  => $tmdb_key,
+	], 'https://api.themoviedb.org/3/search/multi' ), [ 'timeout' => 15 ] );
+	if ( is_wp_error( $busca ) ) {
+		return $busca;
+	}
+	$resultados = json_decode( wp_remote_retrieve_body( $busca ), true )['results'] ?? [];
+	$resultados = array_values( array_filter( $resultados, fn( $r ) => in_array( $r['media_type'] ?? '', [ 'movie', 'tv' ], true ) ) );
+	if ( empty( $resultados ) ) {
+		return new WP_Error( 'dsi_tmdb_nao_encontrado', 'Titulo nao encontrado na TMDB.' );
+	}
+	$item = $resultados[0];
+	$tipo = $item['media_type'] === 'tv' ? 'serie' : 'filme';
+
+	return dsi_catalogo_tmdb_processar_item( $item, $tipo );
+}
+
 function dsi_classificar_filme_externo( string $titulo_mencionado ) {
 	global $wpdb;
 	$tabela = dsi_filme_externo_table_name();
@@ -2908,83 +3187,125 @@ function dsi_classificar_filme_externo( string $titulo_mencionado ) {
 		];
 	}
 
-	$tmdb_key = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
-	if ( empty( $tmdb_key ) ) {
-		return new WP_Error( 'dsi_tmdb_sem_chave', 'TMDB nao configurado.' );
+	$processado = dsi_catalogo_tmdb_buscar_titulo( $titulo_mencionado );
+	if ( is_wp_error( $processado ) ) {
+		return $processado;
 	}
-
-	$busca = wp_remote_get( add_query_arg( [
-		'query'    => $titulo_mencionado,
-		'language' => 'pt-BR',
-		'api_key'  => $tmdb_key,
-	], 'https://api.themoviedb.org/3/search/movie' ), [ 'timeout' => 15 ] );
-	if ( is_wp_error( $busca ) ) {
-		return $busca;
-	}
-	$resultados = json_decode( wp_remote_retrieve_body( $busca ), true )['results'] ?? [];
-	if ( empty( $resultados ) ) {
-		return new WP_Error( 'dsi_tmdb_nao_encontrado', 'Filme nao encontrado na TMDB.' );
-	}
-	$filme = $resultados[0];
-
-	$credits = wp_remote_get( "https://api.themoviedb.org/3/movie/{$filme['id']}/credits?api_key={$tmdb_key}", [ 'timeout' => 15 ] );
-	$elenco  = [];
-	if ( ! is_wp_error( $credits ) ) {
-		$cast   = json_decode( wp_remote_retrieve_body( $credits ), true )['cast'] ?? [];
-		$elenco = array_map( fn( $p ) => $p['name'], array_slice( $cast, 0, 5 ) );
-	}
-
-	$temas = [];
-	$subtemas = [];
-	$deepseek_key = defined( 'DSI_DEEPSEEK_KEY' ) ? DSI_DEEPSEEK_KEY : '';
-	if ( $deepseek_key && ! empty( $filme['overview'] ) ) {
-		$classificacao = wp_remote_post( 'https://api.deepseek.com/chat/completions', [
-			'headers' => [ 'Authorization' => 'Bearer ' . $deepseek_key, 'Content-Type' => 'application/json' ],
-			'body'    => wp_json_encode( [
-				'model'           => 'deepseek-flash', // ver nota em dsi_bilheteiro_extrair()
-				'messages'        => [
-					[ 'role' => 'system', 'content' => DSI_CLASSIFICAR_INSTRUCAO ],
-					[ 'role' => 'user', 'content' => $filme['title'] . ' — ' . $filme['overview'] ],
-				],
-				'response_format' => [ 'type' => 'json_object' ],
-				'temperature'     => 0,
-			] ),
-			'timeout' => 20,
-		] );
-		if ( ! is_wp_error( $classificacao ) ) {
-			$corpo = json_decode( wp_remote_retrieve_body( $classificacao ), true );
-			$json  = json_decode( $corpo['choices'][0]['message']['content'] ?? '', true );
-			$temas    = $json['temas'] ?? [];
-			$subtemas = $json['subtemas'] ?? [];
-		}
-	}
-
-	$poster_url = ! empty( $filme['poster_path'] ) ? 'https://image.tmdb.org/t/p/w500' . $filme['poster_path'] : null;
 
 	$wpdb->insert( $tabela, [
-		'tmdb_id'             => $filme['id'],
-		'titulo'              => $filme['title'],
-		'titulo_normalizado'  => $chave,
-		'temas'               => wp_json_encode( $temas ),
-		'subtemas'            => wp_json_encode( $subtemas ),
-		'atores'              => wp_json_encode( $elenco ),
-		'poster_url'          => $poster_url,
-		'sinopse'             => $filme['overview'] ?? '',
+		'tmdb_id'             => $processado['tmdb_id'],
+		'tipo'                => $processado['tipo'],
+		'titulo'              => $processado['titulo'],
+		'titulo_normalizado'  => $processado['titulo_normalizado'],
+		'titulo_original'     => $processado['titulo_original'],
+		'ano_lancamento'      => $processado['ano_lancamento'],
+		'generos'             => wp_json_encode( $processado['generos'] ),
+		'diretor'             => $processado['diretor'],
+		'temas'               => wp_json_encode( $processado['temas'] ),
+		'subtemas'            => wp_json_encode( $processado['subtemas'] ),
+		'atores'              => wp_json_encode( $processado['atores'] ),
+		'poster_url'          => $processado['poster_url'],
+		'sinopse'             => $processado['sinopse'],
 		'contagem_mencoes'    => 1,
 		'primeira_mencao_em'  => current_time( 'mysql' ),
-	], [ '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' ] );
+		'post_id_gerado'      => $processado['post_id_gerado'],
+	] );
 
 	return [
-		'titulo'           => $filme['title'],
-		'tmdb_id'          => $filme['id'],
-		'temas'            => $temas,
-		'subtemas'         => $subtemas,
-		'atores'           => $elenco,
-		'poster_url'       => $poster_url,
-		'link_externo'     => 'https://www.justwatch.com/br/busca?q=' . rawurlencode( $filme['title'] ),
+		'titulo'           => $processado['titulo'],
+		'tmdb_id'          => $processado['tmdb_id'],
+		'temas'            => $processado['temas'],
+		'subtemas'         => $processado['subtemas'],
+		'atores'           => $processado['atores'],
+		'poster_url'       => $processado['poster_url'],
+		'link_externo'     => 'https://www.justwatch.com/br/busca?q=' . rawurlencode( $processado['titulo'] ),
 		'veio_do_cache'    => false,
 		'contagem_mencoes' => 1,
 	];
+}
+
+// -------------------- Import em massa do catalogo (admin) --------------------
+// Popula a base com os titulos mais populares da TMDB, chamado em paginas de
+// 20 (mesmo tamanho de pagina que a TMDB usa) pra caber no tempo de execucao
+// de hospedagem compartilhada -- repetir a mesma pagina e idempotente (pula
+// quem ja tem tmdb_id na tabela). So admin: nao e feature de visitante.
+add_action( 'rest_api_init', function (): void {
+	register_rest_route( 'dsi/v1', '/importar-catalogo-tmdb', [
+		'methods'             => 'POST',
+		'callback'            => 'dsi_importar_catalogo_tmdb_endpoint',
+		'permission_callback' => fn() => current_user_can( 'manage_options' ),
+		'args'                => [
+			'tipo'   => [ 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ],
+			'pagina' => [ 'required' => true, 'sanitize_callback' => 'absint' ],
+		],
+	] );
+} );
+
+function dsi_importar_catalogo_tmdb_endpoint( WP_REST_Request $req ): WP_REST_Response {
+	$tipo   = $req->get_param( 'tipo' ) === 'serie' ? 'serie' : 'filme';
+	$pagina = max( 1, (int) $req->get_param( 'pagina' ) );
+
+	$tmdb_key = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
+	if ( empty( $tmdb_key ) ) {
+		return new WP_REST_Response( [ 'erro' => 'TMDB nao configurado.' ], 502 );
+	}
+
+	$endpoint  = $tipo === 'serie' ? 'tv' : 'movie';
+	$resposta  = wp_remote_get( add_query_arg( [
+		'language' => 'pt-BR',
+		'region'   => 'BR',
+		'page'     => $pagina,
+		'api_key'  => $tmdb_key,
+	], "https://api.themoviedb.org/3/{$endpoint}/popular" ), [ 'timeout' => 15 ] );
+	if ( is_wp_error( $resposta ) ) {
+		return new WP_REST_Response( [ 'erro' => $resposta->get_error_message() ], 502 );
+	}
+	$corpo_resposta = json_decode( wp_remote_retrieve_body( $resposta ), true );
+	$itens          = $corpo_resposta['results'] ?? [];
+
+	global $wpdb;
+	$tabela      = dsi_filme_externo_table_name();
+	$importados  = 0;
+	$ja_existiam = 0;
+	foreach ( $itens as $item ) {
+		$existe = $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$tabela} WHERE tmdb_id = %d", $item['id']
+		) );
+		if ( $existe ) {
+			$ja_existiam++;
+			continue;
+		}
+		$processado = dsi_catalogo_tmdb_processar_item( $item, $tipo );
+		$wpdb->insert( $tabela, [
+			'tmdb_id'             => $processado['tmdb_id'],
+			'tipo'                => $processado['tipo'],
+			'titulo'              => $processado['titulo'],
+			'titulo_normalizado'  => $processado['titulo_normalizado'],
+			'titulo_original'     => $processado['titulo_original'],
+			'ano_lancamento'      => $processado['ano_lancamento'],
+			'generos'             => wp_json_encode( $processado['generos'] ),
+			'diretor'             => $processado['diretor'],
+			'temas'               => wp_json_encode( $processado['temas'] ),
+			'subtemas'            => wp_json_encode( $processado['subtemas'] ),
+			'atores'              => wp_json_encode( $processado['atores'] ),
+			'poster_url'          => $processado['poster_url'],
+			'sinopse'             => $processado['sinopse'],
+			// Import em massa nao e "mencao real" de visitante -- comeca em 0
+			// pra distinguir de quem ja foi citado de verdade no chat.
+			'contagem_mencoes'    => 0,
+			'primeira_mencao_em'  => current_time( 'mysql' ),
+			'post_id_gerado'      => $processado['post_id_gerado'],
+		] );
+		$importados++;
+	}
+
+	return new WP_REST_Response( [
+		'tipo'        => $tipo,
+		'pagina'      => $pagina,
+		'total_tmdb'  => $corpo_resposta['total_pages'] ?? null,
+		'importados'  => $importados,
+		'ja_existiam' => $ja_existiam,
+	] );
 }
 
 // -------------------- Fila pro Pipeline de SEO (PRD seção 6, "Transporte") --------------------
