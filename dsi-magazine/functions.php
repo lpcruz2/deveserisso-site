@@ -3238,9 +3238,82 @@ function dsi_catalogo_titulo_em_script_nao_latino( string $titulo ): bool {
 	);
 }
 
+// So chamada quando a TMDB nao devolveu titulo em pt-BR de verdade (script
+// nao-latino, ver acima) -- usa o LLM como GERADOR DE HIPOTESE, nunca como
+// fonte da verdade: o titulo proposto so e aceito se a mesma busca da TMDB
+// (dado real, curado) devolver o MESMO tmdb_id de volta. Sem esse round-trip,
+// descarta -- nunca aceita so na palavra do LLM (mesmo principio de "nunca
+// invente" ja seguido no resto do projeto: genero, plataforma, etc).
+const DSI_CATALOGO_TITULO_PT_INSTRUCAO = <<<PROMPT
+Você identifica o título oficial em português do Brasil de filmes/séries,
+a partir do título original e da sinopse.
+
+Responda com o título em português SÓ se tiver certeza real de que esse
+filme/série teve lançamento oficial no Brasil (cinema, streaming ou TV)
+com esse nome. Se não tiver certeza, ou não souber de lançamento
+brasileiro, responda exatamente null -- nunca invente um título
+plausível.
+
+Responda SEMPRE em JSON, sem markdown, neste formato exato:
+{"titulo_pt": "titulo aqui ou null"}
+PROMPT;
+
+function dsi_catalogo_tmdb_tentar_titulo_pt( string $titulo_original, string $overview, int $tmdb_id ): ?string {
+	$deepseek_key = defined( 'DSI_DEEPSEEK_KEY' ) ? DSI_DEEPSEEK_KEY : '';
+	$tmdb_key     = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
+	if ( empty( $deepseek_key ) || empty( $tmdb_key ) || empty( $overview ) ) {
+		return null;
+	}
+
+	$classificacao = wp_remote_post( 'https://api.deepseek.com/chat/completions', [
+		'headers' => [ 'Authorization' => 'Bearer ' . $deepseek_key, 'Content-Type' => 'application/json' ],
+		'body'    => wp_json_encode( [
+			'model'           => 'deepseek-flash',
+			'messages'        => [
+				[ 'role' => 'system', 'content' => DSI_CATALOGO_TITULO_PT_INSTRUCAO ],
+				[ 'role' => 'user', 'content' => $titulo_original . ' — ' . $overview ],
+			],
+			'response_format' => [ 'type' => 'json_object' ],
+			'temperature'     => 0,
+		] ),
+		'timeout' => 20,
+	] );
+	if ( is_wp_error( $classificacao ) ) {
+		return null;
+	}
+	$corpo    = json_decode( wp_remote_retrieve_body( $classificacao ), true );
+	$json     = json_decode( $corpo['choices'][0]['message']['content'] ?? '', true );
+	$proposto = $json['titulo_pt'] ?? null;
+	if ( ! is_string( $proposto ) || trim( $proposto ) === '' || strtolower( trim( $proposto ) ) === 'null' ) {
+		return null;
+	}
+	if ( dsi_catalogo_titulo_em_script_nao_latino( $proposto ) ) {
+		return null; // LLM devolveu lixo/nao-latino, ignora sem tentar de novo
+	}
+
+	// Round-trip: o titulo proposto precisa achar o MESMO filme/serie numa
+	// busca real da TMDB -- e a unica coisa que valida a proposta.
+	$busca = wp_remote_get( add_query_arg( [
+		'query'    => $proposto,
+		'language' => 'pt-BR',
+		'api_key'  => $tmdb_key,
+	], 'https://api.themoviedb.org/3/search/multi' ), [ 'timeout' => 15 ] );
+	if ( is_wp_error( $busca ) ) {
+		return null;
+	}
+	$resultados = json_decode( wp_remote_retrieve_body( $busca ), true )['results'] ?? [];
+	foreach ( array_slice( $resultados, 0, 3 ) as $r ) {
+		if ( (int) ( $r['id'] ?? 0 ) === $tmdb_id ) {
+			return $proposto;
+		}
+	}
+	return null;
+}
+
 // Devolve null quando o titulo nao tem traducao pt-BR de verdade (ver
-// dsi_catalogo_titulo_em_script_nao_latino acima) -- o chamador trata como
-// "nao encontrado", nunca insere na base nem mostra pro visitante.
+// dsi_catalogo_titulo_em_script_nao_latino acima, e a tentativa de
+// dsi_catalogo_tmdb_tentar_titulo_pt) -- o chamador trata como "nao
+// encontrado", nunca insere na base nem mostra pro visitante.
 function dsi_catalogo_tmdb_processar_item( array $item, string $tipo ): ?array {
 	$tmdb_key        = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
 	$titulo          = $item['title'] ?? $item['name'] ?? '';
@@ -3250,7 +3323,11 @@ function dsi_catalogo_tmdb_processar_item( array $item, string $tipo ): ?array {
 	$overview        = $item['overview'] ?? '';
 
 	if ( $titulo === '' || dsi_catalogo_titulo_em_script_nao_latino( $titulo ) ) {
-		return null;
+		$titulo_pt = dsi_catalogo_tmdb_tentar_titulo_pt( $titulo_original ?: $titulo, $overview, (int) $item['id'] );
+		if ( $titulo_pt === null ) {
+			return null;
+		}
+		$titulo = $titulo_pt;
 	}
 
 	$mapa_generos = dsi_catalogo_tmdb_generos_mapa();
