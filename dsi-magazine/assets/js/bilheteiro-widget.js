@@ -29,6 +29,38 @@
 		return d.innerHTML;
 	}
 
+	// Persistencia em localStorage (decisao do gestor 2026-09-21: "queria
+	// salvar no local storage para a pessoa sempre ter as recomendacoes").
+	// So client-side, nenhuma mudanca no backend -- guarda so preferencia de
+	// filme (sem IP/PII, mesma regra do resto do projeto), isolado por
+	// origem (so deveserisso.com.br le). Expira em 7 dias pra nao acumular
+	// pra sempre; try/catch em tudo porque localStorage pode falhar
+	// (navegacao anonima, storage bloqueado).
+	var STORAGE_KEY = 'dsi_bh_estado_v1';
+	var STORAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+	function carregarEstadoSalvo() {
+		try {
+			var bruto = localStorage.getItem( STORAGE_KEY );
+			if ( ! bruto ) return null;
+			var dados = JSON.parse( bruto );
+			if ( ! dados || ! dados.salvoEm || ( Date.now() - dados.salvoEm ) > STORAGE_TTL_MS ) return null;
+			return dados;
+		} catch ( e ) {
+			return null;
+		}
+	}
+	function salvarEstadoFn( dados ) {
+		try {
+			localStorage.setItem( STORAGE_KEY, JSON.stringify( dados ) );
+		} catch ( e ) { /* localStorage indisponivel -- degrada pra sessao sem persistencia */ }
+	}
+	function limparEstadoSalvo() {
+		try {
+			localStorage.removeItem( STORAGE_KEY );
+		} catch ( e ) {}
+	}
+
 	// GTM ja roda no site inteiro (container GTM-NHRLL7) -- manda o evento
 	// pro dataLayer de sempre. Sem isso nao existe NENHUM jeito de saber
 	// quantos filmes foram clicados: o log do bilheteiro (wp_dsi_bilheteiro_log)
@@ -65,6 +97,8 @@
 			'.dsi-bh-cabecalho{background:#1d1a14;color:#e8a83c;padding:12px 14px;display:flex;' +
 			'align-items:center;justify-content:space-between;font-weight:600;}' +
 			'.dsi-bh-fechar{background:none;border:none;color:#f4eee2;font-size:20px;cursor:pointer;line-height:1;}' +
+			'.dsi-bh-reiniciar{background:none;border:none;color:#e8a83c;font-size:16px;cursor:pointer;' +
+			'line-height:1;margin-right:8px;}' +
 			'.dsi-bh-thread{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}' +
 			'.dsi-bh-msg{max-width:85%;padding:8px 11px;border-radius:10px;line-height:1.4;}' +
 			'.dsi-bh-msg--bot{background:#ebe3d2;align-self:flex-start;border-bottom-left-radius:2px;}' +
@@ -107,7 +141,10 @@
 			'<div class="dsi-bh-painel">' +
 				'<div class="dsi-bh-cabecalho">' +
 					'<span>Curadoria Deveserisso!</span>' +
-					'<button class="dsi-bh-fechar" type="button" aria-label="Fechar">×</button>' +
+					'<span>' +
+						'<button class="dsi-bh-reiniciar" type="button" title="Começar uma nova busca">↺</button>' +
+						'<button class="dsi-bh-fechar" type="button" aria-label="Fechar">×</button>' +
+					'</span>' +
 				'</div>' +
 				'<div class="dsi-bh-thread"></div>' +
 				'<form class="dsi-bh-form">' +
@@ -117,12 +154,13 @@
 			'</div>';
 		document.body.appendChild( raiz );
 
-		var bolha  = raiz.querySelector( '.dsi-bh-bolha' );
-		var painel = raiz.querySelector( '.dsi-bh-painel' );
-		var fechar = raiz.querySelector( '.dsi-bh-fechar' );
-		var thread = raiz.querySelector( '.dsi-bh-thread' );
-		var form   = raiz.querySelector( '.dsi-bh-form' );
-		var input  = raiz.querySelector( '.dsi-bh-input' );
+		var bolha     = raiz.querySelector( '.dsi-bh-bolha' );
+		var painel    = raiz.querySelector( '.dsi-bh-painel' );
+		var fechar    = raiz.querySelector( '.dsi-bh-fechar' );
+		var reiniciarBtn = raiz.querySelector( '.dsi-bh-reiniciar' );
+		var thread    = raiz.querySelector( '.dsi-bh-thread' );
+		var form      = raiz.querySelector( '.dsi-bh-form' );
+		var input     = raiz.querySelector( '.dsi-bh-input' );
 
 		var iniciado        = false;
 		var sessaoId        = gerarSessaoId();
@@ -130,6 +168,19 @@
 		var perguntasFeitas = 0;
 		var rodadaAtual     = 1;
 		var excluirFilmes   = [];
+		var historico       = []; // replay da conversa pra restaurar do localStorage
+
+		function salvarEstado() {
+			salvarEstadoFn( {
+				sessaoId: sessaoId,
+				estado: estado,
+				perguntasFeitas: perguntasFeitas,
+				rodadaAtual: rodadaAtual,
+				excluirFilmes: excluirFilmes,
+				historico: historico,
+				salvoEm: Date.now()
+			} );
+		}
 
 		// No celular, "height:100%"/vh do CSS nao acompanha o teclado --
 		// varios navegadores so encolhem o "visual viewport" (window.
@@ -166,7 +217,12 @@
 			bolha.setAttribute( 'aria-expanded', 'true' );
 			if ( ! iniciado ) {
 				iniciado = true;
-				iniciar();
+				var salvo = carregarEstadoSalvo();
+				if ( salvo && salvo.historico && salvo.historico.length ) {
+					restaurar( salvo );
+				} else {
+					iniciar();
+				}
 			}
 			ajustarParaTeclado();
 			input.focus();
@@ -180,8 +236,22 @@
 			if ( painel.classList.contains( 'aberto' ) ) fecharPainel(); else abrir();
 		} );
 		fechar.addEventListener( 'click', fecharPainel );
+		reiniciarBtn.addEventListener( 'click', function () {
+			limparEstadoSalvo();
+			sessaoId        = gerarSessaoId();
+			estado          = {};
+			perguntasFeitas = 0;
+			rodadaAtual     = 1;
+			excluirFilmes   = [];
+			historico       = [];
+			thread.innerHTML = '';
+			iniciar();
+		} );
 
-		function addBot( html ) {
+		// render* so mexem no DOM (usados tambem pra restaurar do
+		// localStorage, sem duplicar no historico). add*/registrarFilmes
+		// alem de renderizar, gravam no historico e persistem.
+		function renderBot( html ) {
 			var el = document.createElement( 'div' );
 			el.className = 'dsi-bh-msg dsi-bh-msg--bot';
 			el.innerHTML = html;
@@ -189,12 +259,40 @@
 			thread.scrollTop = thread.scrollHeight;
 			return el;
 		}
-		function addUser( texto ) {
+		function renderUser( texto ) {
 			var el = document.createElement( 'div' );
 			el.className = 'dsi-bh-msg dsi-bh-msg--user';
 			el.textContent = texto;
 			thread.appendChild( el );
 			thread.scrollTop = thread.scrollHeight;
+		}
+		function addBot( html ) {
+			var el = renderBot( html );
+			historico.push( { tipo: 'bot', html: html } );
+			salvarEstado();
+			return el;
+		}
+		function addUser( texto ) {
+			renderUser( texto );
+			historico.push( { tipo: 'user', texto: texto } );
+			salvarEstado();
+		}
+
+		// Recoloca a conversa salva na tela (sem chamar a API de novo) --
+		// so acontece na primeira abertura do painel, se tiver algo salvo
+		// dentro do prazo de validade (ver carregarEstadoSalvo).
+		function restaurar( dados ) {
+			sessaoId        = dados.sessaoId || sessaoId;
+			estado          = dados.estado || {};
+			perguntasFeitas = dados.perguntasFeitas || 0;
+			rodadaAtual     = dados.rodadaAtual || 1;
+			excluirFilmes   = dados.excluirFilmes || [];
+			historico       = dados.historico || [];
+			historico.forEach( function ( item ) {
+				if ( item.tipo === 'bot' ) renderBot( item.html );
+				else if ( item.tipo === 'user' ) renderUser( item.texto );
+				else if ( item.tipo === 'filmes' ) renderFilmes( item.itens );
+			} );
 		}
 
 		function chamarBilheteiro( mensagem ) {
@@ -245,7 +343,7 @@
 			// primeira pergunta chegar, e quem tava usando nao entendia o que
 			// fazer ali (ainda mais se a chamada demorasse ou desse 429).
 			addBot( 'Oi! Sou o seu curador pessoal e vou te ajudar a encontrar o que assistir hoje.' );
-			var carregando = addBot( '<span class="dsi-bh-digitando">...</span>' );
+			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
 			chamarBilheteiro( '' ).then( function ( data ) {
 				carregando.remove();
 				processarResposta( data );
@@ -261,7 +359,7 @@
 			if ( ! texto ) return;
 			addUser( texto );
 			input.value = '';
-			var carregando = addBot( '<span class="dsi-bh-digitando">...</span>' );
+			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
 			chamarBilheteiro( texto ).then( function ( data ) {
 				carregando.remove();
 				processarResposta( data );
@@ -302,6 +400,21 @@
 			} );
 		}
 
+		// render/add separados igual addBot/renderBot: renderFilmes so
+		// desenha e liga os botoes (usado tambem ao restaurar do
+		// localStorage); addFilmes tambem grava no historico e persiste.
+		function renderFilmes( itens ) {
+			var msgEl = renderBot( montarCardsFilmes( itens ) );
+			ligarBotoesFeedback( msgEl );
+			ligarCliquesFilmes( msgEl );
+			return msgEl;
+		}
+		function addFilmes( itens ) {
+			renderFilmes( itens );
+			historico.push( { tipo: 'filmes', itens: itens } );
+			salvarEstado();
+		}
+
 		function ligarBotoesFeedback( msgEl ) {
 			var botoes = msgEl.querySelectorAll( '.dsi-bh-fb' );
 			botoes.forEach( function ( btn ) {
@@ -327,7 +440,7 @@
 		}
 
 		function buscarRecomendacoes() {
-			var carregando = addBot( 'Só um instante, escolhendo uns filmes pra você...' );
+			var carregando = renderBot( 'Só um instante, escolhendo uns filmes pra você...' );
 			var url = new URL( CINEQUIZ_ENDPOINT );
 			var params = { limite: 5, sessao_id: sessaoId, rodada: rodadaAtual };
 			if ( valorOuVazio( estado.genero ) ) params.genero = estado.genero;
@@ -351,9 +464,7 @@
 					return;
 				}
 				itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
-				var msgEl = addBot( montarCardsFilmes( itens ) );
-				ligarBotoesFeedback( msgEl );
-				ligarCliquesFilmes( msgEl );
+				addFilmes( itens );
 			} ).catch( function () {
 				carregando.remove();
 				addBot( 'Não consegui buscar agora, tenta de novo em instantes.' );

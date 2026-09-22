@@ -2388,7 +2388,17 @@ function dsi_bilheteiro_extrair( string $mensagem, string $api_key ) {
 					[ 'role' => 'user', 'content' => $mensagem ],
 				],
 				'response_format' => [ 'type' => 'json_object' ],
-				'temperature'     => 0,
+				// Subido de 0 pra 0.3 a pedido do gestor 2026-09-21. Nota
+				// tecnica registrada na conversa: temperatura nao faz o
+				// modelo "se esforcar mais" nem raciocinar melhor -- isso
+				// veio do reforco na propria instrucao (DSI_BILHETEIRO_
+				// INSTRUCAO). Temperatura so controla aleatoriedade na
+				// escolha do proximo token; 0.3 e uma faixa conservadora que
+				// da alguma flexibilidade pra frases fora do padrao sem
+				// abrir mao de consistencia na extracao JSON. A chamada de
+				// classificacao de filme externo (mais abaixo) fica em 0 de
+				// proposito -- e sobre fato concreto, nao conversa.
+				'temperature'     => 0.3,
 			] ),
 			'timeout' => 20,
 		]
@@ -2867,7 +2877,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// style.css e nao muda a cada deploy) -- sem isso o navegador de
 		// quem ja visitou o site mantem em cache a versao anterior do
 		// arquivo. Incrementar a cada mudanca real neste script.
-		'1.0.5',
+		'1.0.6',
 		true
 	);
 } );
