@@ -94,10 +94,14 @@
 			'box-shadow:0 12px 40px rgba(0,0,0,.3);display:none;flex-direction:column;overflow:hidden;' +
 			'font-family:Manrope,system-ui,sans-serif;font-size:13px;}' +
 			'.dsi-bh-painel.aberto{display:flex;}' +
+			/* Botao de expandir (2026-09-22, pedido do gestor: "falta um botao
+			   na web pra expandir o chat") -- so faz sentido em tela grande, o
+			   celular ja fica em tela cheia sozinho (media query mais abaixo). */
+			'.dsi-bh-painel.expandido{width:520px;height:min(720px,calc(100vh - 100px));}' +
 			'.dsi-bh-cabecalho{background:#1d1a14;color:#e8a83c;padding:12px 14px;display:flex;' +
 			'align-items:center;justify-content:space-between;font-weight:600;}' +
 			'.dsi-bh-fechar{background:none;border:none;color:#f4eee2;font-size:20px;cursor:pointer;line-height:1;}' +
-			'.dsi-bh-reiniciar{background:none;border:none;color:#e8a83c;font-size:16px;cursor:pointer;' +
+			'.dsi-bh-reiniciar,.dsi-bh-expandir{background:none;border:none;color:#e8a83c;font-size:16px;cursor:pointer;' +
 			'line-height:1;margin-right:8px;}' +
 			'.dsi-bh-thread{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}' +
 			'.dsi-bh-msg{max-width:85%;padding:8px 11px;border-radius:10px;line-height:1.4;}' +
@@ -145,6 +149,7 @@
 					'<span>Curadoria Deveserisso!</span>' +
 					'<span>' +
 						'<button class="dsi-bh-reiniciar" type="button" title="Começar uma nova busca">↺</button>' +
+						'<button class="dsi-bh-expandir" type="button" title="Expandir chat">⤢</button>' +
 						'<button class="dsi-bh-fechar" type="button" aria-label="Fechar">×</button>' +
 					'</span>' +
 				'</div>' +
@@ -160,6 +165,7 @@
 		var painel    = raiz.querySelector( '.dsi-bh-painel' );
 		var fechar    = raiz.querySelector( '.dsi-bh-fechar' );
 		var reiniciarBtn = raiz.querySelector( '.dsi-bh-reiniciar' );
+		var expandirBtn  = raiz.querySelector( '.dsi-bh-expandir' );
 		var thread    = raiz.querySelector( '.dsi-bh-thread' );
 		var form      = raiz.querySelector( '.dsi-bh-form' );
 		var input     = raiz.querySelector( '.dsi-bh-input' );
@@ -238,6 +244,11 @@
 			if ( painel.classList.contains( 'aberto' ) ) fecharPainel(); else abrir();
 		} );
 		fechar.addEventListener( 'click', fecharPainel );
+		expandirBtn.addEventListener( 'click', function () {
+			var expandido = painel.classList.toggle( 'expandido' );
+			expandirBtn.textContent = expandido ? '⤡' : '⤢';
+			expandirBtn.title = expandido ? 'Recolher chat' : 'Expandir chat';
+		} );
 		reiniciarBtn.addEventListener( 'click', function () {
 			limparEstadoSalvo();
 			sessaoId        = gerarSessaoId();
