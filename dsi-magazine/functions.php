@@ -2465,6 +2465,189 @@ function dsi_bilheteiro_rodadas_negativas_consecutivas( string $sessao_id ): int
 	return $contagem;
 }
 
+// -------------------- Relatorio (2026-09-22) --------------------
+// Ate agora, "quantas interacoes tivemos" so respondia subindo um script
+// PHP temporario via FTP, rodando e apagando -- funciona mas nao escala e
+// nao fica disponivel fora de uma sessao de trabalho (achado do gestor:
+// "observabilidade depende de eu escrever script toda vez"). Uma funcao
+// so alimenta os dois lugares (tela wp-admin + endpoint autenticado) pra
+// nao duplicar a consulta.
+function dsi_bilheteiro_relatorio_dados(): array {
+	global $wpdb;
+	$tabela = dsi_bilheteiro_log_table_name();
+	$hoje_00h = current_time( 'Y-m-d 00:00:00' );
+	$sete_dias_atras = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - 7 * DAY_IN_SECONDS );
+
+	$por_tipo_evento = $wpdb->get_results(
+		"SELECT tipo_evento, COUNT(*) AS total FROM {$tabela} GROUP BY tipo_evento",
+		ARRAY_A
+	);
+	$por_tipo_evento_mapa = [];
+	foreach ( $por_tipo_evento as $linha ) {
+		$por_tipo_evento_mapa[ $linha['tipo_evento'] ] = (int) $linha['total'];
+	}
+
+	$feedback_contagem = $wpdb->get_results(
+		"SELECT veredito, COUNT(*) AS total FROM {$tabela} WHERE tipo_evento = 'feedback' GROUP BY veredito",
+		ARRAY_A
+	);
+	$feedback_positivo = 0;
+	$feedback_negativo = 0;
+	foreach ( $feedback_contagem as $linha ) {
+		if ( $linha['veredito'] === 'positivo' ) {
+			$feedback_positivo = (int) $linha['total'];
+		} elseif ( $linha['veredito'] === 'negativo' ) {
+			$feedback_negativo = (int) $linha['total'];
+		}
+	}
+	$feedback_total = $feedback_positivo + $feedback_negativo;
+
+	// Genero/emocao mais pedidos nos ultimos 7 dias -- le o estado_depois
+	// (JSON) de cada mensagem, ja que nao sao colunas proprias da tabela
+	// (schema single-table generico, ver secao 32 acima). Tabela pequena
+	// (uma linha por turno de conversa), custo de fazer isso em PHP em vez
+	// de SQL e desprezivel nessa escala.
+	$mensagens_recentes = $wpdb->get_col( $wpdb->prepare(
+		"SELECT estado_depois FROM {$tabela} WHERE tipo_evento = 'mensagem' AND criado_em >= %s",
+		$sete_dias_atras
+	) );
+	$contagem_genero = [];
+	$contagem_emocao = [];
+	foreach ( $mensagens_recentes as $json ) {
+		$estado = json_decode( (string) $json, true );
+		if ( ! is_array( $estado ) ) {
+			continue;
+		}
+		$genero = $estado['genero'] ?? null;
+		if ( is_string( $genero ) && $genero !== '' && $genero !== DSI_BILHETEIRO_SEM_PREFERENCIA ) {
+			$chave = dsi_dt_normalize_key( $genero );
+			$contagem_genero[ $chave ] = ( $contagem_genero[ $chave ] ?? 0 ) + 1;
+		}
+		$emocao = $estado['emocao'] ?? null;
+		if ( is_string( $emocao ) && $emocao !== '' && $emocao !== DSI_BILHETEIRO_SEM_PREFERENCIA ) {
+			$chave = dsi_dt_normalize_key( $emocao );
+			$contagem_emocao[ $chave ] = ( $contagem_emocao[ $chave ] ?? 0 ) + 1;
+		}
+	}
+	arsort( $contagem_genero );
+	arsort( $contagem_emocao );
+
+	return [
+		'gerado_em'              => current_time( 'mysql' ),
+		'total_geral'            => array_sum( $por_tipo_evento_mapa ),
+		'total_hoje'             => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tabela} WHERE criado_em >= %s", $hoje_00h ) ),
+		'total_7dias'            => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tabela} WHERE criado_em >= %s", $sete_dias_atras ) ),
+		'por_tipo_evento'        => $por_tipo_evento_mapa,
+		'sessoes_distintas_7dias'=> (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE criado_em >= %s", $sete_dias_atras ) ),
+		'feedback_positivo'      => $feedback_positivo,
+		'feedback_negativo'      => $feedback_negativo,
+		'feedback_taxa_positiva' => $feedback_total > 0 ? round( $feedback_positivo / $feedback_total * 100, 1 ) : null,
+		'top_generos_7dias'      => array_slice( $contagem_genero, 0, 5, true ),
+		'top_emocoes_7dias'      => array_slice( $contagem_emocao, 0, 5, true ),
+		'amostra_recente'        => $wpdb->get_results(
+			"SELECT criado_em, sessao_id, tipo_evento, mensagem, veredito FROM {$tabela} ORDER BY id DESC LIMIT 20",
+			ARRAY_A
+		),
+	];
+}
+
+add_action( 'rest_api_init', function (): void {
+	register_rest_route( 'dsi/v1', '/bilheteiro-relatorio', [
+		'methods'             => 'GET',
+		'callback'            => function () {
+			return new WP_REST_Response( dsi_bilheteiro_relatorio_dados() );
+		},
+		// Travado por permissao de admin -- nunca publico (achado do gestor
+		// 2026-09-22: "quero as duas", painel + endpoint, mas o endpoint
+		// tem que ficar autenticado, diferente das outras rotas do
+		// bilheteiro que sao publicas de proposito pro visitante anonimo
+		// usar o chat).
+		'permission_callback' => function () {
+			return current_user_can( 'manage_options' );
+		},
+	] );
+} );
+
+add_action( 'admin_menu', function (): void {
+	add_management_page(
+		'Bilheteiro — Relatório',
+		'Bilheteiro',
+		'manage_options',
+		'dsi-bilheteiro-relatorio',
+		'dsi_bilheteiro_relatorio_admin_page'
+	);
+} );
+
+function dsi_bilheteiro_relatorio_admin_page(): void {
+	$dados = dsi_bilheteiro_relatorio_dados();
+	?>
+	<div class="wrap">
+		<h1>Bilheteiro — Relatório</h1>
+		<p>Gerado em <?php echo esc_html( $dados['gerado_em'] ); ?> — dados de <code>wp_dsi_bilheteiro_log</code>, sem IP nem identificador de visitante.</p>
+
+		<h2 class="title">Volume</h2>
+		<table class="widefat striped" style="max-width:600px">
+			<tbody>
+				<tr><td>Total geral registrado</td><td><strong><?php echo esc_html( (string) $dados['total_geral'] ); ?></strong></td></tr>
+				<tr><td>Hoje</td><td><strong><?php echo esc_html( (string) $dados['total_hoje'] ); ?></strong></td></tr>
+				<tr><td>Últimos 7 dias</td><td><strong><?php echo esc_html( (string) $dados['total_7dias'] ); ?></strong></td></tr>
+				<tr><td>Sessões distintas (7 dias)</td><td><strong><?php echo esc_html( (string) $dados['sessoes_distintas_7dias'] ); ?></strong></td></tr>
+				<?php foreach ( $dados['por_tipo_evento'] as $tipo => $total ) : ?>
+					<tr><td>&nbsp;&nbsp;↳ tipo "<?php echo esc_html( $tipo ); ?>"</td><td><?php echo esc_html( (string) $total ); ?></td></tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+
+		<h2 class="title">Feedback</h2>
+		<table class="widefat striped" style="max-width:600px">
+			<tbody>
+				<tr><td>👍 Positivo</td><td><?php echo esc_html( (string) $dados['feedback_positivo'] ); ?></td></tr>
+				<tr><td>👎 Negativo</td><td><?php echo esc_html( (string) $dados['feedback_negativo'] ); ?></td></tr>
+				<tr><td>Taxa positiva</td><td><?php echo $dados['feedback_taxa_positiva'] === null ? '—' : esc_html( $dados['feedback_taxa_positiva'] . '%' ); ?></td></tr>
+			</tbody>
+		</table>
+
+		<h2 class="title">Mais pedidos (7 dias)</h2>
+		<div style="display:flex; gap:40px;">
+			<div>
+				<h3>Gênero</h3>
+				<ol>
+					<?php foreach ( $dados['top_generos_7dias'] as $nome => $total ) : ?>
+						<li><?php echo esc_html( $nome ); ?> — <?php echo esc_html( (string) $total ); ?></li>
+					<?php endforeach; ?>
+				</ol>
+			</div>
+			<div>
+				<h3>Emoção</h3>
+				<ol>
+					<?php foreach ( $dados['top_emocoes_7dias'] as $nome => $total ) : ?>
+						<li><?php echo esc_html( $nome ); ?> — <?php echo esc_html( (string) $total ); ?></li>
+					<?php endforeach; ?>
+				</ol>
+			</div>
+		</div>
+
+		<h2 class="title">Últimas 20 linhas</h2>
+		<table class="widefat striped">
+			<thead>
+				<tr><th>Quando</th><th>Sessão</th><th>Tipo</th><th>Mensagem</th><th>Veredito</th></tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $dados['amostra_recente'] as $linha ) : ?>
+					<tr>
+						<td><?php echo esc_html( $linha['criado_em'] ); ?></td>
+						<td><code><?php echo esc_html( substr( $linha['sessao_id'], 0, 8 ) ); ?></code></td>
+						<td><?php echo esc_html( $linha['tipo_evento'] ); ?></td>
+						<td><?php echo esc_html( mb_substr( (string) $linha['mensagem'], 0, 80 ) ); ?></td>
+						<td><?php echo esc_html( (string) $linha['veredito'] ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+	</div>
+	<?php
+}
+
 // =============================================================================
 // 33. FEEDBACK, CACHE DE FILME EXTERNO e FILA PRO PIPELINE DE SEO
 // (2026-09-19, Jornada do Espectador — docs/prd-jornada-do-espectador.md)
