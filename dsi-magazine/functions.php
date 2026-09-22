@@ -2078,7 +2078,16 @@ require_once __DIR__ . '/inc/bilheteiro-logica.php';
 // 2026-09-21 (decisao do gestor): ator/atriz favorito virou uma das 4
 // perguntas ativas do widget/LP -- ver DSI_BILHETEIRO_INSTRUCAO.
 const DSI_BILHETEIRO_CAMPOS              = [ 'plataforma', 'tipo', 'emocao', 'genero', 'baseado_fatos_reais', 'q' ];
-const DSI_BILHETEIRO_LIMITE_PERGUNTAS    = 3;
+// Subido de 3 pra 6 em 2026-09-22 (pedido do gestor, achado ao vivo): o "3"
+// original (RF3) foi calibrado pro fluxo gamificado antigo, que so tinha 3
+// campos obrigatorios (genero/emocao/plataforma). Desde que "atores" virou
+// o 4o campo obrigatorio do fluxo de chat (2026-09-21), sobravam so 3
+// perguntas de acompanhamento pra 3 campos (q/atores/plataforma) -- na
+// pratica plataforma nunca tinha folga pra ser perguntada de verdade, ia
+// direto pro "sem preferencia" forcado. 6 da espaco pros 4 campos MAIS a
+// insistencia com jeito no genero (ver DSI_BILHETEIRO_INSTRUCAO) sem
+// estourar o limite por causa disso.
+const DSI_BILHETEIRO_LIMITE_PERGUNTAS    = 6;
 // Sentinela pra "perguntei, insisti, a pessoa nao respondeu" -- diferente de
 // null ("ainda nao perguntei"). Nunca trava o fluxo por causa de um
 // obrigatorio sem resposta (PRD secao 3, trava de seguranca corrigida
@@ -2246,9 +2255,9 @@ function dsi_bilheteiro_limite_excedido( string $ip ): bool {
 	$por_minuto = (int) get_transient( $chave_min );
 	$por_dia    = (int) get_transient( $chave_dia );
 
-	// 10/minuto cobre folgado uma conversa real (RF3 limita a 3 perguntas de
-	// acompanhamento); 50/dia trava quem tenta contornar o limite por
-	// minuto indo devagar.
+	// 10/minuto cobre folgado uma conversa real (DSI_BILHETEIRO_LIMITE_PERGUNTAS
+	// limita a 6 perguntas de acompanhamento, atualizado 2026-09-22); 50/dia
+	// trava quem tenta contornar o limite por minuto indo devagar.
 	if ( $por_minuto >= 10 || $por_dia >= 50 ) {
 		return true;
 	}
