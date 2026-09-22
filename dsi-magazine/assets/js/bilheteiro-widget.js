@@ -206,7 +206,12 @@
 					sessao_id: sessaoId,
 					estado: estado,
 					perguntas_feitas: perguntasFeitas,
-					contexto_minigames: { corredor_pulado: true, emocao_pulada: true }
+					// sem_minigames avisa o backend que essa entrada nao tem
+					// Corredor/Emocao -- muda o conjunto de perguntas
+					// obrigatorias pra genero/filmes-series/atores/plataforma
+					// (decisao do gestor 2026-09-21), ver
+					// dsi_bilheteiro_campos_obrigatorios em functions.php.
+					contexto_minigames: { corredor_pulado: true, emocao_pulada: true, sem_minigames: true }
 				} )
 			} ).then( function ( r ) {
 				return r.json().then( function ( body ) {
