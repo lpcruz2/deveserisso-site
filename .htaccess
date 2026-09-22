@@ -229,6 +229,10 @@ Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsaf
 Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
 Header set X-Frame-Options "SAMEORIGIN"
 Header set Cross-Origin-Opener-Policy "same-origin"
+Header set X-Content-Type-Options "nosniff"
+Header set Referrer-Policy "strict-origin-when-cross-origin"
+Header set Permissions-Policy "geolocation=(), camera=(), microphone=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=()"
+Header set X-XSS-Protection "1; mode=block"
 </IfModule>
 # END Security Headers
 
