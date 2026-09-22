@@ -3470,6 +3470,72 @@ function dsi_importar_catalogo_tmdb_endpoint( WP_REST_Request $req ): WP_REST_Re
 	] );
 }
 
+// -------------------- Backfill de nota (admin) --------------------
+// Cobre linhas importadas ANTES de nota_tmdb existir no processamento
+// (achado ao vivo 2026-09-22: metade do catalogo, justo os titulos mais
+// populares, ficou sem nota porque foram importados antes dessa coluna
+// entrar no ar). So 1 chamada TMDB por linha (endpoint de detalhe, sem
+// classificacao LLM -- tema/subtema/elenco ja existem, so falta a nota).
+// Auto-drenante: sempre pega quem ainda esta faltando, chamar de novo ate
+// "atualizados" vir 0.
+add_action( 'rest_api_init', function (): void {
+	register_rest_route( 'dsi/v1', '/backfill-nota-tmdb', [
+		'methods'             => 'POST',
+		'callback'            => 'dsi_backfill_nota_tmdb_endpoint',
+		'permission_callback' => fn() => current_user_can( 'manage_options' ),
+		'args'                => [
+			'limite' => [ 'required' => false, 'default' => 100, 'sanitize_callback' => 'absint' ],
+		],
+	] );
+} );
+
+function dsi_backfill_nota_tmdb_endpoint( WP_REST_Request $req ): WP_REST_Response {
+	$limite   = min( 200, max( 1, (int) $req->get_param( 'limite' ) ) );
+	$tmdb_key = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
+	if ( empty( $tmdb_key ) ) {
+		return new WP_REST_Response( [ 'erro' => 'TMDB nao configurado.' ], 502 );
+	}
+
+	global $wpdb;
+	$tabela = dsi_filme_externo_table_name();
+	$linhas = $wpdb->get_results( $wpdb->prepare(
+		"SELECT id, tmdb_id, tipo FROM {$tabela} WHERE nota_tmdb IS NULL AND tmdb_id IS NOT NULL ORDER BY id ASC LIMIT %d",
+		$limite
+	), ARRAY_A );
+
+	$atualizados = 0;
+	$sem_nota_na_tmdb = 0;
+	foreach ( $linhas as $linha ) {
+		$endpoint = $linha['tipo'] === 'serie' ? 'tv' : 'movie';
+		$resp = wp_remote_get( "https://api.themoviedb.org/3/{$endpoint}/{$linha['tmdb_id']}?api_key={$tmdb_key}", [ 'timeout' => 15 ] );
+		if ( is_wp_error( $resp ) ) {
+			continue;
+		}
+		$corpo = json_decode( wp_remote_retrieve_body( $resp ), true );
+		if ( ! isset( $corpo['vote_average'] ) ) {
+			$sem_nota_na_tmdb++;
+			continue;
+		}
+		$wpdb->update(
+			$tabela,
+			[ 'nota_tmdb' => round( (float) $corpo['vote_average'], 1 ) ],
+			[ 'id' => $linha['id'] ],
+			[ '%f' ],
+			[ '%d' ]
+		);
+		$atualizados++;
+	}
+
+	$restantes = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tabela} WHERE nota_tmdb IS NULL AND tmdb_id IS NOT NULL" );
+
+	return new WP_REST_Response( [
+		'processados'      => count( $linhas ),
+		'atualizados'      => $atualizados,
+		'sem_nota_na_tmdb' => $sem_nota_na_tmdb,
+		'restantes'        => $restantes,
+	] );
+}
+
 // -------------------- Fila pro Pipeline de SEO (PRD seção 6, "Transporte") --------------------
 // Servidor-a-servidor apenas -- nunca exposto ao front-end do site. O WP
 // nunca chama o Pipeline de SEO em tempo real (Hostinger nao roda processo

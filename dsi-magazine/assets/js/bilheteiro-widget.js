@@ -118,6 +118,7 @@
 			'.dsi-bh-filme-info p{margin:0;font-size:11px;color:#6a5f4d;' +
 			'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
 			'.dsi-bh-sem-resenha-titulo{margin:2px 0 4px;font-size:11px;color:#6a5f4d;font-weight:600;}' +
+			'.dsi-bh-ver-resenha{display:inline-block;margin-top:2px;font-size:10px;font-weight:600;color:#c2511d;}' +
 			'.dsi-bh-feedback{margin-top:6px;font-size:12px;}' +
 			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:4px 8px;' +
 			'cursor:pointer;font-size:12px;margin-top:4px;margin-right:4px;}' +
@@ -385,7 +386,8 @@
 					'data-id="' + f.id + '" data-fonte="' + f.fonte + '" data-titulo="' + escapeHtml( f.titulo ) + '" data-posicao="' + ( i + 1 ) + '">' +
 					( f.poster ? '<img src="' + f.poster + '" alt="">' : '<div class="dsi-bh-filme-sem-poster">🎬</div>' ) +
 					'<div class="dsi-bh-filme-info"><strong>' + escapeHtml( f.titulo ) + notaHtml( f.nota ) + '</strong>' +
-					'<p>' + escapeHtml( f.sinopse || '' ) + '</p></div>' +
+					'<p>' + escapeHtml( f.sinopse || '' ) + '</p>' +
+					'<span class="dsi-bh-ver-resenha">Ver resenha →</span></div>' +
 				'</a>';
 			} );
 			html += '</div><div class="dsi-bh-feedback">Gostou das indicações? ' +
