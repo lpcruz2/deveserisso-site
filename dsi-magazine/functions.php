@@ -3345,27 +3345,35 @@ function dsi_catalogo_tmdb_generos_mapa(): array {
 // busca nativa do WP pra achar candidatos e so aceita quando o titulo
 // normalizado bate exato -- evita falso positivo de busca textual solta
 // (ex: "Matrix" nao pode casar com um post que so cita Matrix de passagem).
+// BUG 2 corrigido 2026-09-22 (achado ao vivo: "Constantine" tem resenha no
+// site mas nunca casava): a versao anterior buscava via WP_Query 's' =>
+// $titulo com posts_per_page=5, sem orderby=relevance -- pra titulo/palavra
+// comum (ex: "Constantine" tambem aparece em texto solto de outros posts),
+// os 5 resultados por ordem de DATA podiam nunca incluir o post certo,
+// mesmo ele existindo. Troca por mapa em memoria: monta uma vez por
+// requisicao (763 posts, "static" cacheia entre chamadas do mesmo request --
+// import processa varios itens por chamada, cada um chamaria isso de novo
+// sem o cache) e depois e busca O(1) exata, sem depender de relevancia de
+// busca nenhuma.
 function dsi_catalogo_localizar_post_existente( string $titulo, string $titulo_normalizado ): ?int {
-	$query = new WP_Query( [
-		'post_type'      => 'post',
-		'post_status'    => 'publish',
-		's'              => $titulo,
-		'posts_per_page' => 5,
-		'meta_query'     => [ [ 'key' => '_dsi_dados_tecnicos_raw', 'value' => '', 'compare' => '!=' ] ],
-	] );
-	foreach ( $query->posts as $post ) {
-		// BUG corrigido 2026-09-22 (achado ao vivo: "por que os filmes com
-		// resenha nunca tem nota?"): comparava contra $post->post_title, que
-		// e o titulo SEO da pagina ("X e bom e vale a pena assistir? ...",
-		// ver padrao do site), nunca vai bater exato com um titulo curto de
-		// filme -- por isso post_id_gerado nunca era preenchido pra posts
-		// existentes. O titulo de verdade do filme fica na ficha tecnica.
-		$d = dsi_parse_dados_tecnicos( (string) get_post_meta( $post->ID, '_dsi_dados_tecnicos_raw', true ) );
-		if ( ! empty( $d['titulo'] ) && dsi_dt_normalize_key( $d['titulo'] ) === $titulo_normalizado ) {
-			return $post->ID;
+	static $mapa = null;
+	if ( $mapa === null ) {
+		$mapa  = [];
+		$query = new WP_Query( [
+			'post_type'      => 'post',
+			'post_status'    => 'publish',
+			'posts_per_page' => -1,
+			'fields'         => 'ids',
+			'meta_query'     => [ [ 'key' => '_dsi_dados_tecnicos_raw', 'value' => '', 'compare' => '!=' ] ],
+		] );
+		foreach ( $query->posts as $post_id ) {
+			$d = dsi_parse_dados_tecnicos( (string) get_post_meta( $post_id, '_dsi_dados_tecnicos_raw', true ) );
+			if ( ! empty( $d['titulo'] ) ) {
+				$mapa[ dsi_dt_normalize_key( $d['titulo'] ) ] = $post_id;
+			}
 		}
 	}
-	return null;
+	return $mapa[ $titulo_normalizado ] ?? null;
 }
 
 // Processa UM item cru da TMDB (de /search/multi, /movie/popular ou
