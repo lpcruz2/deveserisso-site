@@ -1715,6 +1715,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 					'ano_lancamento'     => $resolvido['ano_lancamento'],
 					'generos'            => wp_json_encode( $resolvido['generos'] ),
 					'diretor'            => $resolvido['diretor'],
+					'nota_tmdb'          => $resolvido['nota_tmdb'],
 					'temas'              => wp_json_encode( $resolvido['temas'] ),
 					'subtemas'           => wp_json_encode( $resolvido['subtemas'] ),
 					'atores'             => wp_json_encode( $resolvido['atores'] ),
@@ -1726,6 +1727,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 				] );
 				$catalogo = [
 					'generos'        => wp_json_encode( $resolvido['generos'] ),
+					'nota_tmdb'      => $resolvido['nota_tmdb'],
 					'temas'          => wp_json_encode( $resolvido['temas'] ),
 					'subtemas'       => wp_json_encode( $resolvido['subtemas'] ),
 					'atores'         => wp_json_encode( $resolvido['atores'] ),
@@ -1838,7 +1840,28 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 
 	$candidatos = array_slice( $candidatos, 0, $limite );
 
-	$resultados = array_map( function ( array $c ): array {
+	// Nota (2026-09-22): so existe TMDB vote_average -- o site nao tem
+	// sistema de nota proprio. Uma query so, so pelos IDs que vao de fato na
+	// resposta (no maximo $limite), pra anexar nota em quem ja tem
+	// post_id_gerado cruzado na base do catalogo.
+	global $wpdb;
+	$tabela_notas = dsi_filme_externo_table_name();
+	$notas_por_post = [];
+	$ids_finais = array_map( fn( array $c ) => $c['post']->ID, $candidatos );
+	if ( $ids_finais ) {
+		$placeholders = implode( ',', array_fill( 0, count( $ids_finais ), '%d' ) );
+		$linhas_nota  = $wpdb->get_results( $wpdb->prepare(
+			"SELECT post_id_gerado, nota_tmdb FROM {$tabela_notas} WHERE post_id_gerado IN ({$placeholders})",
+			...$ids_finais
+		), ARRAY_A );
+		foreach ( $linhas_nota as $linha ) {
+			if ( $linha['nota_tmdb'] !== null ) {
+				$notas_por_post[ (int) $linha['post_id_gerado'] ] = (float) $linha['nota_tmdb'];
+			}
+		}
+	}
+
+	$resultados = array_map( function ( array $c ) use ( $notas_por_post ): array {
 		$post = $c['post'];
 		$d    = $c['dados'];
 		return [
@@ -1854,6 +1877,11 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			'temas'               => $d['temas'] ?? [],
 			'emocao'              => $d['emocao'] ?? [],
 			'baseado_fatos_reais' => $d['baseado_fatos_reais'] ?? null,
+			// Nota TMDB via cruzamento de post_id_gerado -- cobertura parcial
+			// no inicio (so quem ja foi resolvido/importado e casou com este
+			// post), cresce sozinha conforme o catalogo cresce. null aqui e
+			// "ainda sem nota", nao erro.
+			'nota'                => $notas_por_post[ $post->ID ] ?? null,
 			// dsi_excerpt() devolve esc_html() (pensado pra embutir em HTML);
 			// aqui o valor vai pro JSON e o front usa .textContent, entao
 			// "&nbsp;" apareceria literal na tela em vez de virar espaço.
@@ -1866,6 +1894,85 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			'score'               => $c['score'],
 		];
 	}, $candidatos );
+
+	// Lista "sem resenha" (2026-09-22): candidatos que so existem no
+	// catalogo TMDB importado, nunca os mesmos posts de cima. Mesmos sinais
+	// (genero/temas/atores), mas SEM plataforma/emocao/fatos-reais -- o
+	// catalogo nao rastreia isso por titulo. Nota como criterio de
+	// desempate depois do score, nunca como filtro rigido.
+	$sem_resenha_linhas = $wpdb->get_results(
+		"SELECT * FROM {$tabela_notas} WHERE post_id_gerado IS NULL", ARRAY_A
+	);
+	$sem_resenha_candidatos = [];
+	foreach ( $sem_resenha_linhas as $linha ) {
+		if ( $filtro_tipo !== null ) {
+			$tipo_pedido = ( strpos( $filtro_tipo, 'serie' ) !== false ) ? 'serie' : 'filme';
+			if ( ( $linha['tipo'] ?: 'filme' ) !== $tipo_pedido ) {
+				continue;
+			}
+		}
+		$generos_linha = json_decode( $linha['generos'] ?? '[]', true ) ?: [];
+		$temas_linha   = array_merge(
+			json_decode( $linha['temas'] ?? '[]', true ) ?: [],
+			json_decode( $linha['subtemas'] ?? '[]', true ) ?: []
+		);
+		$atores_linha = json_decode( $linha['atores'] ?? '[]', true ) ?: [];
+
+		$score = 0.0;
+		if ( $filtro_genero !== null ) {
+			foreach ( $generos_linha as $g ) {
+				if ( strpos( dsi_dt_normalize_key( $g ), $filtro_genero ) !== false ) {
+					$score += DSI_SCORE_PESO_GENERO;
+					break;
+				}
+			}
+		}
+		if ( $temas_pessoa ) {
+			$score += DSI_SCORE_PESO_TEMAS * dsi_score_jaccard( $temas_pessoa, $temas_linha );
+		}
+		if ( $atores_pessoa && $atores_linha ) {
+			$em_comum = count( array_intersect(
+				array_map( 'dsi_dt_normalize_key', $atores_pessoa ),
+				array_map( 'dsi_dt_normalize_key', $atores_linha )
+			) );
+			$score += DSI_SCORE_PESO_ATOR * min( $em_comum, DSI_SCORE_ATORES_CAP );
+		}
+		if ( $score <= 0 ) {
+			continue; // mesma honestidade da lista com resenha -- sem sinal, sem entrar
+		}
+
+		$sem_resenha_candidatos[] = [
+			'score'   => $score,
+			'nota'    => $linha['nota_tmdb'] !== null ? (float) $linha['nota_tmdb'] : null,
+			'id'      => (int) $linha['id'],
+			'dados'   => [
+				'titulo'          => $linha['titulo'],
+				'titulo_original' => $linha['titulo_original'],
+				'tipo'            => $linha['tipo'] ?: 'filme',
+				'ano_lancamento'  => $linha['ano_lancamento'] !== null ? (int) $linha['ano_lancamento'] : null,
+				'generos'         => $generos_linha,
+				'atores'          => $atores_linha,
+				'temas'           => $temas_linha,
+				'sinopse'         => $linha['sinopse'],
+				'poster_url'      => $linha['poster_url'],
+			],
+		];
+	}
+	usort( $sem_resenha_candidatos, function ( array $a, array $b ): int {
+		return ( $b['score'] <=> $a['score'] ) ?: ( ( $b['nota'] ?? 0 ) <=> ( $a['nota'] ?? 0 ) );
+	} );
+	$sem_resenha_candidatos = array_slice( $sem_resenha_candidatos, 0, $limite );
+
+	if ( $sem_resenha_candidatos ) {
+		$ids_sem_resenha = array_column( $sem_resenha_candidatos, 'id' );
+		$placeholders     = implode( ',', array_fill( 0, count( $ids_sem_resenha ), '%d' ) );
+		$wpdb->query( $wpdb->prepare(
+			"UPDATE {$tabela_notas} SET contagem_recomendacoes = contagem_recomendacoes + 1 WHERE id IN ({$placeholders})",
+			...$ids_sem_resenha
+		) );
+	}
+
+	$sem_resenha = array_map( fn( array $c ) => array_merge( $c['dados'], [ 'nota' => $c['nota'] ] ), $sem_resenha_candidatos );
 
 	// Registra a rodada no mesmo log do bilheteiro (tipo_evento=recomendacao)
 	// pra o feedback (dsi_recomendacao_feedback) poder referenciar por
@@ -1885,6 +1992,9 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		'@type'            => 'ItemList',
 		'numberOfItems'    => count( $resultados ),
 		'itemListElement'  => array_values( $resultados ),
+		// Campo aditivo (2026-09-22): quem so le itemListElement (widget
+		// antigo, protótipo CineQuiz) ignora e continua funcionando igual.
+		'sem_resenha'      => array_values( $sem_resenha ),
 	] );
 }
 
@@ -2611,7 +2721,8 @@ function dsi_bilheteiro_contar_valores( array $valores, int $top = 5 ): array {
 
 function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 	global $wpdb;
-	$tabela = dsi_bilheteiro_log_table_name();
+	$tabela          = dsi_bilheteiro_log_table_name();
+	$tabela_catalogo = dsi_filme_externo_table_name();
 	$dias   = max( 1, min( 90, $dias ) ); // sanidade -- nunca uma consulta absurda
 	$agora  = current_time( 'timestamp' );
 	$inicio_intervalo = gmdate( 'Y-m-d H:i:s', $agora - $dias * DAY_IN_SECONDS );
@@ -2694,6 +2805,18 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 		}
 	}
 
+	// Candidatos a proxima resenha (2026-09-22): historico total, independe
+	// do seletor de dias -- mesma logica de total_geral acima. So titulos
+	// que ja foram recomendados de verdade pelo menos uma vez (nunca durante
+	// import em massa, ver dsi_recomendar_filme), ordenado pelo que mais
+	// aparece nas sugestoes.
+	$candidatos_conteudo = $wpdb->get_results(
+		"SELECT titulo, tipo, nota_tmdb, contagem_recomendacoes, contagem_mencoes
+		 FROM {$tabela_catalogo} WHERE post_id_gerado IS NULL AND contagem_recomendacoes > 0
+		 ORDER BY contagem_recomendacoes DESC LIMIT 10",
+		ARRAY_A
+	);
+
 	return [
 		'gerado_em'          => current_time( 'mysql' ),
 		'dias'               => $dias,
@@ -2709,6 +2832,7 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 		'top_emocoes'        => dsi_bilheteiro_contar_valores( $valores_emocao ),
 		'top_titulos'        => dsi_bilheteiro_contar_valores( $valores_titulos ),
 		'top_atores'         => dsi_bilheteiro_contar_valores( $valores_atores ),
+		'candidatos_conteudo' => $candidatos_conteudo,
 	];
 }
 
@@ -2864,6 +2988,29 @@ function dsi_bilheteiro_relatorio_admin_page(): void {
 				</div>
 			<?php endforeach; ?>
 		</div>
+
+		<h2 class="title">Candidatos a próxima resenha</h2>
+		<p><em>Histórico total (não depende do período acima) — filmes/séries sem resenha no site que já foram recomendados pelo menos uma vez, ordenados por quantas vezes apareceram na lista "também recomendamos".</em></p>
+		<?php if ( ! $dados['candidatos_conteudo'] ) : ?>
+			<p><em>Nenhum candidato ainda.</em></p>
+		<?php else : ?>
+			<table class="widefat striped" style="max-width:700px">
+				<thead>
+					<tr><th>Título</th><th>Tipo</th><th>Nota</th><th>Vezes recomendado</th><th>Vezes citado</th></tr>
+				</thead>
+				<tbody>
+					<?php foreach ( $dados['candidatos_conteudo'] as $c ) : ?>
+						<tr>
+							<td><?php echo esc_html( $c['titulo'] ); ?></td>
+							<td><?php echo esc_html( $c['tipo'] ?: 'filme' ); ?></td>
+							<td><?php echo $c['nota_tmdb'] !== null ? esc_html( $c['nota_tmdb'] ) : '—'; ?></td>
+							<td><?php echo esc_html( (string) $c['contagem_recomendacoes'] ); ?></td>
+							<td><?php echo esc_html( (string) $c['contagem_mencoes'] ); ?></td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+		<?php endif; ?>
 	</div>
 	<?php
 }
@@ -2926,12 +3073,14 @@ function dsi_filme_externo_table_name(): string {
 }
 
 add_action( 'init', function (): void {
-	// 1.1 (2026-09-22): tabela deixa de ser so cache de mencao avulsa e vira
-	// o catalogo do Curador (import em massa TMDB + resolucao ao vivo, ver
-	// dsi_catalogo_tmdb_processar_item). post_id_gerado passa a tambem ser
-	// preenchido por cross-reference direto contra posts existentes, nao so
-	// pelo pipeline editorial de "liberado_em".
-	$versao_atual = '1.1';
+	// 1.2 (2026-09-22): duas listas de recomendacao (com/sem resenha) +
+	// nota exibida nas duas + candidatos a proxima resenha no relatorio.
+	// nota_tmdb vem de graca do mesmo item de busca da TMDB (vote_average),
+	// sem chamada extra. contagem_recomendacoes e DIFERENTE de
+	// contagem_mencoes: mencoes conta "citado pelo visitante pelo nome",
+	// recomendacoes conta "apareceu de verdade na lista sem_resenha de uma
+	// resposta real" (nunca incrementado durante import em massa).
+	$versao_atual = '1.2';
 	if ( get_option( 'dsi_filme_externo_cache_versao' ) === $versao_atual ) {
 		return;
 	}
@@ -2949,6 +3098,8 @@ add_action( 'init', function (): void {
 		ano_lancamento SMALLINT UNSIGNED NULL,
 		generos TEXT NULL,
 		diretor VARCHAR(255) NULL,
+		nota_tmdb DECIMAL(3,1) NULL,
+		contagem_recomendacoes INT UNSIGNED NOT NULL DEFAULT 0,
 		temas TEXT NULL,
 		subtemas TEXT NULL,
 		atores TEXT NULL,
@@ -2960,7 +3111,8 @@ add_action( 'init', function (): void {
 		post_id_gerado BIGINT UNSIGNED NULL,
 		PRIMARY KEY  (id),
 		KEY titulo_normalizado (titulo_normalizado),
-		KEY liberado_em (liberado_em)
+		KEY liberado_em (liberado_em),
+		KEY post_id_gerado (post_id_gerado)
 	) {$charset_collate};";
 	dbDelta( $sql );
 	update_option( 'dsi_filme_externo_cache_versao', $versao_atual );
@@ -3130,6 +3282,10 @@ function dsi_catalogo_tmdb_processar_item( array $item, string $tipo ): array {
 		'ano_lancamento'     => $ano,
 		'generos'            => $generos,
 		'diretor'            => $diretor,
+		// vote_average ja vem no mesmo item de busca/popular da TMDB -- sem
+		// chamada extra. E a UNICA nota que existe no projeto (o site nao
+		// tem sistema de nota proprio, ver dsi_parse_dados_tecnicos).
+		'nota_tmdb'          => isset( $item['vote_average'] ) ? round( (float) $item['vote_average'], 1 ) : null,
 		'atores'             => $elenco,
 		'temas'              => $temas,
 		'subtemas'           => $subtemas,
@@ -3205,6 +3361,7 @@ function dsi_classificar_filme_externo( string $titulo_mencionado ) {
 		'ano_lancamento'      => $processado['ano_lancamento'],
 		'generos'             => wp_json_encode( $processado['generos'] ),
 		'diretor'             => $processado['diretor'],
+		'nota_tmdb'           => $processado['nota_tmdb'],
 		'temas'               => wp_json_encode( $processado['temas'] ),
 		'subtemas'            => wp_json_encode( $processado['subtemas'] ),
 		'atores'              => wp_json_encode( $processado['atores'] ),
@@ -3289,6 +3446,7 @@ function dsi_importar_catalogo_tmdb_endpoint( WP_REST_Request $req ): WP_REST_Re
 			'ano_lancamento'      => $processado['ano_lancamento'],
 			'generos'             => wp_json_encode( $processado['generos'] ),
 			'diretor'             => $processado['diretor'],
+			'nota_tmdb'           => $processado['nota_tmdb'],
 			'temas'               => wp_json_encode( $processado['temas'] ),
 			'subtemas'            => wp_json_encode( $processado['subtemas'] ),
 			'atores'              => wp_json_encode( $processado['atores'] ),

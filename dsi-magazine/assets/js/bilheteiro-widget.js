@@ -117,6 +117,7 @@
 			'.dsi-bh-filme-info strong{display:block;font-size:12px;margin-bottom:2px;}' +
 			'.dsi-bh-filme-info p{margin:0;font-size:11px;color:#6a5f4d;' +
 			'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
+			'.dsi-bh-sem-resenha-titulo{margin:2px 0 4px;font-size:11px;color:#6a5f4d;font-weight:600;}' +
 			'.dsi-bh-feedback{margin-top:6px;font-size:12px;}' +
 			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:4px 8px;' +
 			'cursor:pointer;font-size:12px;margin-top:4px;margin-right:4px;}' +
@@ -292,6 +293,7 @@
 				if ( item.tipo === 'bot' ) renderBot( item.html );
 				else if ( item.tipo === 'user' ) renderUser( item.texto );
 				else if ( item.tipo === 'filmes' ) renderFilmes( item.itens );
+				else if ( item.tipo === 'sem_resenha' ) renderSemResenha( item.itens );
 			} );
 		}
 
@@ -369,19 +371,43 @@
 			} );
 		} );
 
+		function notaHtml( nota ) {
+			// nota vem so de post_id_gerado cruzado com a base TMDB -- cobertura
+			// parcial, cresce sozinha (ver dsi_recomendar_filme). Sem nota nao
+			// e erro, so nao mostra nada.
+			return ( nota === null || nota === undefined ) ? '' : ' ⭐ ' + nota;
+		}
+
 		function montarCardsFilmes( itens ) {
 			var html = '<div class="dsi-bh-filmes">';
 			itens.forEach( function ( f, i ) {
 				html += '<a class="dsi-bh-filme" href="' + f.link + '" target="_blank" rel="noopener" ' +
 					'data-id="' + f.id + '" data-fonte="' + f.fonte + '" data-titulo="' + escapeHtml( f.titulo ) + '" data-posicao="' + ( i + 1 ) + '">' +
 					( f.poster ? '<img src="' + f.poster + '" alt="">' : '<div class="dsi-bh-filme-sem-poster">🎬</div>' ) +
-					'<div class="dsi-bh-filme-info"><strong>' + escapeHtml( f.titulo ) + '</strong>' +
+					'<div class="dsi-bh-filme-info"><strong>' + escapeHtml( f.titulo ) + notaHtml( f.nota ) + '</strong>' +
 					'<p>' + escapeHtml( f.sinopse || '' ) + '</p></div>' +
 				'</a>';
 			} );
 			html += '</div><div class="dsi-bh-feedback">Gostou das indicações? ' +
 				'<button type="button" class="dsi-bh-fb" data-v="positivo">👍 Gostei</button>' +
 				'<button type="button" class="dsi-bh-fb" data-v="negativo">👎 Quero outras</button></div>';
+			return html;
+		}
+
+		// Lista sem resenha (2026-09-22): so existe no catalogo TMDB
+		// importado, sem post no site ainda -- por isso sem link, sem botao
+		// de feedback (nao tem id/fonte pra associar).
+		function montarCardsSemResenha( itens ) {
+			var html = '<p class="dsi-bh-sem-resenha-titulo">Também recomendamos (ainda sem resenha no site):</p>' +
+				'<div class="dsi-bh-filmes">';
+			itens.forEach( function ( f ) {
+				html += '<div class="dsi-bh-filme dsi-bh-filme-sem-link">' +
+					( f.poster_url ? '<img src="' + f.poster_url + '" alt="">' : '<div class="dsi-bh-filme-sem-poster">🎬</div>' ) +
+					'<div class="dsi-bh-filme-info"><strong>' + escapeHtml( f.titulo ) + notaHtml( f.nota ) + '</strong>' +
+					'<p>' + escapeHtml( f.sinopse || '' ) + '</p></div>' +
+				'</div>';
+			} );
+			html += '</div>';
 			return html;
 		}
 
@@ -412,6 +438,15 @@
 		function addFilmes( itens ) {
 			renderFilmes( itens );
 			historico.push( { tipo: 'filmes', itens: itens } );
+			salvarEstado();
+		}
+
+		function renderSemResenha( itens ) {
+			return renderBot( montarCardsSemResenha( itens ) );
+		}
+		function addSemResenha( itens ) {
+			renderSemResenha( itens );
+			historico.push( { tipo: 'sem_resenha', itens: itens } );
 			salvarEstado();
 		}
 
@@ -459,12 +494,18 @@
 			fetch( url.toString() ).then( function ( r ) { return r.json(); } ).then( function ( data ) {
 				carregando.remove();
 				var itens = ( data && data.itemListElement ) || [];
-				if ( ! itens.length ) {
+				var semResenha = ( data && data.sem_resenha ) || [];
+				if ( ! itens.length && ! semResenha.length ) {
 					addBot( 'Não achei nada pra essa combinação ainda. Quer tentar outro gênero ou emoção?' );
 					return;
 				}
-				itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
-				addFilmes( itens );
+				if ( itens.length ) {
+					itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
+					addFilmes( itens );
+				}
+				if ( semResenha.length ) {
+					addSemResenha( semResenha );
+				}
 			} ).catch( function () {
 				carregando.remove();
 				addBot( 'Não consegui buscar agora, tenta de novo em instantes.' );
