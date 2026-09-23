@@ -457,6 +457,21 @@
 			} );
 		}
 
+		// Extraida do handler de submit (2026-09-23) pra poder ser chamada de
+		// dois lugares: o fluxo normal de digitar, e o escape hatch quando
+		// perguntarSobreRecomendacoes() descobre que a mensagem era pedido
+		// de nova recomendacao, nao pergunta sobre o que ja foi mostrado.
+		function enviarParaExtracaoDePreferencia( texto ) {
+			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
+			chamarBilheteiro( texto ).then( function ( data ) {
+				carregando.remove();
+				processarResposta( data );
+			} ).catch( function ( err ) {
+				carregando.remove();
+				addBot( ( err && err.mensagemAmigavel ) || 'Deu um probleminha aqui, pode tentar de novo?' );
+			} );
+		}
+
 		form.addEventListener( 'submit', function ( e ) {
 			e.preventDefault();
 			var texto = input.value.trim();
@@ -472,14 +487,7 @@
 				perguntarSobreRecomendacoes( texto );
 				return;
 			}
-			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
-			chamarBilheteiro( texto ).then( function ( data ) {
-				carregando.remove();
-				processarResposta( data );
-			} ).catch( function ( err ) {
-				carregando.remove();
-				addBot( ( err && err.mensagemAmigavel ) || 'Deu um probleminha aqui, pode tentar de novo?' );
-			} );
+			enviarParaExtracaoDePreferencia( texto );
 		} );
 
 		function perguntarSobreRecomendacoes( texto ) {
@@ -499,6 +507,18 @@
 				} );
 			} ).then( function ( data ) {
 				carregando.remove();
+				// "como escolho outro gênero?"/"nova simulação" nao sao
+				// pergunta sobre o elenco/genero dos filmes ja mostrados --
+				// sao pedido de RECOMEÇAR (achado do gestor 2026-09-23: sem
+				// isso, ficava preso numa recusa em loop, sem jeito de
+				// voltar a digitar uma preferencia nova). Reabre a extracao
+				// com a MESMA mensagem, sem pedir pra repetir.
+				if ( data.pedir_nova_recomendacao ) {
+					perguntasEncerradas = false;
+					salvarEstado();
+					enviarParaExtracaoDePreferencia( texto );
+					return;
+				}
 				addBot( escapeHtml( data.resposta ) );
 			} ).catch( function ( err ) {
 				carregando.remove();

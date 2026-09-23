@@ -208,6 +208,35 @@ function dsi_bilheteiro_montar_contexto_filmes( array $filmes ): string {
 // e o widget manda de volta qualquer um dos dois conforme o item veio. Sem
 // essa normalizacao, metade dos itens perderia elenco/genero silenciosamente
 // so por causa do nome do campo, nao por falta do dado de verdade.
+// Rede de seguranca deterministica (2026-09-23, achado do gestor: "se a
+// pessoa tira duvidas e quer pedir outra recomendação ele parece ficar preso
+// num looping") -- mesmo padrao ja usado em
+// dsi_bilheteiro_detectar_plataformas_texto: uma vez que perguntasEncerradas
+// vira true, TODA mensagem ia pro endpoint de pergunta grounded, que so sabe
+// responder sobre os filmes ja mostrados -- "como escolho outro gênero?" ou
+// "posso fazer uma nova simulação?" caiam numa recusa educada em loop, sem
+// jeito de voltar pra extracao de preferencia digitando. Cobertura por
+// palavra-chave e imperfeita de proposito (mesma ressalva da deteccao de
+// plataforma) -- e um escape hatch pras frases mais obvias, nao um
+// classificador completo de intencao.
+const DSI_BILHETEIRO_PEDIDOS_NOVA_RECOMENDACAO_REGEX = [
+	'/nova (recomenda[cç][aã]o|sugest[aã]o|simula[cç][aã]o|busca)/i',
+	'/outra (recomenda[cç][aã]o|sugest[aã]o)/i',
+	'/outro g[eê]nero/i',
+	'/trocar (de )?g[eê]nero/i',
+	'/mudar (de )?g[eê]nero/i',
+	'/recome[cç]ar/i',
+	'/come[cç]ar (de novo|outra vez)/i',
+];
+function dsi_bilheteiro_pede_nova_recomendacao( string $mensagem ): bool {
+	foreach ( DSI_BILHETEIRO_PEDIDOS_NOVA_RECOMENDACAO_REGEX as $padrao ) {
+		if ( preg_match( $padrao, $mensagem ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
 function dsi_bilheteiro_normalizar_item_pergunta( array $item ): array {
 	return [
 		'titulo'         => (string) ( $item['titulo'] ?? '' ),

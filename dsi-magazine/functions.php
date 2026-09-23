@@ -2641,6 +2641,17 @@ function dsi_bilheteiro_perguntar_pos_recomendacao( WP_REST_Request $req ): WP_R
 	if ( trim( $pergunta ) === '' ) {
 		return new WP_REST_Response( [ 'erro' => 'Pergunta vazia.' ], 400 );
 	}
+
+	// Achado 2026-09-23: "como escolho outro gênero?"/"posso fazer uma nova
+	// simulação?" nao sao pergunta sobre os filmes mostrados -- sao pedido
+	// de RECOMEÇAR. Checado ANTES de gastar chamada a DeepSeek (mais barato
+	// e mais rapido) -- o widget, ao ver pedir_nova_recomendacao, reabre a
+	// extracao de preferencia com a mesma mensagem em vez de deixar a
+	// pessoa presa numa recusa em loop (ver dsi_bilheteiro_pede_nova_recomendacao).
+	if ( dsi_bilheteiro_pede_nova_recomendacao( $pergunta ) ) {
+		return new WP_REST_Response( [ 'pedir_nova_recomendacao' => true ] );
+	}
+
 	// Itens vem do PROPRIO widget, os mesmos dados que /recomendar-filme
 	// acabou de mandar pra ele e que ja estao na tela (elenco/genero/ano/
 	// sinopse) -- nao busca de novo no banco por id de proposito: os dois
@@ -4204,7 +4215,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.1.0',
+		'1.1.1',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de

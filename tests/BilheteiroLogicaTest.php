@@ -285,4 +285,30 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertSame( [], $normalizado['atores'] );
 		$this->assertNull( $normalizado['diretor'] );
 	}
+
+	// -- dsi_bilheteiro_pede_nova_recomendacao -------------------------------
+
+	public function test_pede_nova_recomendacao_nova_simulacao(): void {
+		$this->assertTrue( dsi_bilheteiro_pede_nova_recomendacao( 'Posso fazer uma nova simulação?' ) );
+	}
+
+	public function test_pede_nova_recomendacao_outro_genero_sem_acento(): void {
+		$this->assertTrue( dsi_bilheteiro_pede_nova_recomendacao( 'como escolho outro genero' ) );
+	}
+
+	public function test_pede_nova_recomendacao_recomecar(): void {
+		$this->assertTrue( dsi_bilheteiro_pede_nova_recomendacao( 'quero recomeçar do zero' ) );
+	}
+
+	public function test_pede_nova_recomendacao_trocar_genero(): void {
+		$this->assertTrue( dsi_bilheteiro_pede_nova_recomendacao( 'quero trocar de gênero agora' ) );
+	}
+
+	public function test_pede_nova_recomendacao_nao_confunde_pergunta_sobre_elenco(): void {
+		$this->assertFalse( dsi_bilheteiro_pede_nova_recomendacao( 'esses filmes tem o Ben Stiller?' ) );
+	}
+
+	public function test_pede_nova_recomendacao_nao_confunde_pergunta_sobre_genero_do_filme(): void {
+		$this->assertFalse( dsi_bilheteiro_pede_nova_recomendacao( 'quais desses são de comédia?' ) );
+	}
 }
