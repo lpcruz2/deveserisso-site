@@ -507,3 +507,16 @@ html body .dsi-prose .wp-block-details summary{background:#f4eee2!important;back
 @media(max-width:768px){
   .dsi-contact-form__btn{align-self:stretch;text-align:center}
 }
+/* === DSI additions: content-visibility em secoes abaixo da dobra (audit Lighthouse, 2026-09-22) ===
+   Home/category/search/404 empilham hero + varias secoes auxiliares (tricolumn,
+   pullquote, tv+categorias, grades "mais posts"). O navegador recalculava
+   layout/paint dessas secoes mesmo fora da viewport inicial -- maior custo de
+   main-thread medido no Lighthouse (Style & Layout). Nao aplicado no .dsi-hero
+   (visivel de cara) nem em paginas simples de post unico, onde o guia recomenda
+   nao usar por ganho ser desprezivel. contain-intrinsic-size usa "auto" pra
+   memorizar a altura real apos a 1a renderizacao -- o valor fixo e so o
+   placeholder inicial antes disso, estimativa grosseira, nao precisa ser exata. */
+.dsi-tricolumn{content-visibility:auto;contain-intrinsic-size:auto 900px}
+.dsi-pullquote{content-visibility:auto;contain-intrinsic-size:auto 400px}
+.dsi-tv-cats{content-visibility:auto;contain-intrinsic-size:auto 700px}
+.dsi-more{content-visibility:auto;contain-intrinsic-size:auto 900px}

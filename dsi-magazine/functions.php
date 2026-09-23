@@ -4033,5 +4033,11 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		'1.0.8',
 		true
 	);
+	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de
+	// pagina, entao competia com o parse/render de TODA pagina do site
+	// mesmo quando nao usado (ex: home, onde nem aparece na dobra
+	// inicial). in_footer=true ja ajudava, mas ainda bloqueava o parser
+	// na posicao do <script> -- defer libera o parser ate o fim do HTML.
+	wp_script_add_data( 'dsi-bilheteiro-widget', 'strategy', 'defer' );
 } );
 
