@@ -21,6 +21,7 @@ $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" vi
 
     <!-- Wordmark compacto -->
     <div class="dsi-masthead__brand dsi-masthead__brand--compact">
+        <p class="dsi-masthead__established">Desde 2009</p>
         <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="dsi-masthead__wordmark" aria-label="<?php bloginfo( 'name' ); ?>">
             Deve<em>ser</em>isso
         </a>
