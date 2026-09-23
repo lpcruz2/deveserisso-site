@@ -4335,8 +4335,18 @@ add_action( 'init', function (): void {
 }, 20 );
 
 // =============================================================================
-// 36. PERFORMANCE — adia o bootstrap do GTM (gtm.js) até a 1ª interação (2026-09-23)
+// 36. PERFORMANCE — adia o bootstrap do GTM (gtm.js) até a dobra carregar (2026-09-23)
 // =============================================================================
+// Gatilho original era "1ª interação" (scroll/clique/toque/tecla + timeout de
+// 5s) -- trocado a pedido do gestor: depender de interação do usuário atrasa
+// (até o timeout) o registro de pageview de quem não interage. Gatilho atual
+// é o evento `load` da página (tudo que é elegível pra carregar de cara já
+// carregou -- imagem lazy abaixo da dobra não conta, `loading="lazy"` nem
+// inicia o fetch) + `requestIdleCallback` pra não competir com qualquer
+// pintura ainda pendente naquele instante. Continua tirando o GTM do caminho
+// crítico até a 1ª dobra (o achado do Lighthouse), só que de forma
+// determinística em vez de depender de gesto do usuário. Timeout de 5s
+// mantido só como rede de segurança (load nunca dispara / trava).
 // Achado via Lighthouse (aba anônima, sem contaminação de extensão): o LCP no
 // mobile é elemento de TEXTO (subtítulo do post), não imagem — já pronto pra
 // pintar (TTFB 387ms), mas com "element render delay" de 815ms porque a
@@ -4384,16 +4394,12 @@ add_action( 'wp_footer', function (): void {
 	?>
 	<script>
 	(function () {
-		var eventos = [ 'scroll', 'mousemove', 'touchstart', 'keydown', 'click' ];
 		var disparado = false;
 		function carregarAdiados() {
 			if ( disparado ) {
 				return;
 			}
 			disparado = true;
-			eventos.forEach( function ( evt ) {
-				window.removeEventListener( evt, carregarAdiados, { passive: true } );
-			} );
 			document.querySelectorAll( 'script[data-dsi-delay="1"]' ).forEach( function ( antigo ) {
 				var novo = document.createElement( 'script' );
 				for ( var i = 0; i < antigo.attributes.length; i++ ) {
@@ -4407,10 +4413,19 @@ add_action( 'wp_footer', function (): void {
 				antigo.remove();
 			} );
 		}
-		eventos.forEach( function ( evt ) {
-			window.addEventListener( evt, carregarAdiados, { passive: true, once: true } );
-		} );
-		setTimeout( carregarAdiados, 5000 );
+		function aoCarregar() {
+			if ( 'requestIdleCallback' in window ) {
+				requestIdleCallback( carregarAdiados, { timeout: 2000 } );
+			} else {
+				setTimeout( carregarAdiados, 0 );
+			}
+		}
+		if ( document.readyState === 'complete' ) {
+			aoCarregar();
+		} else {
+			window.addEventListener( 'load', aoCarregar );
+		}
+		setTimeout( carregarAdiados, 5000 ); // rede de segurança, caso o load nunca dispare
 	})();
 	</script>
 	<?php
