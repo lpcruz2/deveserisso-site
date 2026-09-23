@@ -190,7 +190,7 @@ $related = new WP_Query( [
                 <div class="dsi-card__thumb dsi-card__thumb--square">
                     <a href="<?php the_permalink(); ?>" tabindex="-1" aria-hidden="true">
                         <?php if ( has_post_thumbnail() ) : ?>
-                            <?php the_post_thumbnail( 'dsi-square', [ 'class' => 'dsi-card__thumb-img' ] ); ?>
+                            <?php the_post_thumbnail( 'dsi-square', [ 'class' => 'dsi-card__thumb-img', 'loading' => 'lazy' ] ); ?>
                         <?php else : ?>
                             <div class="dsi-card__thumb-fallback" aria-hidden="true"></div>
                         <?php endif; ?>

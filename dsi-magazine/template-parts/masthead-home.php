@@ -51,7 +51,8 @@ $nav_items = [
             </button>
             <form class="dsi-masthead__search-form" role="search" method="get"
                   action="<?php echo esc_url( home_url( '/' ) ); ?>" aria-hidden="true">
-                <input type="search" name="s" class="dsi-masthead__search-input"
+                <label for="dsi-masthead-search-input" class="screen-reader-text">Buscar no site</label>
+                <input type="search" id="dsi-masthead-search-input" name="s" class="dsi-masthead__search-input"
                        placeholder="Buscar…" autocomplete="off">
                 <button type="submit" class="dsi-masthead__search-submit" aria-label="Buscar">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -80,7 +81,8 @@ $nav_items = [
         <!-- Busca mobile -->
         <div class="dsi-mobile-nav__search">
             <form role="search" method="get" action="<?php echo esc_url( home_url( '/' ) ); ?>">
-                <input type="search" name="s" class="dsi-mobile-nav__search-input"
+                <label for="dsi-mobile-search-input" class="screen-reader-text">Buscar no site</label>
+                <input type="search" id="dsi-mobile-search-input" name="s" class="dsi-mobile-nav__search-input"
                        placeholder="Buscar no site…" autocomplete="off">
                 <button type="submit" class="dsi-mobile-nav__search-btn" aria-label="Buscar">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>

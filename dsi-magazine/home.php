@@ -99,7 +99,7 @@ wp_reset_postdata();
     </div>
     <div class="dsi-tricolumn__grid">
         <?php foreach ( $three_posts as $i => $p ) :
-            $thumb   = get_the_post_thumbnail( $p->ID, 'dsi-wide', [ 'class' => 'dsi-tricolumn__img', 'width' => '768', 'height' => '512' ] );
+            $thumb   = get_the_post_thumbnail( $p->ID, 'dsi-wide', [ 'class' => 'dsi-tricolumn__img', 'width' => '768', 'height' => '512', 'loading' => 'lazy' ] );
             $initials = dsi_author_initials( $p->post_author );
         ?>
             <article class="dsi-tricolumn__item<?php echo $i > 0 ? ' dsi-tricolumn__item--ruled' : ''; ?>">
