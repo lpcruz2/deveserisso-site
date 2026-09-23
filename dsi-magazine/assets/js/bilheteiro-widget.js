@@ -130,16 +130,22 @@
 			   6px -> 12px so pra dar folga, sem mexer no tamanho do poster. */
 			'.dsi-bh-filme{display:flex;gap:8px;text-decoration:none;color:inherit;background:#fff;' +
 			'border-radius:8px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.12);}' +
-			'.dsi-bh-filme img{width:46px;height:68px;object-fit:cover;border-radius:4px;flex-shrink:0;}' +
-			'.dsi-bh-filme-sem-poster{width:46px;height:68px;background:#ebe3d2;border-radius:4px;' +
-			'display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}' +
+			/* Poster cresce junto com o texto (2026-09-23, pedido do gestor:
+			   "boxes precisam mostrar pelo menos 3 linhas do resumo") --
+			   46x68 ficava pequeno demais e desproporcional ao lado de um
+			   bloco de texto mais alto (titulo + 3 linhas + "Ver resenha").
+			   56x84 mantem a proporcao 2:3 de poster de verdade. */
+			'.dsi-bh-filme img{width:56px;height:84px;object-fit:cover;border-radius:4px;flex-shrink:0;}' +
+			'.dsi-bh-filme-sem-poster{width:56px;height:84px;background:#ebe3d2;border-radius:4px;' +
+			'display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;}' +
 			/* Fontes da indicacao aumentadas (2026-09-22/23, pedido do
 			   gestor: "a letra da indicacao esta muito pequena", depois
 			   "titulo do filme, sinopse e ver resenha podem ser um pouco
 			   maiores"). */
 			'.dsi-bh-filme-info strong{display:block;font-size:14px;margin-bottom:2px;}' +
+			/* 3 linhas de sinopse (2026-09-23, pedido do gestor), nao mais 2. */
 			'.dsi-bh-filme-info p{margin:0;font-size:13px;color:#6a5f4d;' +
-			'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
+			'display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}' +
 			/* Titulos de secao (2026-09-23, pedido do gestor: "Minhas
 			   indicacoes pra voce" antes da lista com resenha, "Voce tambem
 			   pode gostar" antes da externa) -- em negrito, maior que os

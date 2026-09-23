@@ -4030,7 +4030,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.0.13',
+		'1.0.14',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de
