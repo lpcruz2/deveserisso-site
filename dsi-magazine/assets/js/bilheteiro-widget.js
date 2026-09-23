@@ -146,8 +146,14 @@
 			   cards, pra marcar visualmente a troca de bloco no chat. Fonte
 			   subiu mais uma vez (15px -> 17px) a pedido do gestor, e o
 			   espaco pro texto ate os boxes abaixo tambem (8px -> 14px). */
-			'.dsi-bh-secao-titulo{margin:0 0 14px;font-size:17px;font-weight:700;}' +
-			'.dsi-bh-sem-resenha-titulo{margin:2px 0 8px;font-size:12px;color:#6a5f4d;font-weight:600;}' +
+			'.dsi-bh-secao-titulo{margin:0 0 4px;font-size:17px;font-weight:700;}' +
+			/* Texto de apoio (2026-09-23, pedido do gestor) abaixo do
+			   titulo "Minhas indicacoes para voce" -- explica de onde vem a
+			   recomendacao antes da lista de fato. */
+			'.dsi-bh-secao-apoio{margin:0 0 14px;font-size:12px;color:#6a5f4d;}' +
+			/* Fonte maior (2026-09-23, pedido do gestor: "precisa ter fonte
+			   maior") -- 12px -> 14px. */
+			'.dsi-bh-sem-resenha-titulo{margin:2px 0 8px;font-size:14px;color:#6a5f4d;font-weight:600;}' +
 			'.dsi-bh-ver-resenha{display:inline-block;margin-top:2px;font-size:12px;font-weight:600;color:#c2511d;}' +
 			/* Avaliacao (2026-09-22, pedido do gestor: "precisam ter mais
 			   espaco pra pessoas verem que eles existem") -- titulo em cima,
@@ -454,6 +460,7 @@
 
 		function montarCardsFilmes( itens ) {
 			var html = '<p class="dsi-bh-secao-titulo">Minhas indicações para você</p>' +
+				'<p class="dsi-bh-secao-apoio">Com base nas suas respostas, acredito que você vai gostar dessas produções.</p>' +
 				'<div class="dsi-bh-filmes">';
 			itens.forEach( function ( f, i ) {
 				html += '<a class="dsi-bh-filme" href="' + f.link + '" target="_blank" rel="noopener" ' +
