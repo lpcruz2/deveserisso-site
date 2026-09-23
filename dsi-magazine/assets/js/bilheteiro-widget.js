@@ -130,21 +130,26 @@
 			'.dsi-bh-filme-info strong{display:block;font-size:13px;margin-bottom:2px;}' +
 			'.dsi-bh-filme-info p{margin:0;font-size:12px;color:#6a5f4d;' +
 			'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
-			'.dsi-bh-sem-resenha-titulo{margin:2px 0 4px;font-size:12px;color:#6a5f4d;font-weight:600;}' +
+			/* Titulos de secao (2026-09-23, pedido do gestor: "Minhas
+			   indicacoes pra voce" antes da lista com resenha, "Voce tambem
+			   pode gostar" antes da externa) -- em negrito, maior que os
+			   cards, pra marcar visualmente a troca de bloco no chat. */
+			'.dsi-bh-secao-titulo{margin:0 0 8px;font-size:15px;font-weight:700;}' +
+			'.dsi-bh-sem-resenha-titulo{margin:2px 0 8px;font-size:12px;color:#6a5f4d;font-weight:600;}' +
 			'.dsi-bh-ver-resenha{display:inline-block;margin-top:2px;font-size:11px;font-weight:600;color:#c2511d;}' +
 			/* Avaliacao (2026-09-22, pedido do gestor: "precisam ter mais
 			   espaco pra pessoas verem que eles existem") -- titulo em cima,
 			   botoes numa linha so mas ocupando a largura inteira do box
 			   (flex:1 em cada um), padding e fonte maiores que o resto do
-			   card pra virar alvo de toque obvio, nao um detalhe pequeno. */
-			'.dsi-bh-feedback{margin-top:10px;}' +
-			/* Segunda rodada de ajuste (2026-09-22, pedido do gestor: "aumentar
-			   o texto da avaliacao e deixar com maior altura") -- letra maior
-			   ainda e padding vertical bem maior nos botoes (16px em vez de
-			   11px) pra ganhar altura de verdade, nao so largura. */
-			'.dsi-bh-feedback-titulo{display:block;margin-bottom:8px;font-size:14px;}' +
+			   card pra virar alvo de toque obvio, nao um detalhe pequeno.
+			   2026-09-23: virou um box de verdade (fundo/borda/padding
+			   proprios, nao so texto solto) pra ocupar mais espaco na tela
+			   e o titulo "Gostou das indicacoes?" ficou negrito e maior. */
+			'.dsi-bh-feedback{margin-top:12px;background:#fff;border-radius:8px;padding:14px;' +
+			'box-shadow:0 1px 4px rgba(0,0,0,.12);}' +
+			'.dsi-bh-feedback-titulo{display:block;margin-bottom:10px;font-size:15px;font-weight:700;}' +
 			'.dsi-bh-feedback-botoes{display:flex;gap:8px;}' +
-			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:16px 8px;' +
+			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:18px 8px;' +
 			'cursor:pointer;font-size:15px;font-weight:600;flex:1;}' +
 			/* No celular o painel flutuante pequeno fica ilegivel quando o
 			   teclado abre pra digitar (achado do gestor 2026-09-21: "fica
@@ -411,7 +416,8 @@
 		}
 
 		function montarCardsFilmes( itens ) {
-			var html = '<div class="dsi-bh-filmes">';
+			var html = '<p class="dsi-bh-secao-titulo">Minhas indicações para você</p>' +
+				'<div class="dsi-bh-filmes">';
 			itens.forEach( function ( f, i ) {
 				html += '<a class="dsi-bh-filme" href="' + f.link + '" target="_blank" rel="noopener" ' +
 					'data-id="' + f.id + '" data-fonte="' + f.fonte + '" data-titulo="' + escapeHtml( f.titulo ) + '" data-posicao="' + ( i + 1 ) + '">' +
@@ -434,7 +440,8 @@
 		// importado, sem post no site ainda -- por isso sem link, sem botao
 		// de feedback (nao tem id/fonte pra associar).
 		function montarCardsSemResenha( itens ) {
-			var html = '<p class="dsi-bh-sem-resenha-titulo">Também recomendamos (ainda sem resenha no site):</p>' +
+			var html = '<p class="dsi-bh-secao-titulo">Você também pode gostar</p>' +
+				'<p class="dsi-bh-sem-resenha-titulo">Também recomendamos (ainda sem resenha no site):</p>' +
 				'<div class="dsi-bh-filmes">';
 			itens.forEach( function ( f ) {
 				html += '<div class="dsi-bh-filme dsi-bh-filme-sem-link">' +
