@@ -138,10 +138,14 @@
 			   (flex:1 em cada um), padding e fonte maiores que o resto do
 			   card pra virar alvo de toque obvio, nao um detalhe pequeno. */
 			'.dsi-bh-feedback{margin-top:10px;}' +
-			'.dsi-bh-feedback-titulo{display:block;margin-bottom:6px;font-size:13px;}' +
+			/* Segunda rodada de ajuste (2026-09-22, pedido do gestor: "aumentar
+			   o texto da avaliacao e deixar com maior altura") -- letra maior
+			   ainda e padding vertical bem maior nos botoes (16px em vez de
+			   11px) pra ganhar altura de verdade, nao so largura. */
+			'.dsi-bh-feedback-titulo{display:block;margin-bottom:8px;font-size:14px;}' +
 			'.dsi-bh-feedback-botoes{display:flex;gap:8px;}' +
-			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:11px 8px;' +
-			'cursor:pointer;font-size:13px;font-weight:600;flex:1;}' +
+			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:16px 8px;' +
+			'cursor:pointer;font-size:15px;font-weight:600;flex:1;}' +
 			/* No celular o painel flutuante pequeno fica ilegivel quando o
 			   teclado abre pra digitar (achado do gestor 2026-09-21: "fica
 			   dificil ler o que foi dito no chat") -- no lugar de um balao no
