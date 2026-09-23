@@ -113,6 +113,12 @@
 			   largura inteira do thread. Classe aplicada so nas mensagens que
 			   carregam .dsi-bh-filmes (ver renderFilmes/renderSemResenha). */
 			'.dsi-bh-msg--filmes{max-width:100%;align-self:stretch;background:none;padding:0;}' +
+			/* Espaco extra so entre o box de avaliacao (fim do bloco com
+			   resenha) e o bloco externo seguinte (2026-09-23, pedido do
+			   gestor: "so dar mais espaco, nao precisa aumentar o bloco") --
+			   margin-top em cima do gap:8px que ja existe entre mensagens,
+			   sem mexer no padding/tamanho do proprio box. */
+			'.dsi-bh-msg--externo{margin-top:16px;}' +
 			'.dsi-bh-digitando{opacity:.6;}' +
 			'.dsi-bh-form{display:flex;gap:6px;padding:10px;border-top:1px solid #bdb29c;}' +
 			'.dsi-bh-input{flex:1;padding:8px 10px;border:1px solid #bdb29c;border-radius:6px;font:inherit;}' +
@@ -138,8 +144,9 @@
 			   indicacoes pra voce" antes da lista com resenha, "Voce tambem
 			   pode gostar" antes da externa) -- em negrito, maior que os
 			   cards, pra marcar visualmente a troca de bloco no chat. Fonte
-			   subiu mais uma vez (15px -> 17px) a pedido do gestor. */
-			'.dsi-bh-secao-titulo{margin:0 0 8px;font-size:17px;font-weight:700;}' +
+			   subiu mais uma vez (15px -> 17px) a pedido do gestor, e o
+			   espaco pro texto ate os boxes abaixo tambem (8px -> 14px). */
+			'.dsi-bh-secao-titulo{margin:0 0 14px;font-size:17px;font-weight:700;}' +
 			'.dsi-bh-sem-resenha-titulo{margin:2px 0 8px;font-size:12px;color:#6a5f4d;font-weight:600;}' +
 			'.dsi-bh-ver-resenha{display:inline-block;margin-top:2px;font-size:12px;font-weight:600;color:#c2511d;}' +
 			/* Avaliacao (2026-09-22, pedido do gestor: "precisam ter mais
@@ -242,6 +249,17 @@
 			painel.style.height = '';
 			painel.style.top = '';
 		}
+		// El.offsetTop sozinho da a posicao relativa ao offsetParent mais
+		// proximo (aqui, .dsi-bh-painel, ja que .dsi-bh-thread nao tem
+		// position:relative) -- nao a posicao dentro do conteudo rolavel do
+		// thread. Usar isso direto em thread.scrollTop desalinhava o alvo
+		// (achado do gestor 2026-09-23: o texto da secao nao ficava no
+		// comecinho da lista depois de rolar). getBoundingClientRect e
+		// independente de quem e o offsetParent -- sempre da a posicao real
+		// do elemento dentro do scroll do thread.
+		function offsetDentroDoThread( el ) {
+			return el.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop;
+		}
 		function ajustarParaTeclado() {
 			if ( ! window.visualViewport || window.innerWidth > 480 || ! painel.classList.contains( 'aberto' ) ) {
 				limparAjusteTeclado();
@@ -250,7 +268,7 @@
 			var vv = window.visualViewport;
 			painel.style.height = vv.height + 'px';
 			painel.style.top = vv.offsetTop + 'px';
-			thread.scrollTop = ancoraComResenha ? ancoraComResenha.offsetTop : thread.scrollHeight;
+			thread.scrollTop = ancoraComResenha ? offsetDentroDoThread( ancoraComResenha ) : thread.scrollHeight;
 		}
 		if ( window.visualViewport ) {
 			window.visualViewport.addEventListener( 'resize', ajustarParaTeclado );
@@ -508,7 +526,7 @@
 
 		function renderSemResenha( itens ) {
 			var msgEl = renderBot( montarCardsSemResenha( itens ) );
-			msgEl.classList.add( 'dsi-bh-msg--filmes' );
+			msgEl.classList.add( 'dsi-bh-msg--filmes', 'dsi-bh-msg--externo' );
 			return msgEl;
 		}
 		function addSemResenha( itens ) {
@@ -588,7 +606,7 @@
 					// deveserisso, que sao o conteudo prioritario (tem link
 					// "Ver resenha"). Forca a rolagem de volta pro topo do
 					// bloco com resenha depois que os dois ja renderizaram.
-					thread.scrollTop = ancoraComResenha.offsetTop;
+					thread.scrollTop = offsetDentroDoThread( ancoraComResenha );
 				}
 			} ).catch( function () {
 				carregando.remove();
