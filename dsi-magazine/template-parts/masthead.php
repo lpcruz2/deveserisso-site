@@ -1,8 +1,16 @@
 <?php
 /**
- * masthead-inner.php — Masthead compacto para páginas internas
- * (category, single, author, 404)
+ * masthead.php — Masthead único (home e páginas internas)
+ * Variante controlada por $args['variant'] ('home' | 'inner'), passado pelo
+ * get_template_part() em header.php. Conteúdo (marca, nav, busca) é idêntico
+ * nas duas variantes; só muda o tamanho do wordmark (CSS via modificador
+ * BEM) e a marcação do wordmark como <h1> — que só pode existir uma vez por
+ * página, então fica reservado à home (nas internas o <h1> real é o título
+ * do post/categoria/etc.).
  */
+$variant = ( $args['variant'] ?? 'inner' ) === 'home' ? 'home' : 'inner';
+$is_home = $variant === 'home';
+
 $nav_items = [
     'Crítica'         => home_url( '/category/critica/' ),
     'Listas'          => home_url( '/category/listas/' ),
@@ -17,18 +25,26 @@ $nav_items = [
 $current_cat_slug = is_category() ? get_queried_object()->slug : '';
 $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
 ?>
-<header class="dsi-masthead dsi-masthead--inner" role="banner">
+<header class="dsi-masthead dsi-masthead--<?php echo esc_attr( $variant ); ?>" role="banner">
 
-    <!-- Wordmark compacto -->
-    <div class="dsi-masthead__brand dsi-masthead__brand--compact">
+    <!-- Wordmark -->
+    <div class="dsi-masthead__brand<?php echo $is_home ? '' : ' dsi-masthead__brand--compact'; ?>">
         <p class="dsi-masthead__established">Desde 2009</p>
+        <?php if ( $is_home ) : ?>
+        <h1 class="dsi-masthead__wordmark-heading">
+            <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="dsi-masthead__wordmark" aria-label="<?php bloginfo( 'name' ); ?>">
+                Deve<em>ser</em>isso
+            </a>
+        </h1>
+        <?php else : ?>
         <a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="dsi-masthead__wordmark" aria-label="<?php bloginfo( 'name' ); ?>">
             Deve<em>ser</em>isso
         </a>
+        <?php endif; ?>
         <p class="dsi-masthead__subtitle">filmes · séries · livros · programação da tv</p>
     </div>
 
-    <!-- Nav -->
+    <!-- Nav principal -->
     <nav class="dsi-masthead__nav" aria-label="Menu principal">
         <?php
         $dsi_nav_args = dsi_nav_menu_args( 'dsi-masthead__nav-list' );
@@ -44,7 +60,6 @@ $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" vi
             echo '</ul>';
         }
         ?>
-
         <!-- Busca expansível desktop -->
         <div class="dsi-masthead__search-wrap">
             <button type="button" class="dsi-masthead__search-toggle" aria-label="Buscar" aria-expanded="false">
@@ -63,10 +78,10 @@ $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" vi
     </nav>
 
     <!-- Mobile hamburger -->
-    <button class="dsi-masthead__burger" aria-label="Abrir menu" aria-expanded="false" aria-controls="dsi-mobile-nav-inner">
+    <button class="dsi-masthead__burger" aria-label="Abrir menu" aria-expanded="false" aria-controls="dsi-mobile-nav-<?php echo esc_attr( $variant ); ?>">
         <span></span><span></span><span></span>
     </button>
-    <div class="dsi-mobile-nav" id="dsi-mobile-nav-inner" hidden>
+    <div class="dsi-mobile-nav" id="dsi-mobile-nav-<?php echo esc_attr( $variant ); ?>" hidden>
         <?php
         $dsi_mob_args = dsi_nav_menu_args( 'dsi-mobile-nav__list' );
         if ( $dsi_mob_args ) {
@@ -95,8 +110,8 @@ $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" vi
 </header>
 <script>
 (function(){
-    var btn = document.querySelector('.dsi-masthead--inner .dsi-masthead__search-toggle');
-    var frm = document.querySelector('.dsi-masthead--inner .dsi-masthead__search-form');
+    var btn = document.querySelector('.dsi-masthead--<?php echo esc_js( $variant ); ?> .dsi-masthead__search-toggle');
+    var frm = document.querySelector('.dsi-masthead--<?php echo esc_js( $variant ); ?> .dsi-masthead__search-form');
     if (!btn || !frm) return;
     btn.addEventListener('click', function() {
         var open = frm.classList.toggle('is-open');

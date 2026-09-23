@@ -29,14 +29,14 @@
 <?php
 /**
  * Determina qual layout de masthead renderizar:
- * - home:   masthead-home.php  (wordmark 140px + data + nav completa)
+ * - home/inner: masthead.php, variant 'home' ou 'inner' (mesmo conteúdo —
+ *   marca, nav, busca — só muda o tamanho do wordmark e se ele é <h1>)
  * - search: masthead-search.php (só wordmark compacto, sem nav — busca ocupa o espaço)
- * - inner:  masthead-inner.php  (wordmark 64px + nav completa)
  */
 if ( is_home() || is_front_page() ) {
-    get_template_part( 'template-parts/masthead', 'home' );
+    get_template_part( 'template-parts/masthead', null, [ 'variant' => 'home' ] );
 } elseif ( is_search() ) {
     get_template_part( 'template-parts/masthead', 'search' );
 } else {
-    get_template_part( 'template-parts/masthead', 'inner' );
+    get_template_part( 'template-parts/masthead', null, [ 'variant' => 'inner' ] );
 }
