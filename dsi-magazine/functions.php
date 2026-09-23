@@ -4334,3 +4334,85 @@ add_action( 'init', function (): void {
 	}
 }, 20 );
 
+// =============================================================================
+// 36. PERFORMANCE — adia o bootstrap do GTM (gtm.js) até a 1ª interação (2026-09-23)
+// =============================================================================
+// Achado via Lighthouse (aba anônima, sem contaminação de extensão): o LCP no
+// mobile é elemento de TEXTO (subtítulo do post), não imagem — já pronto pra
+// pintar (TTFB 387ms), mas com "element render delay" de 815ms porque a
+// thread principal está ocupada. Os dois maiores consumidores reais (depois
+// de excluído ruído de extensão do Chrome): script de bot-challenge do
+// Cloudflare (fora do nosso controle) e o snippet clássico do GTM
+// (gtmkit-container, plugin GTM Kit) — que ao executar cria e insere no DOM
+// a tag <script async src="gtm.js">, e o próprio container do GTM (configurado
+// no site do Tag Manager, não aqui) dispara a tag de GA4 que carrega o
+// gtag.js — ou seja, adiar só o bootstrap do gtm.js adia os dois juntos.
+//
+// GTM Kit tem dois mecanismos parecidos mas que NÃO servem pra isso:
+// `load_js_event` só atrasa um evento *dentro* do container já carregado, não
+// a própria network+exec de gtm.js; `consent_gating_mode` reaproveita o
+// mesmo truque de <script type="text/plain"> mas é pra LGPD/CMP de verdade
+// (sem um CMP configurado, ficaria bloqueado pra sempre). Por isso a versão
+// abaixo é própria do tema, no mesmo padrão que o `consent-gating.js` do
+// próprio plugin usa (clona o node, troca o type, insere, remove o antigo).
+//
+// O snippet do gtm.js é impresso pelo GTM Kit como script INLINE (`wp_add_
+// inline_script`, sem `src` próprio) -- não passa pelo filtro
+// `script_loader_tag` (que só reescreve tags com `src`). Por isso a
+// interceptação é via buffer de saída só do `wp_head` (não a página inteira,
+// pra não brigar com o cache/minificador do LiteSpeed), localizando a tag
+// pelo id fixo que o GTM Kit sempre usa: `gtmkit-container-js-after`.
+add_action( 'wp_head', function (): void {
+	ob_start();
+}, 1 );
+
+add_action( 'wp_head', function (): void {
+	$html = ob_get_clean();
+	if ( false === $html ) {
+		return;
+	}
+	echo preg_replace_callback(
+		'/<script([^>]*\bid="gtmkit-container-js-after"[^>]*)>(.*?)<\/script>/s',
+		static function ( array $m ): string {
+			return '<script' . $m[1] . ' type="text/plain" data-dsi-delay="1">' . $m[2] . '</script>';
+		},
+		$html
+	);
+}, 999 );
+
+add_action( 'wp_footer', function (): void {
+	?>
+	<script>
+	(function () {
+		var eventos = [ 'scroll', 'mousemove', 'touchstart', 'keydown', 'click' ];
+		var disparado = false;
+		function carregarAdiados() {
+			if ( disparado ) {
+				return;
+			}
+			disparado = true;
+			eventos.forEach( function ( evt ) {
+				window.removeEventListener( evt, carregarAdiados, { passive: true } );
+			} );
+			document.querySelectorAll( 'script[data-dsi-delay="1"]' ).forEach( function ( antigo ) {
+				var novo = document.createElement( 'script' );
+				for ( var i = 0; i < antigo.attributes.length; i++ ) {
+					var attr = antigo.attributes[ i ];
+					if ( attr.name !== 'type' && attr.name !== 'data-dsi-delay' ) {
+						novo.setAttribute( attr.name, attr.value );
+					}
+				}
+				novo.text = antigo.text;
+				antigo.parentNode.insertBefore( novo, antigo.nextSibling );
+				antigo.remove();
+			} );
+		}
+		eventos.forEach( function ( evt ) {
+			window.addEventListener( evt, carregarAdiados, { passive: true, once: true } );
+		} );
+		setTimeout( carregarAdiados, 5000 );
+	})();
+	</script>
+	<?php
+}, 5 );
+
