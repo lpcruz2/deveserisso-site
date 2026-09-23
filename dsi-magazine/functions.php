@@ -4268,7 +4268,6 @@ add_filter( 'request', function ( array $query_vars ): array {
 	// /filmes/, pra nao deixar um link/indice velho apontando pra
 	// /filmes/slug-antigo/ cair num 404 seco.
 	$antigo = get_posts( [
-		'name'        => $slug,
 		'post_type'   => 'post',
 		'post_status' => 'publish',
 		'meta_key'    => '_wp_old_slug',
