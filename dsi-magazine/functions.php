@@ -139,8 +139,7 @@ img,svg,video{display:block;max-width:100%}
 .dsi-masthead__nav-list{display:flex;align-items:center;gap:36px}
 .dsi-masthead__nav-link,.dsi-masthead__nav-list .menu-item>a{font-family:"Manrope",system-ui,sans-serif;font-size:14px;font-weight:500;color:#1d1a14}
 .dsi-masthead__search-toggle,.dsi-masthead__search-wrap{margin-left:auto}
-.dsi-masthead__burger{display:none;flex-direction:column;gap:5px;background:none;border:none;cursor:pointer;padding:10px;position:absolute;top:20px;right:20px}
-.dsi-masthead--home .dsi-masthead__burger{top:14px}
+.dsi-masthead__burger{display:none;flex-direction:column;gap:5px;background:none;border:none;cursor:pointer;padding:10px;position:absolute;top:14px;right:20px}
 .dsi-masthead__burger span{display:block;width:22px;height:1px;background:#1d1a14}
 @media(max-width:768px){.dsi-masthead__burger{display:flex}}
 /* === Hero (home) — acima da dobra === */

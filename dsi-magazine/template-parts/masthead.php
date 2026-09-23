@@ -2,11 +2,11 @@
 /**
  * masthead.php — Masthead único (home e páginas internas)
  * Variante controlada por $args['variant'] ('home' | 'inner'), passado pelo
- * get_template_part() em header.php. Conteúdo (marca, nav, busca) é idêntico
- * nas duas variantes; só muda o tamanho do wordmark (CSS via modificador
- * BEM) e a marcação do wordmark como <h1> — que só pode existir uma vez por
- * página, então fica reservado à home (nas internas o <h1> real é o título
- * do post/categoria/etc.).
+ * get_template_part() em header.php. Visualmente idêntico nas duas
+ * variantes — a única diferença é a marcação do wordmark como <h1>, que só
+ * pode existir uma vez por página e por isso fica reservada à home (a home
+ * não tem nenhum outro <h1> no próprio conteúdo; nas internas o <h1> real é
+ * o título do post/categoria/etc., então o wordmark ali é um link comum).
  */
 $variant = ( $args['variant'] ?? 'inner' ) === 'home' ? 'home' : 'inner';
 $is_home = $variant === 'home';
@@ -28,7 +28,7 @@ $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" vi
 <header class="dsi-masthead dsi-masthead--<?php echo esc_attr( $variant ); ?>" role="banner">
 
     <!-- Wordmark -->
-    <div class="dsi-masthead__brand<?php echo $is_home ? '' : ' dsi-masthead__brand--compact'; ?>">
+    <div class="dsi-masthead__brand">
         <p class="dsi-masthead__established">Desde 2009</p>
         <?php if ( $is_home ) : ?>
         <h1 class="dsi-masthead__wordmark-heading">
