@@ -330,6 +330,11 @@ RewriteRule ^tudo-que-sabemos-e-como-garantir-ingressos-para-o-tudum-festival/?$
 <IfModule mod_rewrite.c>
 RewriteEngine On
 RewriteCond %{REQUEST_URI} !^/(blog/)?(wp-admin|wp-includes|wp-content|wp-json)
+# Arquivo fisico .md ja existente (ex: .well-known/agent-skills/.../SKILL.md)
+# nao deve ser roteado pro WordPress -- sem esta condicao, qualquer .md
+# estatico em disco caia num 404 do WP (get_page_by_path() sem post
+# correspondente), mesmo com o arquivo fisico presente no servidor.
+RewriteCond %{REQUEST_FILENAME} !-f
 RewriteRule ^(.+)\.md$ /$1/?dsi_markdown=1 [QSA,L]
 </IfModule>
 # END Markdown for Agents
