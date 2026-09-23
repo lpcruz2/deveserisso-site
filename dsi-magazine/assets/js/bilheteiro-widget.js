@@ -119,24 +119,29 @@
 			'.dsi-bh-enviar{background:#c2511d;color:#fff;border:none;border-radius:6px;padding:8px 12px;' +
 			'font-weight:600;cursor:pointer;}' +
 			'.dsi-bh-filmes{display:flex;flex-direction:column;gap:8px;margin-top:4px;}' +
+			/* Boxes de filme mais altos (2026-09-23, pedido do gestor: "mais
+			   espaco pro texto sobre o filme e ver resenha") -- padding
+			   6px -> 12px so pra dar folga, sem mexer no tamanho do poster. */
 			'.dsi-bh-filme{display:flex;gap:8px;text-decoration:none;color:inherit;background:#fff;' +
-			'border-radius:8px;padding:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);}' +
+			'border-radius:8px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.12);}' +
 			'.dsi-bh-filme img{width:46px;height:68px;object-fit:cover;border-radius:4px;flex-shrink:0;}' +
 			'.dsi-bh-filme-sem-poster{width:46px;height:68px;background:#ebe3d2;border-radius:4px;' +
 			'display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}' +
-			/* Fontes da indicacao aumentadas (2026-09-22, pedido do gestor:
-			   "a letra da indicacao esta muito pequena") -- pelo menos +1px
-			   em cada um destes, na letra e na sinopse do card. */
-			'.dsi-bh-filme-info strong{display:block;font-size:13px;margin-bottom:2px;}' +
-			'.dsi-bh-filme-info p{margin:0;font-size:12px;color:#6a5f4d;' +
+			/* Fontes da indicacao aumentadas (2026-09-22/23, pedido do
+			   gestor: "a letra da indicacao esta muito pequena", depois
+			   "titulo do filme, sinopse e ver resenha podem ser um pouco
+			   maiores"). */
+			'.dsi-bh-filme-info strong{display:block;font-size:14px;margin-bottom:2px;}' +
+			'.dsi-bh-filme-info p{margin:0;font-size:13px;color:#6a5f4d;' +
 			'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
 			/* Titulos de secao (2026-09-23, pedido do gestor: "Minhas
 			   indicacoes pra voce" antes da lista com resenha, "Voce tambem
 			   pode gostar" antes da externa) -- em negrito, maior que os
-			   cards, pra marcar visualmente a troca de bloco no chat. */
-			'.dsi-bh-secao-titulo{margin:0 0 8px;font-size:15px;font-weight:700;}' +
+			   cards, pra marcar visualmente a troca de bloco no chat. Fonte
+			   subiu mais uma vez (15px -> 17px) a pedido do gestor. */
+			'.dsi-bh-secao-titulo{margin:0 0 8px;font-size:17px;font-weight:700;}' +
 			'.dsi-bh-sem-resenha-titulo{margin:2px 0 8px;font-size:12px;color:#6a5f4d;font-weight:600;}' +
-			'.dsi-bh-ver-resenha{display:inline-block;margin-top:2px;font-size:11px;font-weight:600;color:#c2511d;}' +
+			'.dsi-bh-ver-resenha{display:inline-block;margin-top:2px;font-size:12px;font-weight:600;color:#c2511d;}' +
 			/* Avaliacao (2026-09-22, pedido do gestor: "precisam ter mais
 			   espaco pra pessoas verem que eles existem") -- titulo em cima,
 			   botoes numa linha so mas ocupando a largura inteira do box
@@ -202,6 +207,16 @@
 		var rodadaAtual     = 1;
 		var excluirFilmes   = [];
 		var historico       = []; // replay da conversa pra restaurar do localStorage
+		// Ultimo bloco com resenha do deveserisso renderizado -- mantem a
+		// tela fixada nele em vez do fim da conversa (achado do gestor
+		// 2026-09-23: no celular, abrir o widget com uma conversa salva
+		// sempre mostrava a recomendacao externa primeiro, porque
+		// ajustarParaTeclado() forcava scroll pro fim toda vez que rodava,
+		// inclusive logo depois do restaurar() e a cada evento de teclado).
+		// Zerada quando uma nova mensagem do usuario entra (renderUser) e
+		// setada de novo quando um novo bloco com resenha aparece
+		// (renderFilmes) -- ver ajustarParaTeclado abaixo.
+		var ancoraComResenha = null;
 
 		function salvarEstado() {
 			salvarEstadoFn( {
@@ -235,7 +250,7 @@
 			var vv = window.visualViewport;
 			painel.style.height = vv.height + 'px';
 			painel.style.top = vv.offsetTop + 'px';
-			thread.scrollTop = thread.scrollHeight;
+			thread.scrollTop = ancoraComResenha ? ancoraComResenha.offsetTop : thread.scrollHeight;
 		}
 		if ( window.visualViewport ) {
 			window.visualViewport.addEventListener( 'resize', ajustarParaTeclado );
@@ -298,6 +313,10 @@
 			return el;
 		}
 		function renderUser( texto ) {
+			// Nova pergunta do usuario -- solta a ancora no bloco com resenha
+			// anterior, volta a acompanhar o fim da conversa ate a proxima
+			// recomendacao chegar (ver renderFilmes).
+			ancoraComResenha = null;
 			var el = document.createElement( 'div' );
 			el.className = 'dsi-bh-msg dsi-bh-msg--user';
 			el.textContent = texto;
@@ -475,6 +494,7 @@
 		function renderFilmes( itens ) {
 			var msgEl = renderBot( montarCardsFilmes( itens ) );
 			msgEl.classList.add( 'dsi-bh-msg--filmes' );
+			ancoraComResenha = msgEl;
 			ligarBotoesFeedback( msgEl );
 			ligarCliquesFilmes( msgEl );
 			return msgEl;
@@ -550,10 +570,9 @@
 					addBot( 'Não achei nada pra essa combinação ainda. Quer tentar outro gênero ou emoção?' );
 					return;
 				}
-				var elComResenha = null;
 				if ( itens.length ) {
 					itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
-					elComResenha = addFilmes( itens );
+					addFilmes( itens ); // seta ancoraComResenha internamente
 				}
 				if ( semResenha.length ) {
 					// Achado ao vivo 2026-09-22: sem isso, "quero outras" so
@@ -562,14 +581,14 @@
 					semResenha.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
 					addSemResenha( semResenha );
 				}
-				if ( elComResenha ) {
+				if ( ancoraComResenha ) {
 					// Achado ao vivo 2026-09-22 (pedido do gestor): renderBot
 					// sempre rola pro fim -- com os dois blocos, a tela parava
 					// nos externos (sem resenha) em vez de ficar nos posts do
 					// deveserisso, que sao o conteudo prioritario (tem link
 					// "Ver resenha"). Forca a rolagem de volta pro topo do
 					// bloco com resenha depois que os dois ja renderizaram.
-					thread.scrollTop = elComResenha.offsetTop;
+					thread.scrollTop = ancoraComResenha.offsetTop;
 				}
 			} ).catch( function () {
 				carregando.remove();
