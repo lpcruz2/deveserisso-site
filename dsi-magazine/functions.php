@@ -4040,3 +4040,83 @@ add_action( 'wp_enqueue_scripts', function (): void {
 	wp_script_add_data( 'dsi-bilheteiro-widget', 'strategy', 'defer' );
 } );
 
+// =============================================================================
+// 35. TESTE — URL /filmes/nome-do-filme/ para grupo controle (2026-09-23)
+// =============================================================================
+// A pedido do gestor: medir se prefixar a URL de posts individuais de filme
+// com /filmes/ (ex: /filmes/segura-a-onda/, hoje sao flat /segura-a-onda/)
+// causa impacto real de SEO -- testado so num grupo controle de 50 posts
+// (meta _dsi_teste_url_filmes = 1), sem mudar o resto do site. Metodologia
+// completa (selecao, baseline GSC, checkpoints) em
+// experimentos/teste-url-filmes-2026-09/README.md.
+//
+// Mecanismo: nao muda o post_name real (slug continua o mesmo). A URL antiga
+// (flat) continua resolvendo pela rota nativa do WP -- interceptada em
+// template_redirect e redirecionada (301) pra nova. A URL nova e resolvida
+// por rewrite rule dedicada, buscando o post direto pelo path (mesmo padrao
+// defensivo do roteador do .md, mu-plugins/dsi-ai-markdown.php) em vez de
+// confiar no parser de permalink do WP pra um path fora do padrao do site.
+
+add_action( 'init', function (): void {
+	add_rewrite_rule( '^filmes/([^/]+)/?$', 'index.php?dsi_teste_url_filmes_slug=$matches[1]', 'top' );
+}, 10 );
+
+add_filter( 'query_vars', function ( array $vars ): array {
+	$vars[] = 'dsi_teste_url_filmes_slug';
+	return $vars;
+} );
+
+add_filter( 'request', function ( array $query_vars ): array {
+	$slug = $query_vars['dsi_teste_url_filmes_slug'] ?? '';
+	if ( '' === $slug ) {
+		return $query_vars;
+	}
+	$post = get_page_by_path( sanitize_title( $slug ), OBJECT, 'post' );
+	if ( $post && '1' === get_post_meta( $post->ID, '_dsi_teste_url_filmes', true ) ) {
+		return [ 'p' => $post->ID, 'post_type' => 'post' ];
+	}
+	// slug nao existe ou nao esta no grupo controle -- 404 real, nao expor
+	// /filmes/qualquer-coisa/ como rota valida pro site inteiro.
+	return [ 'error' => '404' ];
+} );
+
+// URL antiga (flat) redireciona pra nova (com /filmes/) so pro grupo
+// controle -- link equity preservado via 301, mesmo padrao do teste de
+// slug curto (ver experimentos/teste-slug-urls-2026-09).
+add_action( 'template_redirect', function (): void {
+	if ( ! is_singular( 'post' ) ) {
+		return;
+	}
+	$post = get_queried_object();
+	if ( ! $post || '1' !== get_post_meta( $post->ID, '_dsi_teste_url_filmes', true ) ) {
+		return;
+	}
+	global $wp;
+	$caminho_atual    = trim( $wp->request, '/' );
+	$caminho_esperado = 'filmes/' . $post->post_name;
+	if ( $caminho_atual !== $caminho_esperado ) {
+		wp_safe_redirect( home_url( '/filmes/' . $post->post_name . '/' ), 301 );
+		exit;
+	}
+}, 5 );
+
+// Permalink dos posts do grupo controle passa a sair como /filmes/slug/ em
+// qualquer lugar que o tema/Yoast use get_permalink() -- nav, relacionados,
+// sitemap, canonical -- sem precisar reescrever cada chamador.
+add_filter( 'post_link', function ( string $url, WP_Post $post ): string {
+	if ( '1' === get_post_meta( $post->ID, '_dsi_teste_url_filmes', true ) ) {
+		return home_url( '/filmes/' . $post->post_name . '/' );
+	}
+	return $url;
+}, 10, 2 );
+
+// Flush unico das rewrite rules apos a rule nova ser registrada acima --
+// nunca em toda requisicao (caro). Guarda por option, mesmo padrao do
+// dbDelta versionado ja usado no projeto (secao 32).
+add_action( 'init', function (): void {
+	if ( '1' !== get_option( 'dsi_teste_url_filmes_flush_v1' ) ) {
+		flush_rewrite_rules();
+		update_option( 'dsi_teste_url_filmes_flush_v1', '1' );
+	}
+}, 20 );
+
