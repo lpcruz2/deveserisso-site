@@ -26,7 +26,7 @@ $nav_items = [
                 Deve<em>ser</em>isso
             </a>
         </h1>
-        <p class="dsi-masthead__subtitle">cinema · séries · livros · programação da tv</p>
+        <p class="dsi-masthead__subtitle">filmes · séries · livros · programação da tv</p>
     </div>
 
     <!-- Nav principal -->
