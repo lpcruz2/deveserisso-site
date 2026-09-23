@@ -197,4 +197,92 @@ final class BilheteiroLogicaTest extends TestCase {
 	public function test_nao_confunde_rede_globo_com_globoplay(): void {
 		$this->assertSame( [], dsi_bilheteiro_detectar_plataformas_texto( 'vi isso na Rede Globo ontem' ) );
 	}
+
+	// -- dsi_bilheteiro_montar_contexto_filmes -------------------------------
+
+	public function test_contexto_filmes_vazio_retorna_string_vazia(): void {
+		$this->assertSame( '', dsi_bilheteiro_montar_contexto_filmes( [] ) );
+	}
+
+	public function test_contexto_filmes_inclui_titulo_ano_generos_diretor_atores_sinopse(): void {
+		$contexto = dsi_bilheteiro_montar_contexto_filmes( [ [
+			'titulo'         => 'Matrix',
+			'ano_lancamento' => 1999,
+			'generos'        => [ 'Ação', 'Ficção Científica' ],
+			'diretor'        => 'As Wachowski',
+			'atores'         => [ 'Keanu Reeves', 'Laurence Fishburne' ],
+			'sinopse'        => 'Um hacker descobre a verdade sobre a realidade.',
+		] ] );
+		$this->assertStringContainsString( '1) Título: Matrix (1999)', $contexto );
+		$this->assertStringContainsString( 'Gênero: Ação, Ficção Científica', $contexto );
+		$this->assertStringContainsString( 'Diretor: As Wachowski', $contexto );
+		$this->assertStringContainsString( 'Elenco conhecido: Keanu Reeves, Laurence Fishburne', $contexto );
+		$this->assertStringContainsString( 'Sinopse: Um hacker descobre a verdade sobre a realidade.', $contexto );
+	}
+
+	public function test_contexto_filmes_campo_ausente_vira_nao_informado_em_vez_de_sumir(): void {
+		// Nunca deixar um campo faltando parecer que "nao tem" (ex: elenco
+		// vazio nao pode ser lido pela IA como "confirmado que ninguem
+		// conhecido atua nesse filme") -- ver comentario da funcao.
+		$contexto = dsi_bilheteiro_montar_contexto_filmes( [ [ 'titulo' => 'Filme sem ficha completa' ] ] );
+		$this->assertStringContainsString( 'Gênero: não informado', $contexto );
+		$this->assertStringContainsString( 'Diretor: não informado', $contexto );
+		$this->assertStringContainsString( 'Elenco conhecido: não informado', $contexto );
+		$this->assertStringContainsString( 'Sinopse: não informada', $contexto );
+	}
+
+	public function test_contexto_filmes_numera_cada_titulo_em_sequencia(): void {
+		$contexto = dsi_bilheteiro_montar_contexto_filmes( [
+			[ 'titulo' => 'Filme A' ],
+			[ 'titulo' => 'Filme B' ],
+		] );
+		$this->assertStringContainsString( '1) Título: Filme A', $contexto );
+		$this->assertStringContainsString( '2) Título: Filme B', $contexto );
+	}
+
+	// -- dsi_bilheteiro_normalizar_item_pergunta -----------------------------
+
+	public function test_normaliza_item_com_resenha_genero_elenco_ano(): void {
+		// Contrato de itemListElement (com resenha) -- ver dsi_recomendar_filme.
+		$normalizado = dsi_bilheteiro_normalizar_item_pergunta( [
+			'titulo'  => 'Matrix',
+			'ano'     => 1999,
+			'genero'  => [ 'Ação' ],
+			'direcao' => [ 'As Wachowski' ],
+			'elenco'  => [ 'Keanu Reeves' ],
+			'sinopse' => 'Um hacker...',
+		] );
+		$this->assertSame( [
+			'titulo'         => 'Matrix',
+			'ano_lancamento' => 1999,
+			'generos'        => [ 'Ação' ],
+			'diretor'        => 'As Wachowski',
+			'atores'         => [ 'Keanu Reeves' ],
+			'sinopse'        => 'Um hacker...',
+		], $normalizado );
+	}
+
+	public function test_normaliza_item_sem_resenha_generos_atores_ano_lancamento(): void {
+		// Contrato de sem_resenha -- ver dsi_recomendar_filme. Sem "direcao".
+		$normalizado = dsi_bilheteiro_normalizar_item_pergunta( [
+			'titulo'         => 'Toy Story 4',
+			'ano_lancamento' => 2019,
+			'generos'        => [ 'Animação' ],
+			'atores'         => [ 'Tom Hanks' ],
+			'sinopse'        => 'Woody e a turma...',
+		] );
+		$this->assertSame( 'Toy Story 4', $normalizado['titulo'] );
+		$this->assertSame( 2019, $normalizado['ano_lancamento'] );
+		$this->assertSame( [ 'Animação' ], $normalizado['generos'] );
+		$this->assertSame( [ 'Tom Hanks' ], $normalizado['atores'] );
+		$this->assertNull( $normalizado['diretor'] );
+	}
+
+	public function test_normaliza_item_vazio_nao_quebra(): void {
+		$normalizado = dsi_bilheteiro_normalizar_item_pergunta( [] );
+		$this->assertSame( '', $normalizado['titulo'] );
+		$this->assertSame( [], $normalizado['generos'] );
+		$this->assertSame( [], $normalizado['atores'] );
+		$this->assertNull( $normalizado['diretor'] );
+	}
 }

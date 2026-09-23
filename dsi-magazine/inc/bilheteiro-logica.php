@@ -168,3 +168,53 @@ function dsi_bilheteiro_detectar_plataformas_texto( string $mensagem ): array {
 	}
 	return $encontradas;
 }
+
+// Monta o "contexto grounded" pras perguntas livres feitas DEPOIS que a
+// recomendacao ja foi mostrada (ex: "esses filmes tem o De Niro?" -- achado
+// do relatorio semanal 2026-09-23: o bot nao tratava isso, so repetia a
+// mensagem generica de "pronto"). Pura de proposito, mesma razao do resto
+// deste arquivo: testar sem precisar de banco. NUNCA deixa a IA responder
+// sem esses dados na frente -- mesma filosofia de "nunca inventar" ja usada
+// pra genero/plataforma/titulo em pt-BR (ver dsi_catalogo_tmdb_tentar_titulo_pt
+// em functions.php). Campo ausente vira "não informado" em vez de sumir,
+// assim a IA sabe que nao tem certeza em vez de inferir a partir de um
+// campo faltando.
+function dsi_bilheteiro_montar_contexto_filmes( array $filmes ): string {
+	if ( empty( $filmes ) ) {
+		return '';
+	}
+	$blocos = [];
+	foreach ( array_values( $filmes ) as $i => $filme ) {
+		$titulo  = ( isset( $filme['titulo'] ) && $filme['titulo'] !== '' ) ? (string) $filme['titulo'] : 'não informado';
+		$ano     = $filme['ano_lancamento'] ?? null;
+		$generos = ! empty( $filme['generos'] ) ? implode( ', ', (array) $filme['generos'] ) : 'não informado';
+		$diretor = ! empty( $filme['diretor'] ) ? (string) $filme['diretor'] : 'não informado';
+		$atores  = ! empty( $filme['atores'] ) ? implode( ', ', (array) $filme['atores'] ) : 'não informado';
+		$sinopse = ! empty( $filme['sinopse'] ) ? (string) $filme['sinopse'] : 'não informada';
+		$blocos[] = ( $i + 1 ) . ') Título: ' . $titulo . ( $ano ? ' (' . $ano . ')' : '' ) . "\n" .
+			'Gênero: ' . $generos . "\n" .
+			'Diretor: ' . $diretor . "\n" .
+			'Elenco conhecido: ' . $atores . "\n" .
+			'Sinopse: ' . $sinopse;
+	}
+	return implode( "\n\n", $blocos );
+}
+
+// Normaliza um item vindo do cliente pro formato que
+// dsi_bilheteiro_montar_contexto_filmes() espera. Existe porque /recomendar-filme
+// usa nomes de campo DIFERENTES nos dois ramos que ja mostra na tela --
+// itemListElement (com resenha) usa genero/elenco/ano; sem_resenha usa
+// generos/atores/ano_lancamento (herda as colunas da tabela de catalogo) --
+// e o widget manda de volta qualquer um dos dois conforme o item veio. Sem
+// essa normalizacao, metade dos itens perderia elenco/genero silenciosamente
+// so por causa do nome do campo, nao por falta do dado de verdade.
+function dsi_bilheteiro_normalizar_item_pergunta( array $item ): array {
+	return [
+		'titulo'         => (string) ( $item['titulo'] ?? '' ),
+		'ano_lancamento' => $item['ano_lancamento'] ?? ( $item['ano'] ?? null ),
+		'generos'        => (array) ( $item['generos'] ?? ( $item['genero'] ?? [] ) ),
+		'diretor'        => is_array( $item['direcao'] ?? null ) ? implode( ', ', $item['direcao'] ) : ( $item['diretor'] ?? $item['direcao'] ?? null ),
+		'atores'         => (array) ( $item['atores'] ?? ( $item['elenco'] ?? [] ) ),
+		'sinopse'        => (string) ( $item['sinopse'] ?? '' ),
+	];
+}

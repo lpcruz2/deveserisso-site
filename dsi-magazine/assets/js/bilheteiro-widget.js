@@ -13,6 +13,7 @@
 	var BILHETEIRO_CHAT_ENDPOINT = 'https://deveserisso.com.br/wp-json/dsi/v1/bilheteiro-chat';
 	var CINEQUIZ_ENDPOINT        = 'https://deveserisso.com.br/wp-json/dsi/v1/recomendar-filme';
 	var FEEDBACK_ENDPOINT        = 'https://deveserisso.com.br/wp-json/dsi/v1/recomendacao-feedback';
+	var PERGUNTAR_ENDPOINT       = 'https://deveserisso.com.br/wp-json/dsi/v1/bilheteiro-perguntar';
 
 	function gerarSessaoId() {
 		if ( window.crypto && crypto.randomUUID ) return crypto.randomUUID();
@@ -236,6 +237,15 @@
 		// setada de novo quando um novo bloco com resenha aparece
 		// (renderFilmes) -- ver ajustarParaTeclado abaixo.
 		var ancoraComResenha = null;
+		// Ids (no catalogo) dos filmes mostrados na ultima leva de
+		// recomendacoes + flag "ja recomendei, proxima mensagem e pergunta
+		// sobre o que mostrei, nao nova preferencia" (achado do relatorio
+		// semanal 2026-09-23: "Todas essas produções possuem o De Niro?"
+		// caia direto na extracao de preferencia de novo, sem responder
+		// nada). Ver perguntarSobreRecomendacoes() e o branch em
+		// form.addEventListener('submit', ...) abaixo.
+		var ultimosItensRecomendados = [];
+		var perguntasEncerradas      = false;
 
 		function salvarEstado() {
 			salvarEstadoFn( {
@@ -245,6 +255,8 @@
 				rodadaAtual: rodadaAtual,
 				excluirFilmes: excluirFilmes,
 				historico: historico,
+				ultimosItensRecomendados: ultimosItensRecomendados,
+				perguntasEncerradas: perguntasEncerradas,
 				salvoEm: Date.now()
 			} );
 		}
@@ -321,12 +333,14 @@
 		} );
 		reiniciarBtn.addEventListener( 'click', function () {
 			limparEstadoSalvo();
-			sessaoId        = gerarSessaoId();
-			estado          = {};
-			perguntasFeitas = 0;
-			rodadaAtual     = 1;
-			excluirFilmes   = [];
-			historico       = [];
+			sessaoId                 = gerarSessaoId();
+			estado                   = {};
+			perguntasFeitas          = 0;
+			rodadaAtual              = 1;
+			excluirFilmes            = [];
+			historico                = [];
+			ultimosItensRecomendados = [];
+			perguntasEncerradas      = false;
 			thread.innerHTML = '';
 			iniciar();
 		} );
@@ -369,12 +383,14 @@
 		// so acontece na primeira abertura do painel, se tiver algo salvo
 		// dentro do prazo de validade (ver carregarEstadoSalvo).
 		function restaurar( dados ) {
-			sessaoId        = dados.sessaoId || sessaoId;
-			estado          = dados.estado || {};
-			perguntasFeitas = dados.perguntasFeitas || 0;
-			rodadaAtual     = dados.rodadaAtual || 1;
-			excluirFilmes   = dados.excluirFilmes || [];
-			historico       = dados.historico || [];
+			sessaoId                 = dados.sessaoId || sessaoId;
+			estado                   = dados.estado || {};
+			perguntasFeitas          = dados.perguntasFeitas || 0;
+			rodadaAtual              = dados.rodadaAtual || 1;
+			excluirFilmes            = dados.excluirFilmes || [];
+			historico                = dados.historico || [];
+			ultimosItensRecomendados = dados.ultimosItensRecomendados || [];
+			perguntasEncerradas      = !! dados.perguntasEncerradas;
 			historico.forEach( function ( item ) {
 				if ( item.tipo === 'bot' ) renderBot( item.html );
 				else if ( item.tipo === 'user' ) renderUser( item.texto );
@@ -447,6 +463,15 @@
 			if ( ! texto ) return;
 			addUser( texto );
 			input.value = '';
+			// Depois que a recomendacao ja apareceu, a proxima mensagem e
+			// PERGUNTA sobre o que foi mostrado ("tem o De Niro?"), nao nova
+			// preferencia -- vai pra rota separada que responde com base nos
+			// dados reais dos filmes, em vez de cair na extracao de
+			// preferencia de novo (ver perguntasEncerradas acima).
+			if ( perguntasEncerradas ) {
+				perguntarSobreRecomendacoes( texto );
+				return;
+			}
 			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
 			chamarBilheteiro( texto ).then( function ( data ) {
 				carregando.remove();
@@ -456,6 +481,30 @@
 				addBot( ( err && err.mensagemAmigavel ) || 'Deu um probleminha aqui, pode tentar de novo?' );
 			} );
 		} );
+
+		function perguntarSobreRecomendacoes( texto ) {
+			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
+			fetch( PERGUNTAR_ENDPOINT, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( { pergunta: texto, itens: ultimosItensRecomendados } )
+			} ).then( function ( r ) {
+				return r.json().then( function ( body ) {
+					if ( ! r.ok ) {
+						var erro = new Error( ( body && body.erro ) || ( 'http ' + r.status ) );
+						erro.mensagemAmigavel = body && body.erro;
+						throw erro;
+					}
+					return body;
+				} );
+			} ).then( function ( data ) {
+				carregando.remove();
+				addBot( escapeHtml( data.resposta ) );
+			} ).catch( function ( err ) {
+				carregando.remove();
+				addBot( ( err && err.mensagemAmigavel ) || 'Não consegui responder isso agora, pode perguntar de outro jeito?' );
+			} );
+		}
 
 		function notaHtml( nota ) {
 			// nota vem so de post_id_gerado cruzado com a base TMDB -- cobertura
@@ -566,6 +615,14 @@
 					} ).then( function ( r ) { return r.json(); } ).then( function ( resp ) {
 						if ( veredito === 'positivo' ) return;
 						rodadaAtual++;
+						// "Quero outras": a proxima mensagem do usuario e NOVA
+						// preferencia de novo (ex: "sem terror"), nao pergunta
+						// sobre a recomendacao atual -- sem isso ela cairia
+						// direto na rota de pergunta grounded em vez de voltar
+						// pra extracao (ver perguntasEncerradas). Volta a virar
+						// true quando a proxima leva de recomendacoes renderizar.
+						perguntasEncerradas = false;
+						salvarEstado();
 						if ( resp.rodadas_negativas_consecutivas >= 3 ) {
 							addBot( '3 tentativas sem sucesso — que tal recomeçar com outro gênero ou emoção? Me conta o que você quer agora.' );
 						} else {
@@ -621,6 +678,23 @@
 					// bloco com resenha depois que os dois ja renderizaram.
 					thread.scrollTop = offsetDentroDoThread( ancoraComResenha );
 				}
+				// A partir daqui, a proxima mensagem do usuario e pergunta
+				// sobre o que foi mostrado, nao nova preferencia (ver
+				// perguntasEncerradas no topo). Guarda so os campos que a
+				// resposta grounded precisa -- itemListElement (com resenha)
+				// usa genero/elenco/ano, sem_resenha usa generos/atores/
+				// ano_lancamento; manda os dois nomes quando existirem, o
+				// backend normaliza (dsi_bilheteiro_normalizar_item_pergunta).
+				ultimosItensRecomendados = itens.concat( semResenha ).map( function ( f ) {
+					return {
+						titulo: f.titulo, sinopse: f.sinopse,
+						ano: f.ano, ano_lancamento: f.ano_lancamento,
+						genero: f.genero, generos: f.generos,
+						direcao: f.direcao, atores: f.atores, elenco: f.elenco
+					};
+				} );
+				perguntasEncerradas = true;
+				salvarEstado();
 			} ).catch( function () {
 				carregando.remove();
 				addBot( 'Não consegui buscar agora, tenta de novo em instantes.' );
