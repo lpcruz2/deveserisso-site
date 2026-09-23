@@ -4225,12 +4225,24 @@ add_action( 'wp_enqueue_scripts', function (): void {
 // completa (selecao, baseline GSC, checkpoints) em
 // experimentos/teste-url-filmes-2026-09/README.md.
 //
-// Mecanismo: nao muda o post_name real (slug continua o mesmo). A URL antiga
-// (flat) continua resolvendo pela rota nativa do WP -- interceptada em
-// template_redirect e redirecionada (301) pra nova. A URL nova e resolvida
-// por rewrite rule dedicada, buscando o post direto pelo path (mesmo padrao
-// defensivo do roteador do .md, mu-plugins/dsi-ai-markdown.php) em vez de
-// confiar no parser de permalink do WP pra um path fora do padrao do site.
+// Mecanismo: a URL antiga (flat) continua resolvendo pela rota nativa do WP
+// -- interceptada em template_redirect e redirecionada (301) pra nova. A URL
+// nova e resolvida por rewrite rule dedicada, buscando o post direto pelo
+// path (mesmo padrao defensivo do roteador do .md,
+// mu-plugins/dsi-ai-markdown.php) em vez de confiar no parser de permalink
+// do WP pra um path fora do padrao do site.
+//
+// 35 dos 50 posts do grupo tambem tiveram o slug real encurtado via
+// wp_update_post() (removendo o boilerplate "-e-bom-e-vale-a-pena-assistir-
+// confira-trailer-sinopse-e-mais" e variantes -- mesmo padrao do teste de
+// slug curto, experimentos/teste-slug-urls-2026-09/), pra URL final ficar
+// /filmes/nome-do-filme/ e nao /filmes/nome-do-filme-e-bom-e-vale-a-pena-.../.
+// Em 26 desses 35 o slug curto ja era ocupado por uma imagem anexa do
+// proprio post (attachment com post_status=inherit, so um redirect vazio
+// pro arquivo -- sem conteudo, sem risco) -- a imagem foi movida antes
+// (sufixo "-foto") pra abrir espaco. O fallback de slug antigo abaixo cobre
+// tanto a URL flat antiga quanto a URL /filmes/slug-longo/ que ficou live
+// por pouco tempo antes do encurtamento.
 
 add_action( 'init', function (): void {
 	add_rewrite_rule( '^filmes/([^/]+)/?$', 'index.php?dsi_teste_url_filmes_slug=$matches[1]', 'top' );
@@ -4246,9 +4258,26 @@ add_filter( 'request', function ( array $query_vars ): array {
 	if ( '' === $slug ) {
 		return $query_vars;
 	}
-	$post = get_page_by_path( sanitize_title( $slug ), OBJECT, 'post' );
+	$slug = sanitize_title( $slug );
+	$post = get_page_by_path( $slug, OBJECT, 'post' );
 	if ( $post && '1' === get_post_meta( $post->ID, '_dsi_teste_url_filmes', true ) ) {
 		return [ 'p' => $post->ID, 'post_type' => 'post' ];
+	}
+	// slug pode ser uma versao antiga (pre-encurtamento) de um post do grupo
+	// -- mesma logica do _wp_old_slug nativo do WP, escopada pra rota
+	// /filmes/, pra nao deixar um link/indice velho apontando pra
+	// /filmes/slug-antigo/ cair num 404 seco.
+	$antigo = get_posts( [
+		'name'        => $slug,
+		'post_type'   => 'post',
+		'post_status' => 'publish',
+		'meta_key'    => '_wp_old_slug',
+		'meta_value'  => $slug,
+		'numberposts' => 1,
+	] );
+	if ( $antigo && '1' === get_post_meta( $antigo[0]->ID, '_dsi_teste_url_filmes', true ) ) {
+		wp_safe_redirect( home_url( '/filmes/' . $antigo[0]->post_name . '/' ), 301 );
+		exit;
 	}
 	// slug nao existe ou nao esta no grupo controle -- 404 real, nao expor
 	// /filmes/qualquer-coisa/ como rota valida pro site inteiro.
