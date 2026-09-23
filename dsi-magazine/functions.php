@@ -4335,60 +4335,41 @@ add_action( 'init', function (): void {
 }, 20 );
 
 // =============================================================================
-// 36. PERFORMANCE — adia o bootstrap do GTM (gtm.js) até a dobra carregar (2026-09-23)
+// 36. PERFORMANCE — GA4 via gtag.js direto, adiado até a dobra carregar (2026-09-23)
 // =============================================================================
-// Gatilho original era "1ª interação" (scroll/clique/toque/tecla + timeout de
-// 5s) -- trocado a pedido do gestor: depender de interação do usuário atrasa
-// (até o timeout) o registro de pageview de quem não interage. Gatilho atual
-// é o evento `load` da página (tudo que é elegível pra carregar de cara já
-// carregou -- imagem lazy abaixo da dobra não conta, `loading="lazy"` nem
-// inicia o fetch) + `requestIdleCallback` pra não competir com qualquer
-// pintura ainda pendente naquele instante. Continua tirando o GTM do caminho
-// crítico até a 1ª dobra (o achado do Lighthouse), só que de forma
-// determinística em vez de depender de gesto do usuário. Timeout de 5s
-// mantido só como rede de segurança (load nunca dispara / trava).
-// Achado via Lighthouse (aba anônima, sem contaminação de extensão): o LCP no
-// mobile é elemento de TEXTO (subtítulo do post), não imagem — já pronto pra
-// pintar (TTFB 387ms), mas com "element render delay" de 815ms porque a
-// thread principal está ocupada. Os dois maiores consumidores reais (depois
-// de excluído ruído de extensão do Chrome): script de bot-challenge do
-// Cloudflare (fora do nosso controle) e o snippet clássico do GTM
-// (gtmkit-container, plugin GTM Kit) — que ao executar cria e insere no DOM
-// a tag <script async src="gtm.js">, e o próprio container do GTM (configurado
-// no site do Tag Manager, não aqui) dispara a tag de GA4 que carrega o
-// gtag.js — ou seja, adiar só o bootstrap do gtm.js adia os dois juntos.
+// Histórico: essa seção começou adiando o bootstrap do GTM (plugin GTM Kit)
+// até a 1ª interação, depois trocado pro evento `load` (+ requestIdleCallback)
+// a pedido do gestor -- ver commits c3317ec e f72390c. Achado original via
+// Lighthouse (aba anônima, sem contaminação de extensão): o LCP no mobile é
+// elemento de TEXTO (subtítulo do post), já pronto pra pintar (TTFB 387ms),
+// mas com "element render delay" de 815ms porque a thread principal estava
+// ocupada -- os dois maiores consumidores reais eram o bot-challenge do
+// Cloudflare (Precursor, desligado depois no painel, fora deste código) e o
+// bootstrap do GTM.
 //
-// GTM Kit tem dois mecanismos parecidos mas que NÃO servem pra isso:
-// `load_js_event` só atrasa um evento *dentro* do container já carregado, não
-// a própria network+exec de gtm.js; `consent_gating_mode` reaproveita o
-// mesmo truque de <script type="text/plain"> mas é pra LGPD/CMP de verdade
-// (sem um CMP configurado, ficaria bloqueado pra sempre). Por isso a versão
-// abaixo é própria do tema, no mesmo padrão que o `consent-gating.js` do
-// próprio plugin usa (clona o node, troca o type, insere, remove o antigo).
-//
-// O snippet do gtm.js é impresso pelo GTM Kit como script INLINE (`wp_add_
-// inline_script`, sem `src` próprio) -- não passa pelo filtro
-// `script_loader_tag` (que só reescreve tags com `src`). Por isso a
-// interceptação é via buffer de saída só do `wp_head` (não a página inteira,
-// pra não brigar com o cache/minificador do LiteSpeed), localizando a tag
-// pelo id fixo que o GTM Kit sempre usa: `gtmkit-container-js-after`.
+// Decisão de 2026-09-23: o site só usa GA4, nenhuma outra tag no container --
+// ou seja, a única coisa que o GTM (client-side ou server-side) compraria era
+// a flexibilidade de adicionar/trocar tag pelo painel web sem deploy,
+// flexibilidade que não está em uso. Trocado o GTM inteiro (plugin GTM Kit
+// desativado) por gtag.js direto, com o measurement ID G-57L645JCXT hardcoded
+// -- economiza o `gtm.js` inteiro (~800-930ms de bootup, medido via
+// Lighthouse) e o `gtmkit-engagement-events.js` (tracking de scroll/engajamento
+// próprio do plugin, ~800ms medido fora do Lighthouse). Mantém o mesmo
+// mecanismo de adiamento já existente (script inerte `type="text/plain"
+// data-dsi-delay="1"`, trocado por um `<script>` real no `wp_footer` só
+// depois do evento `load` + idle) -- agora aplicado direto no snippet oficial
+// do Google, sem precisar interceptar saída de plugin nenhum.
 add_action( 'wp_head', function (): void {
-	ob_start();
-}, 1 );
-
-add_action( 'wp_head', function (): void {
-	$html = ob_get_clean();
-	if ( false === $html ) {
-		return;
-	}
-	echo preg_replace_callback(
-		'/<script([^>]*\bid="gtmkit-container-js-after"[^>]*)>(.*?)<\/script>/s',
-		static function ( array $m ): string {
-			return '<script' . $m[1] . ' type="text/plain" data-dsi-delay="1">' . $m[2] . '</script>';
-		},
-		$html
-	);
-}, 999 );
+	?>
+	<script async src="https://www.googletagmanager.com/gtag/js?id=G-57L645JCXT" type="text/plain" data-dsi-delay="1"></script>
+	<script type="text/plain" data-dsi-delay="1">
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){ dataLayer.push(arguments); }
+	gtag('js', new Date());
+	gtag('config', 'G-57L645JCXT');
+	</script>
+	<?php
+} );
 
 add_action( 'wp_footer', function (): void {
 	?>
