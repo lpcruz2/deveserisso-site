@@ -219,14 +219,20 @@ function dsi_bilheteiro_montar_contexto_filmes( array $filmes ): string {
 // palavra-chave e imperfeita de proposito (mesma ressalva da deteccao de
 // plataforma) -- e um escape hatch pras frases mais obvias, nao um
 // classificador completo de intencao.
+// Modificador /u obrigatorio aqui: sem ele, PCRE trata a string como bytes
+// crus, nao UTF-8 -- uma classe de caracteres com acento tipo [cç]/[eê]
+// vira uma classe de BYTES soltos (cada acentuado UTF-8 tem 2 bytes) e para
+// de casar com o texto de verdade. Achado ao vivo 2026-09-23: os 3 padroes
+// com acento (simulação/gênero/recomeçar) falhavam no CI sem isso, apesar
+// de parecerem corretos lendo o código.
 const DSI_BILHETEIRO_PEDIDOS_NOVA_RECOMENDACAO_REGEX = [
-	'/nova (recomenda[cç][aã]o|sugest[aã]o|simula[cç][aã]o|busca)/i',
-	'/outra (recomenda[cç][aã]o|sugest[aã]o)/i',
-	'/outro g[eê]nero/i',
-	'/trocar (de )?g[eê]nero/i',
-	'/mudar (de )?g[eê]nero/i',
-	'/recome[cç]ar/i',
-	'/come[cç]ar (de novo|outra vez)/i',
+	'/nova (recomenda[cç][aã]o|sugest[aã]o|simula[cç][aã]o|busca)/iu',
+	'/outra (recomenda[cç][aã]o|sugest[aã]o)/iu',
+	'/outro g[eê]nero/iu',
+	'/trocar (de )?g[eê]nero/iu',
+	'/mudar (de )?g[eê]nero/iu',
+	'/recome[cç]ar/iu',
+	'/come[cç]ar (de novo|outra vez)/iu',
 ];
 function dsi_bilheteiro_pede_nova_recomendacao( string $mensagem ): bool {
 	foreach ( DSI_BILHETEIRO_PEDIDOS_NOVA_RECOMENDACAO_REGEX as $padrao ) {
