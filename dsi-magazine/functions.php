@@ -697,11 +697,26 @@ function dsi_newsletter_subscribe(): void {
 		wp_send_json_error( [ 'message' => 'Email inválido.' ] );
 	}
 
+	$resultado = dsi_mailerlite_inscrever( $email );
+	if ( $resultado['sucesso'] ) {
+		wp_send_json_success( [ 'message' => $resultado['mensagem'] ] );
+	} else {
+		wp_send_json_error( [ 'message' => $resultado['mensagem'] ] );
+	}
+}
+
+// Extraida de dsi_newsletter_subscribe() (2026-09-24, pedido do gestor: o
+// bilheteiro tambem precisa cadastrar email, sem duplicar a chamada a
+// MailerLite -- ver dsi_bilheteiro_assinar_newsletter abaixo). Unica fonte
+// de verdade de como um email vira inscrito de verdade no MailerLite; quem
+// chama decide so o que fazer com o resultado (wp_send_json_* aqui,
+// WP_REST_Response la).
+function dsi_mailerlite_inscrever( string $email ): array {
 	$api_key  = defined( 'DSI_MAILERLITE_KEY' ) ? DSI_MAILERLITE_KEY : '';
 	$group_id = '188168656705816082';
 
 	if ( empty( $api_key ) ) {
-		wp_send_json_error( [ 'message' => 'Newsletter temporariamente indisponível.' ] );
+		return [ 'sucesso' => false, 'mensagem' => 'Newsletter temporariamente indisponível.' ];
 	}
 
 	$response = wp_remote_post(
@@ -721,19 +736,19 @@ function dsi_newsletter_subscribe(): void {
 	);
 
 	if ( is_wp_error( $response ) ) {
-		wp_send_json_error( [ 'message' => 'Erro de conexão. Tente novamente.' ] );
+		return [ 'sucesso' => false, 'mensagem' => 'Erro de conexão. Tente novamente.' ];
 	}
 
 	$code = (int) wp_remote_retrieve_response_code( $response );
 
 	if ( $code === 200 || $code === 201 ) {
-		wp_send_json_success( [ 'message' => 'Cadastrado com sucesso!' ] );
-	} elseif ( $code === 422 ) {
-		// Já cadastrado — tratar como sucesso para não revelar dados
-		wp_send_json_success( [ 'message' => 'Você já está na lista!' ] );
-	} else {
-		wp_send_json_error( [ 'message' => 'Erro ao cadastrar. Tente novamente.' ] );
+		return [ 'sucesso' => true, 'mensagem' => 'Cadastrado com sucesso!' ];
 	}
+	if ( $code === 422 ) {
+		// Já cadastrado — tratar como sucesso para não revelar dados
+		return [ 'sucesso' => true, 'mensagem' => 'Você já está na lista!' ];
+	}
+	return [ 'sucesso' => false, 'mensagem' => 'Erro ao cadastrar. Tente novamente.' ];
 }
 
 // =============================================================================
@@ -2678,6 +2693,43 @@ function dsi_bilheteiro_perguntar_pos_recomendacao( WP_REST_Request $req ): WP_R
 	return new WP_REST_Response( [ 'resposta' => $resposta ] );
 }
 
+// Captura de email dentro do proprio chat (2026-09-24, pedido do gestor:
+// "agora a pessoa pode falar infinitamente com ele... mas não ganho nada
+// com isso") -- depois de N mensagens (ver LIMITE_MENSAGENS_PEDIR_EMAIL no
+// widget), o bot oferece cadastro na newsletter. Reaproveita
+// dsi_mailerlite_inscrever() (mesma funcao/mesma lista do formulario de
+// newsletter do site, ver template-parts/newsletter.php) -- nunca duplica a
+// chamada a MailerLite nem cria uma segunda lista de inscritos. O email em
+// si NUNCA entra no log do bilheteiro (wp_dsi_bilheteiro_log) -- so vai pro
+// MailerLite, mesma regra permanente do projeto de nao gravar identificador
+// de visitante nesse log.
+add_action( 'rest_api_init', function (): void {
+	register_rest_route( 'dsi/v1', '/bilheteiro-newsletter', [
+		'methods'             => 'POST',
+		'callback'            => 'dsi_bilheteiro_assinar_newsletter',
+		'permission_callback' => '__return_true',
+		'args'                => [
+			'email' => [ 'required' => true, 'sanitize_callback' => 'sanitize_email' ],
+		],
+	] );
+} );
+
+function dsi_bilheteiro_assinar_newsletter( WP_REST_Request $req ): WP_REST_Response {
+	header( 'Access-Control-Allow-Origin: *' );
+
+	if ( dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() ) ) {
+		return new WP_REST_Response( [ 'erro' => 'Muitas mensagens em pouco tempo. Tente novamente em instantes.' ], 429 );
+	}
+
+	$email = (string) $req->get_param( 'email' );
+	if ( ! is_email( $email ) ) {
+		return new WP_REST_Response( [ 'sucesso' => false, 'mensagem' => 'Esse email não parece válido.' ] );
+	}
+
+	$resultado = dsi_mailerlite_inscrever( $email );
+	return new WP_REST_Response( $resultado );
+}
+
 // Responde a pergunta com base SOMENTE nos dados dos filmes ja recomendados
 // (ver dsi_bilheteiro_perguntar_pos_recomendacao acima pra de onde vem
 // $filmes, ja normalizado) -- ver DSI_BILHETEIRO_PERGUNTA_POS_RECOMENDACAO_
@@ -4216,7 +4268,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.1.1',
+		'1.2.0',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de

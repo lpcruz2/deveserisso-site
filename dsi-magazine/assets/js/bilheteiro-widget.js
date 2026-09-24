@@ -14,6 +14,13 @@
 	var CINEQUIZ_ENDPOINT        = 'https://deveserisso.com.br/wp-json/dsi/v1/recomendar-filme';
 	var FEEDBACK_ENDPOINT        = 'https://deveserisso.com.br/wp-json/dsi/v1/recomendacao-feedback';
 	var PERGUNTAR_ENDPOINT       = 'https://deveserisso.com.br/wp-json/dsi/v1/bilheteiro-perguntar';
+	var NEWSLETTER_ENDPOINT      = 'https://deveserisso.com.br/wp-json/dsi/v1/bilheteiro-newsletter';
+	// A partir de quantas mensagens do usuario (qualquer tipo, preferencia
+	// ou pergunta) o bot oferece cadastro na newsletter (2026-09-24, pedido
+	// do gestor: "a pessoa pode falar infinitamente... mas não ganho nada
+	// com isso"). Ver talvezPedirEmail() mais abaixo.
+	var LIMITE_MENSAGENS_PEDIR_EMAIL = 10;
+	var EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 	function gerarSessaoId() {
 		if ( window.crypto && crypto.randomUUID ) return crypto.randomUUID();
@@ -59,6 +66,24 @@
 	function limparEstadoSalvo() {
 		try {
 			localStorage.removeItem( STORAGE_KEY );
+		} catch ( e ) {}
+	}
+
+	// Flag durável e SEPARADA do estado da conversa (2026-09-24) -- guarda
+	// so um booleano (nunca o email em si, mesma regra de nao guardar PII no
+	// client), pra nao pedir de novo em visitas futuras nem depois de
+	// "reiniciar" (que limpa STORAGE_KEY mas nao deve apagar isso).
+	var STORAGE_KEY_EMAIL = 'dsi_bh_email_capturado_v1';
+	function emailJaCapturado() {
+		try {
+			return localStorage.getItem( STORAGE_KEY_EMAIL ) === '1';
+		} catch ( e ) {
+			return false;
+		}
+	}
+	function marcarEmailCapturado() {
+		try {
+			localStorage.setItem( STORAGE_KEY_EMAIL, '1' );
 		} catch ( e ) {}
 	}
 
@@ -246,12 +271,24 @@
 		// form.addEventListener('submit', ...) abaixo.
 		var ultimosItensRecomendados = [];
 		var perguntasEncerradas      = false;
+		// Captura de email (2026-09-24): conta toda mensagem do usuario
+		// (preferencia ou pergunta), independente do rate limit por IP --
+		// ao bater o limite, oferece newsletter uma unica vez por conversa
+		// (pedidoEmailMostrado); aguardandoEmail marca que a PROXIMA
+		// mensagem deve ser tratada como tentativa de email, nao roteada
+		// pro chat/pergunta normal. Ver talvezPedirEmail()/capturarEmail().
+		var mensagensEnviadas   = 0;
+		var pedidoEmailMostrado = false;
+		var aguardandoEmail     = false;
 
 		function salvarEstado() {
 			salvarEstadoFn( {
 				sessaoId: sessaoId,
 				estado: estado,
 				perguntasFeitas: perguntasFeitas,
+				mensagensEnviadas: mensagensEnviadas,
+				pedidoEmailMostrado: pedidoEmailMostrado,
+				aguardandoEmail: aguardandoEmail,
 				rodadaAtual: rodadaAtual,
 				excluirFilmes: excluirFilmes,
 				historico: historico,
@@ -341,6 +378,12 @@
 			historico                = [];
 			ultimosItensRecomendados = [];
 			perguntasEncerradas      = false;
+			// Nao mexe em emailJaCapturado() -- e duravel, guardado numa
+			// chave separada de proposito (nao repetir o pedido pra quem ja
+			// deu o email, mesmo reiniciando a conversa).
+			mensagensEnviadas   = 0;
+			pedidoEmailMostrado = false;
+			aguardandoEmail     = false;
 			thread.innerHTML = '';
 			iniciar();
 		} );
@@ -391,6 +434,9 @@
 			historico                = dados.historico || [];
 			ultimosItensRecomendados = dados.ultimosItensRecomendados || [];
 			perguntasEncerradas      = !! dados.perguntasEncerradas;
+			mensagensEnviadas        = dados.mensagensEnviadas || 0;
+			pedidoEmailMostrado      = !! dados.pedidoEmailMostrado;
+			aguardandoEmail          = !! dados.aguardandoEmail;
 			historico.forEach( function ( item ) {
 				if ( item.tipo === 'bot' ) renderBot( item.html );
 				else if ( item.tipo === 'user' ) renderUser( item.texto );
@@ -438,6 +484,7 @@
 				buscarRecomendacoes();
 			} else {
 				addBot( escapeHtml( data.mensagem ) );
+				talvezPedirEmail();
 			}
 		}
 
@@ -472,12 +519,63 @@
 			} );
 		}
 
+		function capturarEmail( email ) {
+			aguardandoEmail = false;
+			salvarEstado();
+			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
+			fetch( NEWSLETTER_ENDPOINT, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( { email: email } )
+			} ).then( function ( r ) { return r.json(); } ).then( function ( data ) {
+				carregando.remove();
+				if ( data && data.sucesso ) {
+					marcarEmailCapturado();
+					addBot( 'Prontinho, cadastro feito! 🎬 Vamos continuar de onde paramos.' );
+				} else {
+					addBot( ( data && data.mensagem ) || 'Não consegui cadastrar agora, mas pode seguir aproveitando as recomendações!' );
+				}
+			} ).catch( function () {
+				carregando.remove();
+				addBot( 'Não consegui cadastrar agora, mas pode seguir aproveitando as recomendações!' );
+			} );
+		}
+
+		// So oferece newsletter depois de N mensagens de verdade, uma unica
+		// vez por conversa, e nunca de novo pra quem ja deu o email antes
+		// nesse navegador (emailJaCapturado(), chave separada e duravel --
+		// ver comentario dela acima). Chamada apos toda resposta do bot
+		// terminar (ver os 3 pontos de chamada abaixo).
+		function talvezPedirEmail() {
+			if ( pedidoEmailMostrado || aguardandoEmail || emailJaCapturado() ) return;
+			if ( mensagensEnviadas < LIMITE_MENSAGENS_PEDIR_EMAIL ) return;
+			pedidoEmailMostrado = true;
+			aguardandoEmail     = true;
+			// Solta a ancora no bloco com resenha -- o pedido de email e o
+			// conteudo mais recente/acionavel agora, nao deve competir com
+			// aquele scroll fixo (ver ancoraComResenha/ajustarParaTeclado
+			// acima) quando o teclado do celular abrir pra responder.
+			ancoraComResenha = null;
+			salvarEstado();
+			addBot( 'Estou gostando muito de conversar com você! Pra te dar recomendações ainda melhores, gostaria de registrar seu e-mail? Além de ajudar nas próximas indicações, você recebe uma newsletter com as melhores dicas de cinema todo mês, direto no seu e-mail.' );
+		}
+
 		form.addEventListener( 'submit', function ( e ) {
 			e.preventDefault();
 			var texto = input.value.trim();
 			if ( ! texto ) return;
 			addUser( texto );
 			input.value = '';
+			mensagensEnviadas++;
+			salvarEstado();
+			// Mensagem seguinte ao pedido de email (ver talvezPedirEmail) --
+			// so intercepta se parecer um email de verdade; se a pessoa
+			// ignorar e mandar outra coisa, segue o fluxo normal sem travar.
+			if ( aguardandoEmail && EMAIL_REGEX.test( texto ) ) {
+				capturarEmail( texto );
+				return;
+			}
+			aguardandoEmail = false;
 			// Depois que a recomendacao ja apareceu, a proxima mensagem e
 			// PERGUNTA sobre o que foi mostrado ("tem o De Niro?"), nao nova
 			// preferencia -- vai pra rota separada que responde com base nos
@@ -520,6 +618,7 @@
 					return;
 				}
 				addBot( escapeHtml( data.resposta ) );
+				talvezPedirEmail();
 			} ).catch( function ( err ) {
 				carregando.remove();
 				addBot( ( err && err.mensagemAmigavel ) || 'Não consegui responder isso agora, pode perguntar de outro jeito?' );
@@ -715,6 +814,7 @@
 				} );
 				perguntasEncerradas = true;
 				salvarEstado();
+				talvezPedirEmail();
 			} ).catch( function () {
 				carregando.remove();
 				addBot( 'Não consegui buscar agora, tenta de novo em instantes.' );
