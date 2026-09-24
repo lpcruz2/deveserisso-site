@@ -153,6 +153,11 @@
 			'.dsi-bh-input{flex:1;padding:8px 10px;border:1px solid #bdb29c;border-radius:6px;font:inherit;}' +
 			'.dsi-bh-enviar{background:#c2511d;color:#fff;border:none;border-radius:6px;padding:8px 12px;' +
 			'font-weight:600;cursor:pointer;}' +
+			/* Disclaimer fixo (2026-09-24, pedido do gestor: "tipo do
+			   Gemini") -- sempre visivel embaixo do campo de digitar, nao
+			   uma mensagem que soma ao historico. */
+			'.dsi-bh-disclaimer{margin:0;padding:0 10px 8px;font-size:10px;line-height:1.3;' +
+			'color:#8a7f68;text-align:center;}' +
 			'.dsi-bh-filmes{display:flex;flex-direction:column;gap:8px;margin-top:4px;}' +
 			/* Boxes de filme mais altos (2026-09-23, pedido do gestor: "mais
 			   espaco pro texto sobre o filme e ver resenha") -- padding
@@ -240,6 +245,7 @@
 					'<input type="text" class="dsi-bh-input" placeholder="Digite sua resposta..." autocomplete="off">' +
 					'<button type="submit" class="dsi-bh-enviar">Enviar</button>' +
 				'</form>' +
+				'<p class="dsi-bh-disclaimer">O Curador é uma IA e pode cometer erros. Considere checar informações importantes.</p>' +
 			'</div>';
 		document.body.appendChild( raiz );
 
