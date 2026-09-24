@@ -20,6 +20,9 @@
 	// do gestor: "a pessoa pode falar infinitamente... mas não ganho nada
 	// com isso"). Ver talvezPedirEmail() mais abaixo.
 	var LIMITE_MENSAGENS_PEDIR_EMAIL = 10;
+	// A partir de quantas mensagens (sem email capturado) o bot avisa que a
+	// conversa vai precisar reiniciar (2026-09-24, pedido do gestor).
+	var LIMITE_MENSAGENS_AVISO = 15;
 	var EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 	function gerarSessaoId() {
@@ -187,6 +190,10 @@
 			   maior") -- 12px -> 14px. */
 			'.dsi-bh-sem-resenha-titulo{margin:2px 0 8px;font-size:14px;color:#6a5f4d;font-weight:600;}' +
 			'.dsi-bh-ver-resenha{display:inline-block;margin-top:2px;font-size:12px;font-weight:600;color:#c2511d;}' +
+			/* Link inline do aviso de limite de mensagens (2026-09-24) --
+			   parece texto sublinhado, nao botao de navegador. */
+			'.dsi-bh-link-reiniciar{background:none;border:none;padding:0;margin:0;' +
+			'color:#c2511d;text-decoration:underline;font:inherit;font-weight:700;cursor:pointer;}' +
 			/* Avaliacao (2026-09-22, pedido do gestor: "precisam ter mais
 			   espaco pra pessoas verem que eles existem") -- titulo em cima,
 			   botoes numa linha so mas ocupando a largura inteira do box
@@ -280,6 +287,12 @@
 		var mensagensEnviadas   = 0;
 		var pedidoEmailMostrado = false;
 		var aguardandoEmail     = false;
+		// Aviso de limite (2026-09-24, pedido do gestor): quem ignora o
+		// pedido de email e continua batendo papo sem teto nenhum, alem do
+		// rate limit por IP, nao gera valor nenhum (custa chamada a LLM de
+		// graca). Aos LIMITE_MENSAGENS_AVISO, avisa uma unica vez e oferece
+		// reiniciar -- nunca reseta sozinho, so oferece o link.
+		var avisoLimiteMostrado = false;
 
 		function salvarEstado() {
 			salvarEstadoFn( {
@@ -289,6 +302,7 @@
 				mensagensEnviadas: mensagensEnviadas,
 				pedidoEmailMostrado: pedidoEmailMostrado,
 				aguardandoEmail: aguardandoEmail,
+				avisoLimiteMostrado: avisoLimiteMostrado,
 				rodadaAtual: rodadaAtual,
 				excluirFilmes: excluirFilmes,
 				historico: historico,
@@ -368,7 +382,10 @@
 			expandirBtn.textContent = expandido ? '⤡' : '⤢';
 			expandirBtn.title = expandido ? 'Recolher chat' : 'Expandir chat';
 		} );
-		reiniciarBtn.addEventListener( 'click', function () {
+		// Extraida do handler do botao (2026-09-24) pra poder ser chamada
+		// tambem pelo link "clique aqui" dentro do aviso de limite de
+		// mensagens (ver talvezAvisarLimite abaixo).
+		function reiniciarConversa() {
 			limparEstadoSalvo();
 			sessaoId                 = gerarSessaoId();
 			estado                   = {};
@@ -381,12 +398,14 @@
 			// Nao mexe em emailJaCapturado() -- e duravel, guardado numa
 			// chave separada de proposito (nao repetir o pedido pra quem ja
 			// deu o email, mesmo reiniciando a conversa).
-			mensagensEnviadas   = 0;
-			pedidoEmailMostrado = false;
-			aguardandoEmail     = false;
+			mensagensEnviadas    = 0;
+			pedidoEmailMostrado  = false;
+			aguardandoEmail      = false;
+			avisoLimiteMostrado  = false;
 			thread.innerHTML = '';
 			iniciar();
-		} );
+		}
+		reiniciarBtn.addEventListener( 'click', reiniciarConversa );
 
 		// render* so mexem no DOM (usados tambem pra restaurar do
 		// localStorage, sem duplicar no historico). add*/registrarFilmes
@@ -437,11 +456,13 @@
 			mensagensEnviadas        = dados.mensagensEnviadas || 0;
 			pedidoEmailMostrado      = !! dados.pedidoEmailMostrado;
 			aguardandoEmail          = !! dados.aguardandoEmail;
+			avisoLimiteMostrado      = !! dados.avisoLimiteMostrado;
 			historico.forEach( function ( item ) {
 				if ( item.tipo === 'bot' ) renderBot( item.html );
 				else if ( item.tipo === 'user' ) renderUser( item.texto );
 				else if ( item.tipo === 'filmes' ) renderFilmes( item.itens );
 				else if ( item.tipo === 'sem_resenha' ) renderSemResenha( item.itens );
+				else if ( item.tipo === 'aviso_limite' ) renderAvisoLimite();
 			} );
 		}
 
@@ -485,6 +506,7 @@
 			} else {
 				addBot( escapeHtml( data.mensagem ) );
 				talvezPedirEmail();
+				talvezAvisarLimite();
 			}
 		}
 
@@ -560,6 +582,21 @@
 			addBot( 'Estou gostando muito de conversar com você! Pra te dar recomendações ainda melhores, gostaria de registrar seu e-mail? Além de ajudar nas próximas indicações, você recebe uma newsletter com as melhores dicas de cinema todo mês, direto no seu e-mail.' );
 		}
 
+		// Quem ignora o pedido de email (talvezPedirEmail acima) e segue
+		// batendo papo sem gerar nenhum valor -- so custa chamada a LLM de
+		// graca, sem teto alem do rate limit por IP (2026-09-24, pedido do
+		// gestor). Avisa uma unica vez aos LIMITE_MENSAGENS_AVISO e oferece
+		// reiniciar -- nunca reseta sozinho nem bloqueia mensagem nenhuma,
+		// so avisa e deixa a pessoa escolher.
+		function talvezAvisarLimite() {
+			if ( avisoLimiteMostrado || emailJaCapturado() ) return;
+			if ( mensagensEnviadas < LIMITE_MENSAGENS_AVISO ) return;
+			avisoLimiteMostrado = true;
+			ancoraComResenha = null; // mesmo motivo do talvezPedirEmail acima
+			salvarEstado();
+			addAvisoLimite();
+		}
+
 		form.addEventListener( 'submit', function ( e ) {
 			e.preventDefault();
 			var texto = input.value.trim();
@@ -619,6 +656,7 @@
 				}
 				addBot( escapeHtml( data.resposta ) );
 				talvezPedirEmail();
+				talvezAvisarLimite();
 			} ).catch( function ( err ) {
 				carregando.remove();
 				addBot( ( err && err.mensagemAmigavel ) || 'Não consegui responder isso agora, pode perguntar de outro jeito?' );
@@ -714,6 +752,28 @@
 			renderSemResenha( itens );
 			historico.push( { tipo: 'sem_resenha', itens: itens } );
 			salvarEstado();
+		}
+
+		// Tipo de historico proprio (2026-09-24), nao um addBot() generico:
+		// precisa religar o listener do link "clique aqui" toda vez que
+		// renderiza, inclusive ao restaurar() uma conversa salva -- addBot/
+		// renderBot puro so seta innerHTML, sem religar nada (funciona pra
+		// texto simples, nao pra HTML com botao clicavel).
+		function montarAvisoLimite() {
+			return 'Infelizmente, já estamos conversando há algum tempo. Para seguirmos conversando vou ter de gerar uma nova lista de recomendações com esses novos direcionais ou teremos de encerrar a conversa. Para recomeçar, ' +
+				'<button type="button" class="dsi-bh-link-reiniciar">clique aqui</button>.';
+		}
+		function renderAvisoLimite() {
+			var el = renderBot( montarAvisoLimite() );
+			var link = el.querySelector( '.dsi-bh-link-reiniciar' );
+			if ( link ) link.addEventListener( 'click', reiniciarConversa );
+			return el;
+		}
+		function addAvisoLimite() {
+			var el = renderAvisoLimite();
+			historico.push( { tipo: 'aviso_limite' } );
+			salvarEstado();
+			return el;
 		}
 
 		function ligarBotoesFeedback( msgEl ) {
@@ -815,6 +875,7 @@
 				perguntasEncerradas = true;
 				salvarEstado();
 				talvezPedirEmail();
+				talvezAvisarLimite();
 			} ).catch( function () {
 				carregando.remove();
 				addBot( 'Não consegui buscar agora, tenta de novo em instantes.' );
