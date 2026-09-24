@@ -27,6 +27,7 @@ function dsi_setup(): void {
 	add_image_size( 'dsi-hero',    1920, 1080, true );  // frontispício
 	add_image_size( 'dsi-poster',  900,  1200, true );  // pôster 3/4
 	add_image_size( 'dsi-wide',    1200, 750,  true );  // 16/10 article lead
+	add_image_size( 'dsi-wide-sm',  600, 375,  true );  // 16/10, card pequeno (tricolumn da home) — 2026-09-24
 	add_image_size( 'dsi-square',  600,  600,  true );  // 1/1 card
 	add_image_size( 'dsi-4x3',     800,  600,  true );  // tricolumn
 	add_image_size( 'dsi-thumb',   120,  120,  true );  // list thumb
