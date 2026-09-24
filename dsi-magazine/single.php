@@ -219,8 +219,7 @@ $related = new WP_Query( [
     var prev = document.getElementById('dsi-rel-prev');
     var next = document.getElementById('dsi-rel-next');
     if (!grid || !prev || !next) return;
-    var step = grid.querySelector('.dsi-card--carousel');
-    var w = step ? step.offsetWidth + 24 : 280;
+    var w = 280; // fallback, corrigido abaixo assim que o layout estiver pronto (evita forced reflow no parse inicial)
     prev.addEventListener('click', function(){ grid.scrollBy({ left: -w, behavior: 'smooth' }); });
     next.addEventListener('click', function(){ grid.scrollBy({ left:  w, behavior: 'smooth' }); });
     function update(){
@@ -228,7 +227,13 @@ $related = new WP_Query( [
         next.disabled = grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 8;
     }
     grid.addEventListener('scroll', update, { passive: true });
-    update();
+    // offsetWidth/clientWidth/scrollWidth forçam layout síncrono se lidos na hora do parse;
+    // adiado pro próximo frame, quando o navegador já calculou o layout de qualquer forma.
+    requestAnimationFrame(function(){
+        var step = grid.querySelector('.dsi-card--carousel');
+        if (step) { w = step.offsetWidth + 24; }
+        update();
+    });
 
     // Tracking de clique em post relacionado (delegação — cobre imagem e título)
     grid.addEventListener('click', function ( e ) {
