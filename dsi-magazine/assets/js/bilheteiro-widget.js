@@ -510,9 +510,15 @@
 			if ( data.pronto ) {
 				buscarRecomendacoes();
 			} else {
-				addBot( escapeHtml( data.mensagem ) );
+				// Pedido de email/aviso ANTES da resposta de verdade
+				// (2026-09-24, achado do gestor com transcript real: "ele
+				// responde a duvida e so depois manda pedindo o email" ficava
+				// estranho, com o pedido colado atras da resposta como se
+				// fosse a ultima palavra da conversa). Assim a conversa
+				// sempre termina no conteudo, nao no pedido.
 				talvezPedirEmail();
 				talvezAvisarLimite();
+				addBot( escapeHtml( data.mensagem ) );
 			}
 		}
 
@@ -660,9 +666,11 @@
 					enviarParaExtracaoDePreferencia( texto );
 					return;
 				}
-				addBot( escapeHtml( data.resposta ) );
+				// Pedido/aviso ANTES da resposta -- ver mesmo comentario em
+				// processarResposta().
 				talvezPedirEmail();
 				talvezAvisarLimite();
+				addBot( escapeHtml( data.resposta ) );
 			} ).catch( function ( err ) {
 				carregando.remove();
 				addBot( ( err && err.mensagemAmigavel ) || 'Não consegui responder isso agora, pode perguntar de outro jeito?' );
