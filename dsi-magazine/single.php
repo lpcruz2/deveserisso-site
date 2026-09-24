@@ -87,6 +87,13 @@ $related = new WP_Query( [
                     'class'         => 'dsi-single__hero-img',
                     'loading'       => 'eager',
                     'fetchpriority' => 'high',
+                    // Sobrescreve o `sizes` automático do WP (que assume 100vw abaixo de
+                    // 640px, sem levar em conta margem/padding do .dsi-single__hero-frame
+                    // -- achado via Lighthouse: navegador baixando 768w+ pra um slot real
+                    // de ~314-370px no mobile). Espelha as margens/paddings reais do CSS
+                    // em cada breakpoint (mobile: 20px margem + 8px padding de cada lado;
+                    // desktop até 1024px: 64px margem + 14px padding de cada lado).
+                    'sizes'         => '(max-width: 768px) calc(100vw - 56px), (max-width: 1024px) calc(100vw - 156px), 640px',
                 ]
             );
             ?>
