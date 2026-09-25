@@ -3014,9 +3014,16 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 	$dias   = max( 1, min( 90, $dias ) ); // sanidade -- nunca uma consulta absurda
 	$agora  = current_time( 'timestamp' );
 	$inicio_intervalo = gmdate( 'Y-m-d H:i:s', $agora - $dias * DAY_IN_SECONDS );
+	// Achado 2026-09-25: um teste de POC do WebMCP (sessao_id "webmcp-poc-...")
+	// ficou esquecido no banco e contaminou 100% do abandono_por_campo de um
+	// relatorio real (12 "sessoes" de 1 mensagem cada, nenhuma de visitante de
+	// verdade). "teste-" ja era a convencao usada em todo diagnostico manual
+	// desta sessao -- agora tambem filtrada aqui, na fonte, pra nao repetir
+	// esse falso sinal so porque alguem esqueceu de limpar depois de testar.
+	$filtro_teste = "sessao_id NOT LIKE 'teste-%'";
 
 	$por_tipo_evento = $wpdb->get_results( $wpdb->prepare(
-		"SELECT tipo_evento, COUNT(*) AS total FROM {$tabela} WHERE criado_em >= %s GROUP BY tipo_evento",
+		"SELECT tipo_evento, COUNT(*) AS total FROM {$tabela} WHERE criado_em >= %s AND {$filtro_teste} GROUP BY tipo_evento",
 		$inicio_intervalo
 	), ARRAY_A );
 	$por_tipo_evento_mapa = [];
@@ -3030,15 +3037,15 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 	// mudanca nunca vai aparecer nesse estagio (nao da pra reconstruir
 	// retroativamente algo que nunca foi registrado).
 	$funil_abriram = (int) $wpdb->get_var( $wpdb->prepare(
-		"SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE tipo_evento = 'sessao_iniciada' AND criado_em >= %s",
+		"SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE tipo_evento = 'sessao_iniciada' AND criado_em >= %s AND {$filtro_teste}",
 		$inicio_intervalo
 	) );
 	$funil_mensagem = (int) $wpdb->get_var( $wpdb->prepare(
-		"SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE tipo_evento = 'mensagem' AND criado_em >= %s",
+		"SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE tipo_evento = 'mensagem' AND criado_em >= %s AND {$filtro_teste}",
 		$inicio_intervalo
 	) );
 	$funil_recomendacao = (int) $wpdb->get_var( $wpdb->prepare(
-		"SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE tipo_evento = 'recomendacao' AND criado_em >= %s",
+		"SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE tipo_evento = 'recomendacao' AND criado_em >= %s AND {$filtro_teste}",
 		$inicio_intervalo
 	) );
 
@@ -3046,7 +3053,7 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 	// ja existia na extracao mas nunca era persistido -- so dava pra
 	// confirmar "nenhum sinal de prompt injection" lendo a amostra na mao.
 	$fora_do_tema = (int) $wpdb->get_var( $wpdb->prepare(
-		"SELECT COUNT(*) FROM {$tabela} WHERE fora_do_tema = 1 AND criado_em >= %s",
+		"SELECT COUNT(*) FROM {$tabela} WHERE fora_do_tema = 1 AND criado_em >= %s AND {$filtro_teste}",
 		$inicio_intervalo
 	) );
 
@@ -3061,19 +3068,19 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 		 FROM {$tabela} l
 		 INNER JOIN (
 			SELECT sessao_id, MAX(id) AS ultimo_id FROM {$tabela}
-			WHERE tipo_evento = 'mensagem' AND criado_em >= %s
+			WHERE tipo_evento = 'mensagem' AND criado_em >= %s AND {$filtro_teste}
 			GROUP BY sessao_id
 		 ) ultimo ON ultimo.ultimo_id = l.id
 		 WHERE l.campo_perguntado IS NOT NULL
 		 AND l.sessao_id NOT IN (
-			SELECT sessao_id FROM {$tabela} WHERE tipo_evento = 'recomendacao' AND criado_em >= %s
+			SELECT sessao_id FROM {$tabela} WHERE tipo_evento = 'recomendacao' AND criado_em >= %s AND {$filtro_teste}
 		 )
 		 GROUP BY l.campo_perguntado ORDER BY total DESC",
 		$inicio_intervalo, $inicio_intervalo
 	), ARRAY_A );
 
 	$feedback_contagem = $wpdb->get_results( $wpdb->prepare(
-		"SELECT veredito, COUNT(*) AS total FROM {$tabela} WHERE tipo_evento = 'feedback' AND criado_em >= %s GROUP BY veredito",
+		"SELECT veredito, COUNT(*) AS total FROM {$tabela} WHERE tipo_evento = 'feedback' AND criado_em >= %s AND {$filtro_teste} GROUP BY veredito",
 		$inicio_intervalo
 	), ARRAY_A );
 	$feedback_positivo = 0;
@@ -3091,7 +3098,7 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 	// antes de somar, senao um dia sem nenhuma interacao simplesmente some
 	// do grafico em vez de aparecer como um vale.
 	$serie_diaria_bruta = $wpdb->get_results( $wpdb->prepare(
-		"SELECT DATE(criado_em) AS dia, COUNT(*) AS total FROM {$tabela} WHERE criado_em >= %s GROUP BY DATE(criado_em)",
+		"SELECT DATE(criado_em) AS dia, COUNT(*) AS total FROM {$tabela} WHERE criado_em >= %s AND {$filtro_teste} GROUP BY DATE(criado_em)",
 		$inicio_intervalo
 	), ARRAY_A );
 	$serie_diaria = [];
@@ -3110,7 +3117,7 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 	// acima). Tabela pequena (uma linha por turno de conversa), custo de
 	// fazer isso em PHP em vez de SQL e desprezivel nessa escala.
 	$mensagens_recentes = $wpdb->get_col( $wpdb->prepare(
-		"SELECT estado_depois FROM {$tabela} WHERE tipo_evento = 'mensagem' AND criado_em >= %s",
+		"SELECT estado_depois FROM {$tabela} WHERE tipo_evento = 'mensagem' AND criado_em >= %s AND {$filtro_teste}",
 		$inicio_intervalo
 	) );
 	$valores_genero  = [];
@@ -3162,10 +3169,10 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 	return [
 		'gerado_em'          => current_time( 'mysql' ),
 		'dias'               => $dias,
-		'total_geral'        => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tabela}" ),
+		'total_geral'        => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tabela} WHERE {$filtro_teste}" ),
 		'total_periodo'      => array_sum( $por_tipo_evento_mapa ),
 		'por_tipo_evento'    => $por_tipo_evento_mapa,
-		'sessoes_distintas'  => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE criado_em >= %s", $inicio_intervalo ) ),
+		'sessoes_distintas'  => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT sessao_id) FROM {$tabela} WHERE criado_em >= %s AND {$filtro_teste}", $inicio_intervalo ) ),
 		'feedback_positivo'  => $feedback_positivo,
 		'feedback_negativo'  => $feedback_negativo,
 		'feedback_taxa_positiva' => $feedback_total > 0 ? round( $feedback_positivo / $feedback_total * 100, 1 ) : null,
