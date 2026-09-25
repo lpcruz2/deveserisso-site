@@ -274,6 +274,10 @@
 			'.dsi-bh-widget--lp .dsi-bh-reiniciar,.dsi-bh-widget--lp .dsi-bh-expandir{font-size:20px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-thread{padding:16px;gap:10px;min-height:300px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-msg{padding:10px 14px;line-height:1.45;}' +
+			/* Filmes e avaliacao vao de ponta a ponta (.dsi-bh-msg--filmes,
+			   padding 0) -- sem isso a regra acima, mais especifica, dava
+			   14px de recuo lateral neles tambem. */
+			'.dsi-bh-widget--lp .dsi-bh-msg--filmes{padding:0;}' +
 			'.dsi-bh-widget--lp .dsi-bh-quebra-gelo,.dsi-bh-widget--lp .dsi-bh-fb{font-size:14px;padding:10px 8px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-form{padding:12px;gap:8px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-input{font-size:16px;padding:10px 12px;}' +
