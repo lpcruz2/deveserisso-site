@@ -27,6 +27,10 @@
 	// conversa vai precisar reiniciar (2026-09-24, pedido do gestor).
 	var LIMITE_MENSAGENS_AVISO = 15;
 	var EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+	// Botoes de genero da abertura na LP -- sempre 6, grade de 3 por linha
+	// (2026-09-25, pedido do gestor). Espelhado no HTML pre-carregado de
+	// page-filme-serie-bom-assistir-hoje.php.
+	var GENEROS_LP = [ 'Ação', 'Comédia', 'Terror', 'Romance', 'Drama', 'Suspense' ];
 
 	function gerarSessaoId() {
 		if ( window.crypto && crypto.randomUUID ) return crypto.randomUUID();
@@ -222,9 +226,12 @@
 			'.dsi-bh-feedback{margin-top:12px;background:#fff;border-radius:8px;padding:14px;' +
 			'box-shadow:0 1px 4px rgba(0,0,0,.12);}' +
 			'.dsi-bh-feedback-titulo{display:block;margin-bottom:10px;font-size:15px;font-weight:700;}' +
-			'.dsi-bh-feedback-botoes{display:flex;gap:8px;}' +
-			'.dsi-bh-fb{background:#ebe3d2;border:1px solid #bdb29c;border-radius:6px;padding:18px 8px;' +
-			'cursor:pointer;font-size:15px;font-weight:600;flex:1;}' +
+			/* 2026-09-25 (pedido do gestor): botoes no mesmo visual dos
+			   quebra-gelo (pilula bege tracejada), em grade de largura total. */
+			'.dsi-bh-feedback-botoes{display:grid;grid-template-columns:1fr 1fr;gap:8px;}' +
+			'.dsi-bh-fb{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;padding:10px 8px;' +
+			'font:inherit;font-size:14px;font-weight:600;color:#1d1a14;cursor:pointer;text-align:center;}' +
+			'.dsi-bh-fb:hover{background:#e3d9c2;}' +
 			/* No celular o painel flutuante pequeno fica ilegivel quando o
 			   teclado abre pra digitar (achado do gestor 2026-09-21: "fica
 			   dificil ler o que foi dito no chat") -- no lugar de um balao no
@@ -236,15 +243,17 @@
 			   primeira resposta, no lugar de so texto livre. So aparecem
 			   quando addQuebraGelo() e chamado (modo LP), nunca no balao
 			   flutuante padrao. */
-			'.dsi-bh-quebra-gelo-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px;}' +
+			/* Grade de 3 por linha ocupando a largura toda do chat, com mais
+			   distancia da mensagem de cima (2026-09-25, pedido do gestor). */
+			'.dsi-bh-quebra-gelo-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;}' +
 			'.dsi-bh-quebra-gelo{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;' +
-			'padding:8px 14px;font:inherit;font-size:13px;font-weight:600;color:#1d1a14;cursor:pointer;}' +
+			'padding:8px 6px;font:inherit;font-size:13px;font-weight:600;color:#1d1a14;cursor:pointer;text-align:center;}' +
 			'.dsi-bh-quebra-gelo:hover{background:#e3d9c2;}' +
 			/* Aviso "nao achei com esse ator" (2026-09-25): botoes dentro do
 			   balao do bot, que ja tem o mesmo bege -- fundo branco pra
 			   aparecerem como botao. */
 			'.dsi-bh-aviso-ator-apoio{margin:10px 0 0;font-weight:600;}' +
-			'.dsi-bh-aviso-ator-botoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}' +
+			'.dsi-bh-aviso-ator-botoes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;}' +
 			'.dsi-bh-aviso-ator-botoes .dsi-bh-quebra-gelo{background:#fff;}' +
 			'.dsi-bh-aviso-ator-botoes .dsi-bh-quebra-gelo:hover{background:#f4eee2;}' +
 			/* Modo LP: widget nasce embutido dentro de #dsi-bh-lp-slot (ver
@@ -265,7 +274,7 @@
 			'.dsi-bh-widget--lp .dsi-bh-reiniciar,.dsi-bh-widget--lp .dsi-bh-expandir{font-size:20px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-thread{padding:16px;gap:10px;min-height:300px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-msg{padding:10px 14px;line-height:1.45;}' +
-			'.dsi-bh-widget--lp .dsi-bh-quebra-gelo{font-size:14px;padding:10px 16px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-quebra-gelo,.dsi-bh-widget--lp .dsi-bh-fb{font-size:14px;padding:10px 8px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-form{padding:12px;gap:8px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-input{font-size:16px;padding:10px 12px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-enviar{font-size:15px;padding:10px 18px;}' +
@@ -496,7 +505,7 @@
 					// 0) precisa ver os botoes de novo -- eles nao entram no
 					// historico persistido de proposito (ver addQuebraGelo).
 					if ( modoLP && perguntasFeitas === 0 && ! perguntasEncerradas ) {
-						addQuebraGelo( [ 'Ação', 'Comédia', 'Terror', 'Romance', 'Drama' ] );
+						addQuebraGelo( GENEROS_LP );
 					}
 				} else if ( modoLP ) {
 					iniciarLP();
@@ -737,7 +746,7 @@
 		function iniciarLP() {
 			addBot( 'Oi! Sou o seu curador pessoal e vou te ajudar a encontrar o que assistir hoje.' );
 			addBot( 'Que gênero te chama mais atenção hoje? Escolha uma das opções abaixo ou digite livremente o que te parece mais interessante.' );
-			addQuebraGelo( [ 'Ação', 'Comédia', 'Terror', 'Romance', 'Drama' ] );
+			addQuebraGelo( GENEROS_LP );
 		}
 
 		// Botoes de atalho pra primeira resposta (so modo LP). De proposito

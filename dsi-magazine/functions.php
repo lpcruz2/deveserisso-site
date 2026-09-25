@@ -2906,7 +2906,7 @@ function dsi_ator_no_catalogo( string $nome ): array {
 // "apenas as categorias que tem na base atreladas a ele") -- so os dos
 // titulos COM resenha, que sao o conteudo do site. So cai pros do catalogo
 // externo quando o ator nao tem nenhum post com resenha.
-function dsi_generos_sugeridos_ator( string $nome, int $max = 5 ): array {
+function dsi_generos_sugeridos_ator( string $nome, int $max = 6 ): array {
 	$catalogo = dsi_ator_no_catalogo( $nome );
 	return array_slice( $catalogo['resenha'] ?: $catalogo['externo'], 0, $max );
 }
@@ -4661,7 +4661,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.8.2',
+		'1.9.0',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de

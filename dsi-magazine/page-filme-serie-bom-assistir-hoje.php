@@ -46,8 +46,8 @@ $dsi_top_atores = dsi_lp_top_atores();
 .dsi-bh-pre-carga .dsi-bh-thread{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;min-height:300px;max-height:420px}
 .dsi-bh-pre-carga .dsi-bh-msg{max-width:85%;padding:10px 14px;border-radius:10px;line-height:1.45}
 .dsi-bh-pre-carga .dsi-bh-msg--bot{background:#ebe3d2;align-self:flex-start;border-bottom-left-radius:2px}
-.dsi-bh-pre-carga .dsi-bh-quebra-gelo-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
-.dsi-bh-pre-carga .dsi-bh-quebra-gelo{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;padding:10px 16px;font:inherit;font-size:14px;font-weight:600;color:#1d1a14;cursor:pointer}
+.dsi-bh-pre-carga .dsi-bh-quebra-gelo-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.dsi-bh-pre-carga .dsi-bh-quebra-gelo{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;padding:10px 8px;font:inherit;font-size:14px;font-weight:600;color:#1d1a14;cursor:pointer;text-align:center}
 .dsi-bh-pre-carga .dsi-bh-quebra-gelo.escolhido{background:#c2511d;border-style:solid;border-color:#c2511d;color:#fff}
 .dsi-bh-pre-carga .dsi-bh-form{display:flex;gap:8px;padding:12px;border-top:1px solid #bdb29c}
 .dsi-bh-pre-carga .dsi-bh-input{flex:1;padding:10px 12px;border:1px solid #bdb29c;border-radius:6px;font:inherit;font-size:16px;line-height:1.4;resize:none}
@@ -151,7 +151,7 @@ body.dsi-bh-lp-expandido #dsi-bh-lp-slot{position:static}
 						<div class="dsi-bh-msg dsi-bh-msg--bot">Oi! Sou o seu curador pessoal e vou te ajudar a encontrar o que assistir hoje.</div>
 						<div class="dsi-bh-msg dsi-bh-msg--bot">Que gênero te chama mais atenção hoje? Escolha uma das opções abaixo ou digite livremente o que te parece mais interessante.</div>
 						<div class="dsi-bh-quebra-gelo-wrap">
-							<?php foreach ( [ 'Ação', 'Comédia', 'Terror', 'Romance', 'Drama' ] as $genero ) : ?>
+							<?php foreach ( [ 'Ação', 'Comédia', 'Terror', 'Romance', 'Drama', 'Suspense' ] as $genero ) : ?>
 							<button type="button" class="dsi-bh-quebra-gelo"><?php echo esc_html( $genero ); ?></button>
 							<?php endforeach; ?>
 						</div>
