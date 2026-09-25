@@ -228,22 +228,48 @@
 			   dificil ler o que foi dito no chat") -- no lugar de um balao no
 			   canto, ocupa a tela inteira. */
 			'@media(max-width:480px){.dsi-bh-painel.aberto{position:fixed;inset:0;width:100%;height:100%;' +
-			'max-width:100%;max-height:100%;border-radius:0;}}';
+			'max-width:100%;max-height:100%;border-radius:0;}}' +
+			/* Botoes "quebra-gelo" (2026-09-25, LP de midia paga "Ache o
+			   filme pra hoje") -- generos oferecidos como atalho pra
+			   primeira resposta, no lugar de so texto livre. So aparecem
+			   quando addQuebraGelo() e chamado (modo LP), nunca no balao
+			   flutuante padrao. */
+			'.dsi-bh-quebra-gelo-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px;}' +
+			'.dsi-bh-quebra-gelo{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;' +
+			'padding:8px 14px;font:inherit;font-size:13px;font-weight:600;color:#1d1a14;cursor:pointer;}' +
+			'.dsi-bh-quebra-gelo:hover{background:#e3d9c2;}' +
+			/* Modo LP: widget nasce embutido dentro de #dsi-bh-lp-slot (ver
+			   page-filme-serie-bom-assistir-hoje.php), nao flutuante --
+			   sobrescreve o posicionamento fixo do balao padrao. */
+			'.dsi-bh-widget--lp .dsi-bh-bolha{display:none;}' +
+			'.dsi-bh-widget--lp .dsi-bh-fechar,.dsi-bh-widget--lp .dsi-bh-expandir{display:none;}' +
+			'.dsi-bh-widget--lp .dsi-bh-painel{position:static;display:flex;width:100%;max-width:100%;' +
+			'height:auto;border-radius:14px;box-shadow:0 16px 40px rgba(29,26,20,.18);}' +
+			'.dsi-bh-widget--lp .dsi-bh-thread{max-height:420px;}' +
+			'@media(max-width:480px){.dsi-bh-widget--lp .dsi-bh-painel.aberto{position:static!important;' +
+			'inset:auto!important;width:100%!important;height:auto!important;max-width:100%!important;' +
+			'max-height:none!important;border-radius:14px!important;}}';
 		document.head.appendChild( style );
 	}
 
 	function montarWidget() {
 		injetarEstilos();
 
+		// Modo LP (2026-09-25): pagina de midia paga marca onde o chat deve
+		// nascer -- ja embutido e aberto na dobra, sem balao flutuante.
+		// Ver page-filme-serie-bom-assistir-hoje.php.
+		var lpSlot = document.getElementById( 'dsi-bh-lp-slot' );
+		var modoLP = !! lpSlot;
+
 		var raiz = document.createElement( 'div' );
-		raiz.className = 'dsi-bh-widget';
+		raiz.className = 'dsi-bh-widget' + ( modoLP ? ' dsi-bh-widget--lp' : '' );
 		raiz.innerHTML =
 			'<button class="dsi-bh-bolha" type="button" aria-expanded="false">' +
 				'<span class="dsi-bh-bolha-emoji" aria-hidden="true">🎬</span> O que assistir hoje?' +
 			'</button>' +
 			'<div class="dsi-bh-painel">' +
 				'<div class="dsi-bh-cabecalho">' +
-					'<span>Curadoria Deveserisso!</span>' +
+					'<span>' + ( modoLP ? '🎬 O Deveserisso te ajuda!' : 'Curadoria Deveserisso!' ) + '</span>' +
 					'<span>' +
 						'<button class="dsi-bh-reiniciar" type="button" title="Começar uma nova busca">↺</button>' +
 						'<button class="dsi-bh-expandir" type="button" title="Expandir chat">⤢</button>' +
@@ -257,7 +283,7 @@
 				'</form>' +
 				'<p class="dsi-bh-disclaimer">O Curador é uma IA e pode cometer erros. Considere checar informações importantes.</p>' +
 			'</div>';
-		document.body.appendChild( raiz );
+		( lpSlot || document.body ).appendChild( raiz );
 
 		var bolha     = raiz.querySelector( '.dsi-bh-bolha' );
 		var painel    = raiz.querySelector( '.dsi-bh-painel' );
@@ -352,6 +378,10 @@
 			return el.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop;
 		}
 		function ajustarParaTeclado() {
+			// No modo LP o painel e estatico dentro da pagina, nao um balao
+			// fixo -- o ajuste de teclado (pensado pro balao ocupar a tela
+			// inteira) nao se aplica aqui.
+			if ( modoLP ) { limparAjusteTeclado(); return; }
 			if ( ! window.visualViewport || window.innerWidth > 480 || ! painel.classList.contains( 'aberto' ) ) {
 				limparAjusteTeclado();
 				return;
@@ -377,12 +407,24 @@
 				var salvo = carregarEstadoSalvo();
 				if ( salvo && salvo.historico && salvo.historico.length ) {
 					restaurar( salvo );
+					// Quem recarregou a LP antes de responder o genero (nenhum
+					// turno de verdade rodou ainda, perguntasFeitas continua
+					// 0) precisa ver os botoes de novo -- eles nao entram no
+					// historico persistido de proposito (ver addQuebraGelo).
+					if ( modoLP && perguntasFeitas === 0 && ! perguntasEncerradas ) {
+						addQuebraGelo( [ 'Ação', 'Comédia', 'Terror', 'Romance', 'Drama' ] );
+					}
+				} else if ( modoLP ) {
+					iniciarLP();
 				} else {
 					iniciar();
 				}
 			}
 			ajustarParaTeclado();
-			input.focus();
+			// No modo LP o chat ja nasce aberto na dobra -- focar o input
+			// sozinho abriria o teclado do celular assim que a pagina
+			// carrega, antes da pessoa ler qualquer coisa.
+			if ( ! modoLP ) input.focus();
 		}
 		function fecharPainel() {
 			painel.classList.remove( 'aberto' );
@@ -419,7 +461,7 @@
 			aguardandoEmail      = false;
 			avisoLimiteMostrado  = false;
 			thread.innerHTML = '';
-			iniciar();
+			if ( modoLP ) iniciarLP(); else iniciar();
 		}
 		reiniciarBtn.addEventListener( 'click', reiniciarConversa );
 
@@ -547,6 +589,41 @@
 				carregando.remove();
 				addBot( ( err && err.mensagemAmigavel ) || 'Deu um probleminha aqui, tenta recarregar a página.' );
 			} );
+		}
+
+		// Abertura do modo LP (2026-09-25): a primeira pergunta ("genero")
+		// e fixa e local, sem chamar o backend -- so pra poder oferecer os
+		// botoes quebra-gelo junto dela. A partir da resposta (clique ou
+		// texto livre) o fluxo volta a ser 100% igual ao balao padrao
+		// (enviarParaExtracaoDePreferencia chama o mesmo endpoint de sempre).
+		function iniciarLP() {
+			addBot( 'Oi! Sou o seu curador pessoal e vou te ajudar a encontrar o que assistir hoje.' );
+			addBot( 'Que gênero te chama mais atenção hoje? Escolha uma das opções abaixo ou digite livremente o que te parece mais interessante.' );
+			addQuebraGelo( [ 'Ação', 'Comédia', 'Terror', 'Romance', 'Drama' ] );
+		}
+
+		// Botoes de atalho pra primeira resposta (so modo LP). De proposito
+		// nao entram no historico persistido -- ver o reforco em abrir()
+		// pra quem recarrega antes de responder.
+		function addQuebraGelo( opcoes ) {
+			var wrap = document.createElement( 'div' );
+			wrap.className = 'dsi-bh-quebra-gelo-wrap';
+			opcoes.forEach( function ( opcao ) {
+				var botao = document.createElement( 'button' );
+				botao.type = 'button';
+				botao.className = 'dsi-bh-quebra-gelo';
+				botao.textContent = opcao;
+				botao.addEventListener( 'click', function () {
+					wrap.remove();
+					addUser( opcao );
+					mensagensEnviadas++;
+					salvarEstado();
+					enviarParaExtracaoDePreferencia( opcao );
+				} );
+				wrap.appendChild( botao );
+			} );
+			thread.appendChild( wrap );
+			thread.scrollTop = thread.scrollHeight;
 		}
 
 		// Extraida do handler de submit (2026-09-23) pra poder ser chamada de
@@ -942,6 +1019,10 @@
 				addBot( 'Não consegui buscar agora, tenta de novo em instantes.' );
 			} );
 		}
+
+		// Modo LP: chat ja nasce aberto na dobra, sem esperar clique no
+		// balao (que nem existe aqui -- ver CSS display:none acima).
+		if ( modoLP ) abrir();
 	}
 
 	if ( document.readyState === 'loading' ) {
