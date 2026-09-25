@@ -160,7 +160,8 @@
 			'.dsi-bh-msg--externo{margin-top:16px;}' +
 			'.dsi-bh-digitando{opacity:.6;}' +
 			'.dsi-bh-form{display:flex;gap:6px;padding:10px;border-top:1px solid #bdb29c;}' +
-			'.dsi-bh-input{flex:1;padding:8px 10px;border:1px solid #bdb29c;border-radius:6px;font:inherit;}' +
+			'.dsi-bh-input{flex:1;padding:8px 10px;border:1px solid #bdb29c;border-radius:6px;font:inherit;' +
+			'line-height:1.4;resize:none;}' +
 			'.dsi-bh-enviar{background:#c2511d;color:#fff;border:none;border-radius:6px;padding:8px 12px;' +
 			'font-weight:600;cursor:pointer;}' +
 			/* Disclaimer fixo (2026-09-24, pedido do gestor: "tipo do
@@ -246,6 +247,10 @@
 			'.dsi-bh-widget--lp .dsi-bh-painel{position:static;display:flex;width:100%;max-width:100%;' +
 			'height:auto;border-radius:14px;box-shadow:0 16px 40px rgba(29,26,20,.18);}' +
 			'.dsi-bh-widget--lp .dsi-bh-thread{max-height:420px;}' +
+			/* Com cards de filme na tela, 420px ficava apertado -- cresce
+			   ate caber na janela (o card e sticky no desktop, entao nao
+			   pode passar da altura da tela). */
+			'.dsi-bh-widget--lp .dsi-bh-painel.com-filmes .dsi-bh-thread{max-height:max(420px,calc(100vh - 200px));}' +
 			'@media(max-width:480px){.dsi-bh-widget--lp .dsi-bh-painel.aberto{position:static!important;' +
 			'inset:auto!important;width:100%!important;height:auto!important;max-width:100%!important;' +
 			'max-height:none!important;border-radius:14px!important;}}';
@@ -278,11 +283,28 @@
 				'</div>' +
 				'<div class="dsi-bh-thread"></div>' +
 				'<form class="dsi-bh-form">' +
-					'<input type="text" class="dsi-bh-input" placeholder="Digite sua resposta..." autocomplete="off">' +
+					'<textarea class="dsi-bh-input" rows="' + ( modoLP ? 2 : 1 ) + '" placeholder="Digite sua resposta..." ' +
+						'autocomplete="off" aria-label="Digite sua resposta"></textarea>' +
 					'<button type="submit" class="dsi-bh-enviar">Enviar</button>' +
 				'</form>' +
 				'<p class="dsi-bh-disclaimer">O Curador é uma IA e pode cometer erros. Considere checar informações importantes.</p>' +
 			'</div>';
+
+		// A LP ja vem com uma copia estatica do chat renderizada no HTML
+		// (page-filme-serie-bom-assistir-hoje.php), pra aparecer antes deste
+		// script carregar. Troca pela versao de verdade no mesmo frame
+		// (conteudo identico, sem piscar), mas sem perder o que a pessoa
+		// ja estava digitando nela.
+		var textoPreCarga = '', focoPreCarga = false;
+		if ( modoLP ) {
+			var inputPreCarga = lpSlot.querySelector( '.dsi-bh-input' );
+			if ( inputPreCarga ) {
+				textoPreCarga = inputPreCarga.value;
+				focoPreCarga  = document.activeElement === inputPreCarga;
+			}
+			lpSlot.innerHTML = '';
+			window.dsiBhMontado = true;
+		}
 		( lpSlot || document.body ).appendChild( raiz );
 
 		var bolha     = raiz.querySelector( '.dsi-bh-bolha' );
@@ -398,6 +420,17 @@
 		// Reforco: em alguns navegadores o resize do visualViewport demora um
 		// pouco pra disparar depois do teclado abrir.
 		input.addEventListener( 'focus', function () { setTimeout( ajustarParaTeclado, 50 ); } );
+		// Campo virou textarea (2026-09-25) -- Enter continua enviando
+		// como no input antigo; Shift+Enter quebra linha.
+		input.addEventListener( 'keydown', function ( e ) {
+			if ( e.key !== 'Enter' || e.shiftKey || e.isComposing ) return;
+			e.preventDefault();
+			enviarFormulario();
+		} );
+		function enviarFormulario() {
+			if ( form.requestSubmit ) form.requestSubmit();
+			else form.dispatchEvent( new Event( 'submit', { cancelable: true } ) );
+		}
 
 		function abrir() {
 			painel.classList.add( 'aberto' );
@@ -461,6 +494,7 @@
 			aguardandoEmail      = false;
 			avisoLimiteMostrado  = false;
 			thread.innerHTML = '';
+			painel.classList.remove( 'com-filmes' );
 			if ( modoLP ) iniciarLP(); else iniciar();
 		}
 		reiniciarBtn.addEventListener( 'click', reiniciarConversa );
@@ -830,6 +864,7 @@
 		function renderFilmes( itens ) {
 			var msgEl = renderBot( montarCardsFilmes( itens ) );
 			msgEl.classList.add( 'dsi-bh-msg--filmes' );
+			painel.classList.add( 'com-filmes' );
 			ancoraComResenha = msgEl;
 			ligarCliquesFilmes( msgEl );
 			return msgEl;
@@ -844,6 +879,7 @@
 		function renderSemResenha( itens ) {
 			var msgEl = renderBot( montarCardsSemResenha( itens ) );
 			msgEl.classList.add( 'dsi-bh-msg--filmes', 'dsi-bh-msg--externo' );
+			painel.classList.add( 'com-filmes' );
 			return msgEl;
 		}
 		function addSemResenha( itens ) {
@@ -1022,7 +1058,48 @@
 
 		// Modo LP: chat ja nasce aberto na dobra, sem esperar clique no
 		// balao (que nem existe aqui -- ver CSS display:none acima).
-		if ( modoLP ) abrir();
+		if ( modoLP ) {
+			if ( chegadaNovaDeCampanha() ) limparEstadoSalvo();
+			abrir();
+			if ( textoPreCarga ) input.value = textoPreCarga;
+			if ( focoPreCarga ) input.focus();
+			processarFilaPreCarga();
+		}
+
+		// Clique num genero ou envio feito na copia estatica, antes deste
+		// script carregar (guardado em window.dsiBhFila pelo script inline
+		// da LP) -- processa agora como se tivesse acontecido aqui.
+		function processarFilaPreCarga() {
+			var fila = window.dsiBhFila;
+			window.dsiBhFila = null;
+			if ( ! fila || ! fila.valor ) return;
+			if ( fila.tipo === 'botao' ) {
+				var botoes = thread.querySelectorAll( '.dsi-bh-quebra-gelo' );
+				for ( var i = 0; i < botoes.length; i++ ) {
+					if ( botoes[ i ].textContent === fila.valor ) { botoes[ i ].click(); return; }
+				}
+			}
+			// Texto digitado, ou botao que nao existe mais (conversa salva
+			// restaurada ja passou do genero) -- vira mensagem normal.
+			input.value = fila.valor;
+			enviarFormulario();
+		}
+	}
+
+	// Quem chega de anuncio (UTM/click id na URL) comeca do zero em vez de
+	// cair numa conversa antiga salva -- mas so uma vez por aba, senao um
+	// simples recarregar (a URL continua com os parametros) apagaria a
+	// conversa em andamento.
+	function chegadaNovaDeCampanha() {
+		var params = new URLSearchParams( window.location.search );
+		var temCampanha = [ 'utm_source', 'utm_medium', 'utm_campaign', 'gclid', 'gbraid', 'wbraid', 'fbclid' ]
+			.some( function ( p ) { return params.has( p ); } );
+		if ( ! temCampanha ) return false;
+		try {
+			if ( sessionStorage.getItem( 'dsi_bh_lp_campanha_zerada' ) ) return false;
+			sessionStorage.setItem( 'dsi_bh_lp_campanha_zerada', '1' );
+		} catch ( e ) {}
+		return true;
 	}
 
 	if ( document.readyState === 'loading' ) {
