@@ -2734,7 +2734,27 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		] );
 	}
 
+	// Pergunta de genero pra quem ja disse um ator (2026-09-25, achado com
+	// transcript real: "Ben Stiller" + escolha livre de genero levou a
+	// "terror", que nao existe com ele no catalogo). Sugere so os generos
+	// em que o ator tem titulo de verdade -- no texto da pergunta (vale pra
+	// qualquer entrada) e em sugestoes_genero (o widget em modo LP mostra
+	// como botoes). Sem titulo nenhum do ator, fica a pergunta de sempre.
+	$sugestoes_genero = [];
+	if ( ( $campos_faltando[0] ?? null ) === 'genero' && ! empty( $estado['atores'] ) ) {
+		$sugestoes_genero = dsi_generos_do_ator( (string) $estado['atores'][0] );
+	}
 	$proxima_pergunta = dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames );
+	if ( $sugestoes_genero ) {
+		$nomes = array_map( 'mb_strtolower', $sugestoes_genero );
+		$ultimo = array_pop( $nomes );
+		$lista  = $nomes ? implode( ', ', $nomes ) . ' e ' . $ultimo : $ultimo;
+		$proxima_pergunta = sprintf(
+			'Que gênero te chama mais atenção hoje? Com %s, temos títulos de %s.',
+			(string) $estado['atores'][0],
+			$lista
+		);
+	}
 	if ( ! empty( $extraido['fora_do_tema'] ) ) {
 		$proxima_pergunta = DSI_BILHETEIRO_MSG_FORA_DO_TEMA . lcfirst( $proxima_pergunta );
 	} else {
@@ -2746,15 +2766,6 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		if ( $reconhecimento !== '' ) {
 			$proxima_pergunta = $reconhecimento . ' ' . $proxima_pergunta;
 		}
-	}
-	// Pergunta de genero pra quem ja disse um ator (2026-09-25, achado com
-	// transcript real: "Ben Stiller" + escolha livre de genero levou a
-	// "terror", que nao existe com ele no catalogo). Sugere so os generos
-	// em que o ator tem titulo de verdade -- o widget (modo LP) mostra como
-	// botoes. Lista vazia quando o ator nao tem nada no catalogo.
-	$sugestoes_genero = [];
-	if ( ( $campos_faltando[0] ?? null ) === 'genero' && ! empty( $estado['atores'] ) ) {
-		$sugestoes_genero = dsi_generos_do_ator( (string) $estado['atores'][0] );
 	}
 	return new WP_REST_Response( [
 		'estado'                       => $estado,
