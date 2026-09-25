@@ -243,6 +243,39 @@ function dsi_bilheteiro_pede_nova_recomendacao( string $mensagem ): bool {
 	return false;
 }
 
+// Negativa curta ("não", "nenhum", "tanto faz") como resposta a pergunta de
+// filme de referencia, ator ou plataforma (achado com transcript real
+// 2026-09-25: "não" respondido 3x a "tem algum filme parecido?" e a
+// pergunta voltava igual, ate bater o limite de perguntas -- o LLM recebia
+// a mensagem sem a pergunta, e um "não" solto nao diz de que campo e).
+// Rede de seguranca deterministica por cima do LLM: so vale pra mensagem
+// curta, e functions.php so aplica quando o LLM nao extraiu nada pro campo
+// que acabou de ser perguntado. Nunca pra genero (decisao do gestor
+// 2026-09-22: genero sempre insiste). /u obrigatorio, ver comentario acima.
+const DSI_BILHETEIRO_CAMPOS_ACEITAM_NEGATIVA = [ 'q', 'atores', 'plataforma' ];
+const DSI_BILHETEIRO_NEGATIVA_MAX_CHARS      = 60;
+const DSI_BILHETEIRO_NEGATIVAS_REGEX         = [
+	'/^\W*(?:(?:n[aã]o+|n|nop|nope|nem|nenhum|nenhuma|nada|ningu[eé]m)\W*)+$/iu',
+	'/\bn[aã]o (tenho|sei|lembro|conhe[cç]o)\b/iu',
+	'/\btanto faz\b/iu',
+	'/\bqualquer (um|uma|coisa)\b/iu',
+	'/\bsem prefer[eê]ncia\b/iu',
+	'/\bj[aá] (disse|falei) que n[aã]o\b/iu',
+	'/\bnenhum(a)? (em )?(especial|espec[ií]fic[oa])\b/iu',
+];
+function dsi_bilheteiro_eh_negativa( string $mensagem ): bool {
+	$mensagem = trim( $mensagem );
+	if ( $mensagem === '' || mb_strlen( $mensagem ) > DSI_BILHETEIRO_NEGATIVA_MAX_CHARS ) {
+		return false;
+	}
+	foreach ( DSI_BILHETEIRO_NEGATIVAS_REGEX as $padrao ) {
+		if ( preg_match( $padrao, $mensagem ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
 function dsi_bilheteiro_normalizar_item_pergunta( array $item ): array {
 	return [
 		'titulo'         => (string) ( $item['titulo'] ?? '' ),

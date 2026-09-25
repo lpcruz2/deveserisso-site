@@ -311,4 +311,52 @@ final class BilheteiroLogicaTest extends TestCase {
 	public function test_pede_nova_recomendacao_nao_confunde_pergunta_sobre_genero_do_filme(): void {
 		$this->assertFalse( dsi_bilheteiro_pede_nova_recomendacao( 'quais desses são de comédia?' ) );
 	}
+
+	// -- dsi_bilheteiro_eh_negativa ------------------------------------------
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'negativas' )]
+	public function test_eh_negativa_reconhece( string $mensagem ): void {
+		$this->assertTrue( dsi_bilheteiro_eh_negativa( $mensagem ), $mensagem );
+	}
+
+	public static function negativas(): array {
+		return [
+			// frases do transcript real de 2026-09-25
+			[ 'não' ],
+			[ 'oxe já disse que não' ],
+			// variacoes comuns
+			[ 'Não!' ],
+			[ 'nao' ],
+			[ 'Nãooo' ],
+			[ 'não, não' ],
+			[ 'nada não' ],
+			[ 'nenhum' ],
+			[ 'Ninguém' ],
+			[ 'não tenho' ],
+			[ 'Não sei' ],
+			[ 'tanto faz' ],
+			[ 'qualquer um' ],
+			[ 'sem preferência' ],
+			[ 'Nenhum em especial' ],
+			[ 'já falei que nao' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'naoNegativas' )]
+	public function test_eh_negativa_ignora( string $mensagem ): void {
+		$this->assertFalse( dsi_bilheteiro_eh_negativa( $mensagem ), $mensagem );
+	}
+
+	public static function naoNegativas(): array {
+		return [
+			[ '' ],
+			[ 'Constantine' ],
+			[ 'Netflix' ],
+			[ 'não gosto de terror' ],
+			[ 'Nosferatu' ],
+			[ 'nanana' ],
+			// longa demais: pode ter preferencia real no meio
+			[ 'não sei direito, mas gosto muito de filmes do Christopher Nolan tipo Interestelar' ],
+		];
+	}
 }

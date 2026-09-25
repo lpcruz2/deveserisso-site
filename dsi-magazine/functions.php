@@ -2216,6 +2216,15 @@ Você é um extrator de parâmetros para um quiz de recomendação de filmes/sé
 
 A cada mensagem do visitante, extraia APENAS o que foi dito NESTA mensagem.
 
+Junto com a resposta voce recebe a pergunta que o visitante esta
+respondendo. Nunca extraia nada do texto da pergunta -- ela so serve pra
+entender respostas curtas. Se a pergunta era sobre filme/serie de
+referencia, plataforma ou ator/atriz, e a resposta e uma negativa ou falta
+de preferencia ("não", "nenhum", "não tenho", "tanto faz", "não sei"), isso
+JA e a pessoa dizendo que nao tem preferencia naquele campo: devolva
+"qualquer" em q ou plataforma, ou "nenhum" dentro da lista de atores. Pra
+genero continua valendo a regra propria de genero, mais abaixo.
+
 Campos possíveis:
 - plataforma: uma ou mais entre Netflix, Amazon Prime, Globoplay, Telecine
   ou Disney+. Se a pessoa citar mais de uma, junte separado por vírgula
@@ -2384,6 +2393,16 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	}
 	$estado['confirmacoes'] = is_array( $estado_recebido['confirmacoes'] ?? null ) ? $estado_recebido['confirmacoes'] : [];
 	$estado['atores_sem_preferencia'] = ! empty( $estado_recebido['atores_sem_preferencia'] );
+	// Quantas vezes cada pergunta opcional ja ficou sem resposta
+	// aproveitavel (ver rede de seguranca depois da extracao) -- volta do
+	// cliente a cada turno como o resto do estado, entao so aceita os
+	// campos conhecidos e um numero pequeno.
+	$estado['tentativas'] = [];
+	foreach ( (array) ( $estado_recebido['tentativas'] ?? [] ) as $campo_t => $n ) {
+		if ( in_array( $campo_t, DSI_BILHETEIRO_CAMPOS_ACEITAM_NEGATIVA, true ) ) {
+			$estado['tentativas'][ $campo_t ] = max( 0, min( 9, (int) $n ) );
+		}
+	}
 	// genero/emocao ja vindos do minigame contam como 1ª confirmacao (nao
 	// espera uma repeticao no chat pra existir contador nenhum).
 	foreach ( [ 'genero', 'emocao' ] as $campo ) {
@@ -2433,7 +2452,10 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		return new WP_REST_Response( [ 'erro' => 'Bilheteiro conversacional temporariamente indisponível.' ], 503 );
 	}
 
-	$extraido = dsi_bilheteiro_extrair( $mensagem, $api_key );
+	// A pergunta que esta mensagem responde -- mesma ordem que
+	// dsi_bilheteiro_proxima_pergunta() usou no turno anterior.
+	$campo_perguntado_antes = dsi_bilheteiro_campos_faltando( $estado, $contexto_minigames )[0] ?? null;
+	$extraido = dsi_bilheteiro_extrair( $mensagem, $api_key, dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames ) );
 	if ( is_wp_error( $extraido ) ) {
 		return new WP_REST_Response( [ 'erro' => $extraido->get_error_message() ], 502 );
 	}
@@ -2578,6 +2600,31 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 			}
 		}
 	}
+	// Rede de seguranca pra pergunta opcional que ficou sem resposta
+	// aproveitavel (achado 2026-09-25: "não" 3x a "tem algum filme
+	// parecido?", a pergunta voltava igual ate bater o limite). Aceita como
+	// "sem preferencia" se a resposta for uma negativa curta, ou na 2ª vez
+	// seguida sem resposta -- nenhuma pergunta opcional e feita 3 vezes.
+	// Genero fica fora de proposito (DSI_BILHETEIRO_CAMPOS_ACEITAM_NEGATIVA).
+	if (
+		$campo_perguntado_antes !== null
+		&& in_array( $campo_perguntado_antes, DSI_BILHETEIRO_CAMPOS_ACEITAM_NEGATIVA, true )
+		&& in_array( $campo_perguntado_antes, dsi_bilheteiro_campos_faltando( $estado, $contexto_minigames ), true )
+	) {
+		$tentativas = ( $estado['tentativas'][ $campo_perguntado_antes ] ?? 0 ) + 1;
+		$estado['tentativas'][ $campo_perguntado_antes ] = $tentativas;
+		if ( dsi_bilheteiro_eh_negativa( $mensagem ) || $tentativas >= 2 ) {
+			if ( $campo_perguntado_antes === 'atores' ) {
+				$estado['atores_sem_preferencia'] = true;
+			} else {
+				$estado[ $campo_perguntado_antes ] = DSI_BILHETEIRO_SEM_PREFERENCIA;
+				if ( ! isset( $estado['confirmacoes'][ $campo_perguntado_antes ] ) ) {
+					$estado['confirmacoes'][ $campo_perguntado_antes ] = 1;
+				}
+			}
+		}
+	}
+
 	$perguntas_feitas++;
 
 	$pedido_pular = ! empty( $extraido['pedido_pular'] );
@@ -2824,7 +2871,13 @@ function dsi_bilheteiro_responder_pos_recomendacao( string $pergunta, array $fil
 // response_format type is unavailable now", achado testando o protótipo
 // Python em 2026-09-16). O formato exato e reforcado via prompt, nao via
 // enforcement do provedor.
-function dsi_bilheteiro_extrair( string $mensagem, string $api_key ) {
+// $pergunta: o que o bot perguntou no turno anterior (2026-09-25) -- sem
+// isso, uma resposta curta tipo "não" chegava sem contexto nenhum e o LLM
+// nao tinha como saber de que campo era (ver DSI_BILHETEIRO_INSTRUCAO).
+function dsi_bilheteiro_extrair( string $mensagem, string $api_key, string $pergunta = '' ) {
+	$conteudo_usuario = $pergunta !== ''
+		? "Pergunta que o visitante está respondendo: {$pergunta}\n\nResposta do visitante: {$mensagem}"
+		: $mensagem;
 	$response = wp_remote_post(
 		'https://api.deepseek.com/chat/completions',
 		[
@@ -2841,7 +2894,7 @@ function dsi_bilheteiro_extrair( string $mensagem, string $api_key ) {
 				'model'           => 'deepseek-flash',
 				'messages'        => [
 					[ 'role' => 'system', 'content' => DSI_BILHETEIRO_INSTRUCAO ],
-					[ 'role' => 'user', 'content' => $mensagem ],
+					[ 'role' => 'user', 'content' => $conteudo_usuario ],
 				],
 				'response_format' => [ 'type' => 'json_object' ],
 				// Subido de 0 pra 0.3 a pedido do gestor 2026-09-21. Nota
