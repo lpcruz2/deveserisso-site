@@ -240,6 +240,13 @@
 			'.dsi-bh-quebra-gelo{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;' +
 			'padding:8px 14px;font:inherit;font-size:13px;font-weight:600;color:#1d1a14;cursor:pointer;}' +
 			'.dsi-bh-quebra-gelo:hover{background:#e3d9c2;}' +
+			/* Aviso "nao achei com esse ator" (2026-09-25): botoes dentro do
+			   balao do bot, que ja tem o mesmo bege -- fundo branco pra
+			   aparecerem como botao. */
+			'.dsi-bh-aviso-ator-apoio{margin:10px 0 0;font-weight:600;}' +
+			'.dsi-bh-aviso-ator-botoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}' +
+			'.dsi-bh-aviso-ator-botoes .dsi-bh-quebra-gelo{background:#fff;}' +
+			'.dsi-bh-aviso-ator-botoes .dsi-bh-quebra-gelo:hover{background:#f4eee2;}' +
 			/* Modo LP: widget nasce embutido dentro de #dsi-bh-lp-slot (ver
 			   page-filme-serie-bom-assistir-hoje.php), nao flutuante --
 			   sobrescreve o posicionamento fixo do balao padrao. */
@@ -583,6 +590,7 @@
 				else if ( item.tipo === 'sem_resenha' ) renderSemResenha( item.itens );
 				else if ( item.tipo === 'feedback_pedido' ) renderFeedback();
 				else if ( item.tipo === 'aviso_limite' ) renderAvisoLimite();
+				else if ( item.tipo === 'aviso_ator' ) renderAvisoAtor( item );
 			} );
 		}
 
@@ -640,6 +648,12 @@
 				talvezPedirEmail();
 				talvezAvisarLimite();
 				addBot( escapeHtml( data.mensagem ) );
+				// Pergunta de genero pra quem ja disse um ator: botoes so com
+				// os generos em que ele tem titulo (2026-09-25). So na LP --
+				// quebra-gelo e exclusivo dela (decisao do gestor).
+				if ( modoLP && data.sugestoes_genero && data.sugestoes_genero.length ) {
+					addQuebraGelo( data.sugestoes_genero );
+				}
 			}
 		}
 
@@ -983,6 +997,56 @@
 			return el;
 		}
 
+		// Ator pedido que nao veio em nenhum resultado (2026-09-25, achado
+		// com transcript real: "Ben Stiller" + terror trouxe so terrores sem
+		// ele, calado). Diz isso antes da lista e oferece os generos em que
+		// o ator tem titulo no catalogo. Tipo proprio no historico pra os
+		// botoes voltarem funcionando ao restaurar a conversa.
+		function montarAvisoAtor( item ) {
+			var aviso  = item.aviso;
+			var ator   = escapeHtml( aviso.ator );
+			var genero = valorOuVazio( item.genero ) ? escapeHtml( String( item.genero ).toLowerCase() ) : '';
+			var html = genero
+				? 'Não encontrei nenhum título de ' + genero + ' com ' + ator + ' no nosso catálogo, então separei os de ' + genero + ' que mais combinam com o que você contou.'
+				: 'Não encontrei títulos com ' + ator + ' que combinem com o resto das suas respostas, então separei os mais próximos.';
+			var generos = aviso.generos_com_ator || [];
+			if ( generos.length && ! item.usado ) {
+				html += '<p class="dsi-bh-aviso-ator-apoio">Com ' + ator + ', temos títulos de:</p><div class="dsi-bh-aviso-ator-botoes">';
+				generos.forEach( function ( g ) {
+					html += '<button type="button" class="dsi-bh-quebra-gelo" data-genero="' + escapeHtml( g ) + '">' + escapeHtml( g ) + '</button>';
+				} );
+				html += '</div>';
+			}
+			return html;
+		}
+		function renderAvisoAtor( item ) {
+			var el = renderBot( montarAvisoAtor( item ) );
+			var wrap = el.querySelector( '.dsi-bh-aviso-ator-botoes' );
+			if ( wrap ) {
+				wrap.querySelectorAll( 'button' ).forEach( function ( botao ) {
+					botao.addEventListener( 'click', function () {
+						var genero = botao.getAttribute( 'data-genero' );
+						wrap.remove();
+						item.usado = true;
+						addUser( 'Quero ' + genero.toLowerCase() + ' com ' + item.aviso.ator );
+						mensagensEnviadas++;
+						estado.genero = genero;
+						rodadaAtual++;
+						salvarEstado();
+						buscarRecomendacoes();
+					} );
+				} );
+			}
+			return el;
+		}
+		function addAvisoAtor( aviso, generoPedido ) {
+			var item = { tipo: 'aviso_ator', aviso: aviso, genero: generoPedido, usado: false };
+			historico.push( item );
+			var el = renderAvisoAtor( item );
+			salvarEstado();
+			return el;
+		}
+
 		function ligarBotoesFeedback( msgEl ) {
 			var botoes = msgEl.querySelectorAll( '.dsi-bh-fb' );
 			botoes.forEach( function ( btn ) {
@@ -1044,10 +1108,14 @@
 					addBot( 'Não achei nada pra essa combinação ainda. Quer tentar outro gênero ou emoção?' );
 					return;
 				}
+				var avisoAtorEl = data.aviso_atores ? addAvisoAtor( data.aviso_atores, estado.genero ) : null;
 				if ( itens.length ) {
 					itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
 					addFilmes( itens ); // seta ancoraComResenha internamente
 				}
+				// Com aviso de ator, a tela para nele (e nao na lista), senao a
+				// pessoa nem ve que o ator pedido nao veio.
+				if ( avisoAtorEl ) ancoraComResenha = avisoAtorEl;
 				if ( semResenha.length ) {
 					// Achado ao vivo 2026-09-22: sem isso, "quero outras" so
 					// trocava a lista com resenha -- os externos (sem_resenha)

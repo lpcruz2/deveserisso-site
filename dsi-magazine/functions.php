@@ -1596,6 +1596,11 @@ const DSI_SCORE_PESO_EMOCAO      = 30;
 const DSI_SCORE_PESO_PLATAFORMA  = 20;
 const DSI_SCORE_PESO_TEMAS       = 8;
 const DSI_SCORE_PESO_ATOR        = 3;
+// Bonus extra quando o ator foi PEDIDO pela pessoa, nao so inferido do
+// elenco do filme de referencia (2026-09-25: com peso 3, pedir "Ben
+// Stiller" praticamente nao mudava nada). Abaixo do genero (30) de
+// proposito: o genero escolhido continua mandando, o ator ordena dentro dele.
+const DSI_SCORE_PESO_ATOR_PEDIDO = 15;
 const DSI_SCORE_ATORES_CAP       = 2;
 const DSI_SCORE_PESO_EXCLUSAO    = 50;
 
@@ -1686,6 +1691,11 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 
 	$temas_pessoa      = dsi_score_csv_para_array( $req->get_param( 'temas' ) );
 	$atores_pessoa     = dsi_score_csv_para_array( $req->get_param( 'atores' ) );
+	// So os que a pessoa PEDIU -- $atores_pessoa ganha mais abaixo o elenco
+	// do filme de referencia (sinal inferido, peso baixo). Pedido explicito
+	// ganha bonus proprio e o aviso de "nao achei com esse ator" (2026-09-25).
+	$atores_pedidos      = $atores_pessoa;
+	$atores_pedidos_norm = array_map( 'dsi_dt_normalize_key', $atores_pedidos );
 	$exclusoes_pessoa  = dsi_score_csv_para_array( $req->get_param( 'exclusoes' ) );
 	$confirmacoes      = json_decode( (string) $req->get_param( 'confirmacoes' ), true ) ?: [];
 	$excluir_filmes    = json_decode( (string) $req->get_param( 'excluir_filmes' ), true ) ?: [];
@@ -1850,6 +1860,9 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			$atores_norm  = array_map( 'dsi_dt_normalize_key', $atores_pessoa );
 			$em_comum     = count( array_intersect( $atores_norm, $elenco_norm ) );
 			$score       += DSI_SCORE_PESO_ATOR * min( $em_comum, DSI_SCORE_ATORES_CAP );
+			if ( array_intersect( $atores_pedidos_norm, $elenco_norm ) ) {
+				$score += DSI_SCORE_PESO_ATOR_PEDIDO;
+			}
 		}
 		if ( $filtro_fatos !== null && isset( $d['baseado_fatos_reais'] ) ) {
 			$quer_sim = strpos( $filtro_fatos, 'sim' ) === 0;
@@ -1993,11 +2006,15 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			$score += DSI_SCORE_PESO_TEMAS * dsi_score_jaccard( $temas_pessoa, $temas_linha );
 		}
 		if ( $atores_pessoa && $atores_linha ) {
+			$atores_linha_norm = array_map( 'dsi_dt_normalize_key', $atores_linha );
 			$em_comum = count( array_intersect(
 				array_map( 'dsi_dt_normalize_key', $atores_pessoa ),
-				array_map( 'dsi_dt_normalize_key', $atores_linha )
+				$atores_linha_norm
 			) );
 			$score += DSI_SCORE_PESO_ATOR * min( $em_comum, DSI_SCORE_ATORES_CAP );
+			if ( array_intersect( $atores_pedidos_norm, $atores_linha_norm ) ) {
+				$score += DSI_SCORE_PESO_ATOR_PEDIDO;
+			}
 		}
 		if ( $score <= 0 ) {
 			continue; // mesma honestidade da lista com resenha -- sem sinal, sem entrar
@@ -2052,6 +2069,34 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		);
 	}
 
+	// Ator pedido que nao aparece em NENHUM resultado (2026-09-25, achado com
+	// transcript real: "Ben Stiller" + terror devolveu 10 terrores sem ele e
+	// o Curador nao disse nada). O widget avisa antes da lista e oferece os
+	// generos em que o ator tem titulo. So quando nenhum dos atores pedidos
+	// aparece -- se pediu dois e um veio, a lista ja atende.
+	$aviso_atores = null;
+	if ( $atores_pedidos && ( $resultados || $sem_resenha ) ) {
+		$presentes = [];
+		foreach ( $resultados as $r ) {
+			foreach ( (array) ( $r['elenco'] ?? [] ) as $a ) {
+				$presentes[ dsi_dt_normalize_key( (string) $a ) ] = true;
+			}
+		}
+		foreach ( $sem_resenha as $r ) {
+			foreach ( (array) ( $r['atores'] ?? [] ) as $a ) {
+				$presentes[ dsi_dt_normalize_key( (string) $a ) ] = true;
+			}
+		}
+		if ( ! array_intersect_key( array_flip( $atores_pedidos_norm ), $presentes ) ) {
+			$ator      = (string) $atores_pedidos[0];
+			$generos   = dsi_generos_do_ator( $ator );
+			if ( $filtro_genero !== null ) {
+				$generos = array_values( array_filter( $generos, fn( $g ) => strpos( dsi_dt_normalize_key( $g ), $filtro_genero ) === false ) );
+			}
+			$aviso_atores = [ 'ator' => $ator, 'generos_com_ator' => array_slice( $generos, 0, 3 ) ];
+		}
+	}
+
 	return new WP_REST_Response( [
 		'@context'         => 'https://schema.org',
 		'@type'            => 'ItemList',
@@ -2060,6 +2105,8 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		// Campo aditivo (2026-09-22): quem so le itemListElement (widget
 		// antigo, protótipo CineQuiz) ignora e continua funcionando igual.
 		'sem_resenha'      => array_values( $sem_resenha ),
+		// Aditivo tambem (2026-09-25) -- null quando nao ha o que avisar.
+		'aviso_atores'     => $aviso_atores,
 	] );
 }
 
@@ -2700,13 +2747,95 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 			$proxima_pergunta = $reconhecimento . ' ' . $proxima_pergunta;
 		}
 	}
+	// Pergunta de genero pra quem ja disse um ator (2026-09-25, achado com
+	// transcript real: "Ben Stiller" + escolha livre de genero levou a
+	// "terror", que nao existe com ele no catalogo). Sugere so os generos
+	// em que o ator tem titulo de verdade -- o widget (modo LP) mostra como
+	// botoes. Lista vazia quando o ator nao tem nada no catalogo.
+	$sugestoes_genero = [];
+	if ( ( $campos_faltando[0] ?? null ) === 'genero' && ! empty( $estado['atores'] ) ) {
+		$sugestoes_genero = dsi_generos_do_ator( (string) $estado['atores'][0] );
+	}
 	return new WP_REST_Response( [
 		'estado'                       => $estado,
 		'perguntas_feitas'             => $perguntas_feitas,
 		'pronto'                       => false,
 		'mensagem'                     => $proxima_pergunta,
 		'campos_obrigatorios_faltando' => $campos_faltando,
+		'sugestoes_genero'             => $sugestoes_genero,
 	] );
+}
+
+// Generos em que um ator/atriz tem titulo no catalogo (posts com ficha
+// tecnica + catalogo externo sem resenha), do mais frequente pro menos.
+// LIKE e so pre-filtro barato; a confirmacao e sempre pelo elenco parseado
+// e normalizado, pra "Ben Stiller" nao casar com "Jerry Stiller". Cache de
+// 1 dia por nome -- o catalogo muda devagar.
+function dsi_generos_do_ator( string $nome, int $max = 5 ): array {
+	$nome = trim( $nome );
+	if ( mb_strlen( $nome ) < 3 ) {
+		return [];
+	}
+	$chave     = dsi_dt_normalize_key( $nome );
+	$cache_key = 'dsi_generos_ator_v1_' . md5( $chave );
+	$cache     = get_transient( $cache_key );
+	if ( is_array( $cache ) ) {
+		return $cache;
+	}
+
+	global $wpdb;
+	$contagem = [];
+	$grafia   = [];
+	$somar    = function ( array $generos ) use ( &$contagem, &$grafia ): void {
+		foreach ( $generos as $g ) {
+			$g = trim( (string) $g );
+			if ( $g === '' ) {
+				continue;
+			}
+			$k              = dsi_dt_normalize_key( $g );
+			$contagem[ $k ] = ( $contagem[ $k ] ?? 0 ) + 1;
+			$grafia[ $k ]   = $grafia[ $k ] ?? $g;
+		}
+	};
+
+	$metas = $wpdb->get_col( $wpdb->prepare(
+		"SELECT pm.meta_value FROM {$wpdb->postmeta} pm
+		 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+		 WHERE pm.meta_key = '_dsi_dados_tecnicos_raw' AND p.post_status = 'publish'
+		   AND pm.meta_value LIKE %s
+		 LIMIT 300",
+		'%' . $wpdb->esc_like( $nome ) . '%'
+	) );
+	foreach ( $metas as $raw ) {
+		$d = dsi_parse_dados_tecnicos( (string) $raw );
+		if ( in_array( $chave, array_map( 'dsi_dt_normalize_key', (array) ( $d['elenco'] ?? [] ) ), true ) ) {
+			$somar( (array) ( $d['genero'] ?? [] ) );
+		}
+	}
+
+	// No catalogo externo, atores fica em JSON com acento escapado
+	// (é) -- o pre-filtro usa o sobrenome sem acento; se nao houver
+	// parte sem acento, pula o pre-filtro e fica so com os posts.
+	$partes_ascii = array_filter( preg_split( '/\s+/', $nome ), fn( $p ) => mb_strlen( $p ) >= 3 && ! preg_match( '/[^\x20-\x7E]/', $p ) );
+	if ( $partes_ascii ) {
+		$linhas = $wpdb->get_results( $wpdb->prepare(
+			"SELECT generos, atores FROM " . dsi_filme_externo_table_name() . "
+			 WHERE post_id_gerado IS NULL AND atores LIKE %s
+			 LIMIT 300",
+			'%' . $wpdb->esc_like( end( $partes_ascii ) ) . '%'
+		), ARRAY_A );
+		foreach ( $linhas as $linha ) {
+			$atores = array_map( 'dsi_dt_normalize_key', (array) ( json_decode( (string) $linha['atores'], true ) ?: [] ) );
+			if ( in_array( $chave, $atores, true ) ) {
+				$somar( (array) ( json_decode( (string) $linha['generos'], true ) ?: [] ) );
+			}
+		}
+	}
+
+	arsort( $contagem );
+	$generos = array_slice( array_map( fn( $k ) => $grafia[ $k ], array_keys( $contagem ) ), 0, $max );
+	set_transient( $cache_key, $generos, DAY_IN_SECONDS );
+	return $generos;
 }
 
 // Rota separada de /bilheteiro-chat (2026-09-23, achado do relatorio
@@ -4368,7 +4497,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.6.0',
+		'1.7.0',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de
