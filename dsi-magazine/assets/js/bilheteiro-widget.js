@@ -145,7 +145,8 @@
 			'.dsi-bh-thread{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}' +
 			'.dsi-bh-msg{max-width:85%;padding:8px 11px;border-radius:10px;line-height:1.4;}' +
 			'.dsi-bh-msg--bot{background:#ebe3d2;align-self:flex-start;border-bottom-left-radius:2px;}' +
-			'.dsi-bh-msg--user{background:#c2511d;color:#fff;align-self:flex-end;border-bottom-right-radius:2px;}' +
+			'.dsi-bh-msg--user{background:#c2511d;color:#fff;align-self:flex-end;border-bottom-right-radius:2px;' +
+			'white-space:pre-wrap;}' +
 			/* Boxes de indicacao (2026-09-22, pedido do gestor: "os boxes
 			   precisam pegar a tela toda do chat") -- em vez de herdar o
 			   limite de 85% do balao de texto comum, essas mensagens usam a
