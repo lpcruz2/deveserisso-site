@@ -2424,13 +2424,25 @@ function dsi_bilheteiro_limite_excedido( string $ip ): string {
 // midia paga). cf_ip registra se o CF-Connecting-IP chegou na origem: se nao
 // chega, a chave do limite e o IP do edge da Cloudflare e o teto de 50/dia e
 // dividido entre todos os visitantes daquele edge (ver CLAUDE.md, achado de
-// 2026-09-07). Sem IP, mesma regra permanente do log. Uma linha por
-// sessao+teto por dia, pra um bot insistente nao encher a tabela.
-function dsi_bilheteiro_resposta_bloqueio( string $rota, string $limite, string $sessao_id ): WP_REST_Response {
-	$sessao_id = mb_substr( sanitize_text_field( $sessao_id ), 0, 64 );
-	$chave_dedup = 'dsi_bh_bloq_' . md5( $sessao_id . '|' . $limite );
-	if ( ! get_transient( $chave_dedup ) ) {
-		set_transient( $chave_dedup, 1, DAY_IN_SECONDS );
+// 2026-09-07). Sem IP, mesma regra permanente do log.
+// Ate DSI_BILHETEIRO_BLOQUEIOS_LOG_MAX linhas por sessao+teto por dia
+// (2026-09-25, pedido do gestor pra auditoria: era 1 so) -- cada tentativa
+// bloqueada com a mensagem que a pessoa tentou mandar e o texto que ela viu,
+// sem deixar um bot insistente encher a tabela sem fim.
+const DSI_BILHETEIRO_BLOQUEIOS_LOG_MAX = 100;
+// $mensagem_tentada: null na rota da newsletter de proposito -- ali seria o
+// email, que nunca entra neste log.
+function dsi_bilheteiro_resposta_bloqueio( string $rota, string $limite, string $sessao_id, ?string $mensagem_tentada = null ): WP_REST_Response {
+	// Bloqueio diario com texto proprio (2026-09-25): "tente em instantes"
+	// enganava -- quem bate o teto do dia so volta a conseguir no dia seguinte.
+	$texto = $limite === 'dia'
+		? 'Você chegou ao limite de mensagens de hoje. Volte amanhã pra continuar a conversa!'
+		: 'Muitas mensagens em pouco tempo. Tente novamente em instantes.';
+	$sessao_id      = mb_substr( sanitize_text_field( $sessao_id ), 0, 64 );
+	$chave_contagem = 'dsi_bh_bloq_n_' . md5( $sessao_id . '|' . $limite );
+	$registrados    = (int) get_transient( $chave_contagem );
+	if ( $registrados < DSI_BILHETEIRO_BLOQUEIOS_LOG_MAX ) {
+		set_transient( $chave_contagem, $registrados + 1, DAY_IN_SECONDS );
 		global $wpdb;
 		$wpdb->insert(
 			dsi_bilheteiro_log_table_name(),
@@ -2438,6 +2450,8 @@ function dsi_bilheteiro_resposta_bloqueio( string $rota, string $limite, string 
 				'criado_em'   => current_time( 'mysql' ),
 				'sessao_id'   => $sessao_id,
 				'tipo_evento' => 'bloqueio',
+				'mensagem'    => $mensagem_tentada !== null ? mb_substr( $mensagem_tentada, 0, 500 ) : null,
+				'resposta'    => $texto,
 				'motivo'      => sprintf(
 					'limite=%s rota=%s cf_ip=%s',
 					$limite,
@@ -2445,10 +2459,10 @@ function dsi_bilheteiro_resposta_bloqueio( string $rota, string $limite, string 
 					isset( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ? 'sim' : 'nao'
 				),
 			],
-			[ '%s', '%s', '%s', '%s' ]
+			[ '%s', '%s', '%s', '%s', '%s', '%s' ]
 		);
 	}
-	return new WP_REST_Response( [ 'erro' => 'Muitas mensagens em pouco tempo. Tente novamente em instantes.' ], 429 );
+	return new WP_REST_Response( [ 'erro' => $texto ], 429 );
 }
 
 function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
@@ -2456,7 +2470,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 
 	$limite = dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() );
 	if ( $limite !== '' ) {
-		return dsi_bilheteiro_resposta_bloqueio( 'chat', $limite, (string) $req->get_param( 'sessao_id' ) );
+		return dsi_bilheteiro_resposta_bloqueio( 'chat', $limite, (string) $req->get_param( 'sessao_id' ), (string) $req->get_param( 'mensagem' ) );
 	}
 
 	$sessao_id = (string) $req->get_param( 'sessao_id' );
@@ -2944,7 +2958,7 @@ function dsi_bilheteiro_perguntar_pos_recomendacao( WP_REST_Request $req ): WP_R
 
 	$limite = dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() );
 	if ( $limite !== '' ) {
-		return dsi_bilheteiro_resposta_bloqueio( 'perguntar', $limite, (string) $req->get_param( 'sessao_id' ) );
+		return dsi_bilheteiro_resposta_bloqueio( 'perguntar', $limite, (string) $req->get_param( 'sessao_id' ), (string) $req->get_param( 'pergunta' ) );
 	}
 
 	$api_key = defined( 'DSI_DEEPSEEK_KEY' ) ? DSI_DEEPSEEK_KEY : '';
