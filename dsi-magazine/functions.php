@@ -4315,7 +4315,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.5.3',
+		'1.6.0',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de
@@ -4325,6 +4325,77 @@ add_action( 'wp_enqueue_scripts', function (): void {
 	// na posicao do <script> -- defer libera o parser ate o fim do HTML.
 	wp_script_add_data( 'dsi-bilheteiro-widget', 'strategy', 'defer' );
 } );
+
+// =============================================================================
+// 34b. LP DE MIDIA PAGA — ranking "Em alta no Curador" (2026-09-25)
+// =============================================================================
+// Titulos COM resenha mais indicados pelo Curador, lidos do log
+// (tipo_evento=recomendacao so guarda os com resenha, ver
+// dsi_recomendar_filme). Conta sessoes distintas por titulo, nao rodadas,
+// pra uma conversa insistente nao inflar o ranking. Com pouco dado na
+// semana, cai pra 30 dias -- e o bloco diz qual janela vale, nunca chama
+// de "semana" um ranking de 30 dias. Usado por
+// page-filme-serie-bom-assistir-hoje.php.
+function dsi_lp_em_alta( int $max = 5 ): array {
+	$cache = get_transient( 'dsi_lp_em_alta_v1' );
+	if ( is_array( $cache ) ) {
+		return $cache;
+	}
+
+	global $wpdb;
+	$tabela    = dsi_bilheteiro_log_table_name();
+	$agora     = current_time( 'timestamp' );
+	$resultado = [ 'janela' => 'semana', 'itens' => [] ];
+
+	foreach ( [ 'semana' => 7, 'mes' => 30 ] as $janela => $dias ) {
+		$linhas = $wpdb->get_results( $wpdb->prepare(
+			"SELECT sessao_id, filmes FROM {$tabela}
+			 WHERE tipo_evento = 'recomendacao' AND criado_em >= %s
+			   AND sessao_id NOT LIKE 'teste-%%' AND sessao_id NOT LIKE 'webmcp-%%'",
+			gmdate( 'Y-m-d H:i:s', $agora - $dias * DAY_IN_SECONDS )
+		), ARRAY_A );
+
+		$sessoes_por_post = [];
+		foreach ( $linhas as $linha ) {
+			foreach ( (array) json_decode( (string) $linha['filmes'], true ) as $filme ) {
+				if ( ( $filme['fonte'] ?? '' ) !== 'catalogo' || empty( $filme['id'] ) ) {
+					continue;
+				}
+				$sessoes_por_post[ (int) $filme['id'] ][ $linha['sessao_id'] ] = true;
+			}
+		}
+		$contagem = array_map( 'count', $sessoes_por_post );
+		arsort( $contagem );
+
+		$itens = [];
+		foreach ( array_keys( $contagem ) as $post_id ) {
+			if ( get_post_status( $post_id ) !== 'publish' ) {
+				continue;
+			}
+			$d = dsi_parse_dados_tecnicos( (string) get_post_meta( $post_id, '_dsi_dados_tecnicos_raw', true ) );
+			if ( empty( $d['titulo'] ) ) {
+				continue;
+			}
+			$generos = array_values( array_filter( array_map( 'strval', (array) ( $d['genero'] ?? [] ) ) ) );
+			$itens[] = [
+				'titulo' => (string) $d['titulo'],
+				'ano'    => ! empty( $d['ano'] ) ? (string) $d['ano'] : '',
+				'genero' => $generos[0] ?? '',
+			];
+			if ( count( $itens ) >= $max ) {
+				break;
+			}
+		}
+
+		$resultado = [ 'janela' => $janela, 'itens' => $itens ];
+		if ( count( $itens ) >= $max ) {
+			break;
+		}
+	}
+
+	set_transient( 'dsi_lp_em_alta_v1', $resultado, HOUR_IN_SECONDS );
+	return $resultado;
+}
 
 // =============================================================================
 // 35. TESTE — URL /filmes/nome-do-filme/ para grupo controle (2026-09-23)

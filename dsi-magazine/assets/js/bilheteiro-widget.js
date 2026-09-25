@@ -248,6 +248,21 @@
 			'.dsi-bh-widget--lp .dsi-bh-painel{position:static;display:flex;width:100%;max-width:100%;' +
 			'height:auto;border-radius:14px;box-shadow:0 16px 40px rgba(29,26,20,.18);}' +
 			'.dsi-bh-widget--lp .dsi-bh-thread{max-height:420px;}' +
+			/* Chat maior na LP (2026-09-25, pedido do gestor: "parece
+			   pequeno, mesmo no mobile") -- fonte, respiros e altura minima
+			   acima do balao padrao. Campo em 16px tambem evita o zoom
+			   automatico do iPhone ao tocar. Espelhado no CSS pre-carga de
+			   page-filme-serie-bom-assistir-hoje.php. */
+			'.dsi-bh-widget--lp .dsi-bh-painel{font-size:15px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-cabecalho{padding:16px 18px;font-size:16px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-reiniciar{font-size:20px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-thread{padding:16px;gap:10px;min-height:300px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-msg{padding:10px 14px;line-height:1.45;}' +
+			'.dsi-bh-widget--lp .dsi-bh-quebra-gelo{font-size:14px;padding:10px 16px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-form{padding:12px;gap:8px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-input{font-size:16px;padding:10px 12px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-enviar{font-size:15px;padding:10px 18px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-disclaimer{font-size:11px;padding:0 12px 10px;}' +
 			/* Com cards de filme na tela, 420px ficava apertado -- cresce
 			   ate caber na janela (o card e sticky no desktop, entao nao
 			   pode passar da altura da tela). */
@@ -284,7 +299,7 @@
 			'</button>' +
 			'<div class="dsi-bh-painel">' +
 				'<div class="dsi-bh-cabecalho">' +
-					'<span>' + ( modoLP ? '🎬 O Deveserisso te ajuda!' : 'Curadoria Deveserisso!' ) + '</span>' +
+					'<span>' + ( modoLP ? 'O Deveserisso te ajuda!' : 'Curadoria Deveserisso!' ) + '</span>' +
 					'<span>' +
 						'<button class="dsi-bh-reiniciar" type="button" title="Começar uma nova busca">↺</button>' +
 						'<button class="dsi-bh-expandir" type="button" title="Expandir chat">⤢</button>' +
@@ -536,6 +551,10 @@
 			return el;
 		}
 		function addUser( texto ) {
+			// Resposta digitada (ou "Quero parecido") em vez de clique num
+			// genero -- os botoes de genero ja nao valem mais pra essa conversa.
+			var quebraGelo = thread.querySelector( '.dsi-bh-quebra-gelo-wrap' );
+			if ( quebraGelo ) quebraGelo.remove();
 			renderUser( texto );
 			historico.push( { tipo: 'user', texto: texto } );
 			salvarEstado();
@@ -1093,7 +1112,24 @@
 			}
 			if ( chegadaNovaDeCampanha() ) limparEstadoSalvo();
 			abrir();
+			window.dsiBhPedirParecido = pedirParecido;
 			processarFilaPreCarga();
+		}
+
+		// "Quero parecido" do bloco Em alta no Curador (LP). Depois das
+		// recomendacoes, a proxima mensagem cairia como pergunta sobre os
+		// filmes mostrados -- mas aqui a intencao e busca nova, entao
+		// recomeca. Antes disso, so entra na conversa atual (acrescenta a
+		// referencia, sem perder o que ja foi respondido).
+		function pedirParecido( texto, dados ) {
+			track( 'widget_quero_parecido', {
+				titulo: dados && dados.titulo,
+				posicao: dados && dados.posicao,
+				sessao_id: sessaoId
+			} );
+			if ( perguntasEncerradas ) reiniciarConversa();
+			input.value = texto;
+			enviarFormulario();
 		}
 
 		// Clique num genero ou envio feito na copia estatica, antes deste
@@ -1103,6 +1139,10 @@
 			var fila = window.dsiBhFila;
 			window.dsiBhFila = null;
 			if ( ! fila || ! fila.valor ) return;
+			if ( fila.tipo === 'parecido' ) {
+				pedirParecido( fila.valor, fila.dados );
+				return;
+			}
 			if ( fila.tipo === 'botao' ) {
 				// Conversa salva restaurada ja passou da pergunta de genero
 				// (os botoes nao existem mais) -- mas a pessoa viu e clicou
