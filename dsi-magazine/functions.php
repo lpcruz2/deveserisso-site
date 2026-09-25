@@ -3116,6 +3116,27 @@ function dsi_bilheteiro_frase_referencia_ator( string $referencia, string $ator 
 		'SELECT titulo, tipo, atores FROM ' . dsi_filme_externo_table_name() . ' WHERE titulo_normalizado = %s LIMIT 1',
 		$chave
 	), ARRAY_A );
+	// Quem digita quase nunca acerta a pontuacao do titulo oficial ("se beber
+	// nao case" x "Se Beber, Não Case!") -- 2a tentativa ignorando
+	// pontuacao, pre-filtrada pela palavra mais longa do titulo.
+	if ( ! $linha ) {
+		$sem_pontuacao = fn( string $s ): string => trim( preg_replace( '/\s+/', ' ', preg_replace( '/[^a-z0-9 ]+/', ' ', $s ) ) );
+		$alvo          = $sem_pontuacao( $chave );
+		$palavras      = explode( ' ', $alvo );
+		usort( $palavras, fn( $a, $b ) => strlen( $b ) <=> strlen( $a ) );
+		if ( strlen( $palavras[0] ?? '' ) >= 3 ) {
+			$candidatas = $wpdb->get_results( $wpdb->prepare(
+				'SELECT titulo, tipo, atores, titulo_normalizado FROM ' . dsi_filme_externo_table_name() . ' WHERE titulo_normalizado LIKE %s LIMIT 50',
+				'%' . $wpdb->esc_like( $palavras[0] ) . '%'
+			), ARRAY_A );
+			foreach ( $candidatas as $candidata ) {
+				if ( $sem_pontuacao( (string) $candidata['titulo_normalizado'] ) === $alvo ) {
+					$linha = $candidata;
+					break;
+				}
+			}
+		}
+	}
 	if ( $linha ) {
 		$titulo = (string) $linha['titulo'];
 		$tipo   = $linha['tipo'] ?: 'filme';
