@@ -32,21 +32,24 @@
 .dsi-lp__titulo em{font-style:italic;color:#c2511d}
 .dsi-lp__sub{margin:0;font-size:16px;line-height:1.5;color:#4a4436;max-width:420px}
 #dsi-bh-lp-slot{width:100%;min-height:260px}
-/* Copia estatica do chat, visivel antes do bilheteiro-widget.js carregar
-   (defer). Valores espelham o CSS do widget em modo LP (injetarEstilos(),
-   .dsi-bh-widget--lp) -- se mudar la, mudar aqui, senao a troca pisca. */
-.dsi-bh-esqueleto{background:#f4eee2;color:#1d1a14;border-radius:14px;box-shadow:0 16px 40px rgba(29,26,20,.18);display:flex;flex-direction:column;overflow:hidden;font-family:Manrope,system-ui,sans-serif;font-size:13px}
-.dsi-bh-esqueleto .esq-cabecalho{background:#1d1a14;color:#e8a83c;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;font-weight:600}
-.dsi-bh-esqueleto .esq-reiniciar{background:none;border:none;color:#e8a83c;font-size:16px;line-height:1;margin-right:8px}
-.dsi-bh-esqueleto .esq-thread{padding:12px;display:flex;flex-direction:column;gap:8px}
-.dsi-bh-esqueleto .esq-msg{max-width:85%;padding:8px 11px;border-radius:10px;border-bottom-left-radius:2px;line-height:1.4;background:#ebe3d2;align-self:flex-start}
-.dsi-bh-esqueleto .dsi-bh-quebra-gelo-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
-.dsi-bh-esqueleto .dsi-bh-quebra-gelo{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;padding:8px 14px;font:inherit;font-size:13px;font-weight:600;color:#1d1a14;cursor:pointer}
-.dsi-bh-esqueleto .dsi-bh-quebra-gelo.escolhido{background:#c2511d;border-style:solid;border-color:#c2511d;color:#fff}
-.dsi-bh-esqueleto .esq-form{display:flex;gap:6px;padding:10px;border-top:1px solid #bdb29c}
-.dsi-bh-esqueleto .dsi-bh-input{flex:1;padding:8px 10px;border:1px solid #bdb29c;border-radius:6px;font:inherit;line-height:1.4;resize:none}
-.dsi-bh-esqueleto .esq-enviar{background:#c2511d;color:#fff;border:none;border-radius:6px;padding:8px 12px;font-weight:600;cursor:pointer}
-.dsi-bh-esqueleto .esq-disclaimer{margin:0;padding:0 10px 8px;font-size:10px;line-height:1.3;color:#8a7f68;text-align:center}
+/* Chat renderizado no HTML, visivel antes do bilheteiro-widget.js (defer)
+   carregar -- o widget adota esse DOM e remove .dsi-bh-pre-carga, entao
+   estas regras so valem ate ali. Valores espelham o CSS do widget em modo
+   LP (injetarEstilos) -- se mudar la, mudar aqui, senao a troca pula. */
+.dsi-bh-pre-carga .dsi-bh-bolha,.dsi-bh-pre-carga .dsi-bh-expandir,.dsi-bh-pre-carga .dsi-bh-fechar{display:none}
+.dsi-bh-pre-carga .dsi-bh-painel{background:#f4eee2;color:#1d1a14;border-radius:14px;box-shadow:0 16px 40px rgba(29,26,20,.18);display:flex;flex-direction:column;overflow:hidden;font-family:Manrope,system-ui,sans-serif;font-size:13px}
+.dsi-bh-pre-carga .dsi-bh-cabecalho{background:#1d1a14;color:#e8a83c;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;font-weight:600}
+.dsi-bh-pre-carga .dsi-bh-reiniciar{background:none;border:none;color:#e8a83c;font-size:16px;cursor:pointer;line-height:1;margin-right:8px}
+.dsi-bh-pre-carga .dsi-bh-thread{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;max-height:420px}
+.dsi-bh-pre-carga .dsi-bh-msg{max-width:85%;padding:8px 11px;border-radius:10px;line-height:1.4}
+.dsi-bh-pre-carga .dsi-bh-msg--bot{background:#ebe3d2;align-self:flex-start;border-bottom-left-radius:2px}
+.dsi-bh-pre-carga .dsi-bh-quebra-gelo-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
+.dsi-bh-pre-carga .dsi-bh-quebra-gelo{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;padding:8px 14px;font:inherit;font-size:13px;font-weight:600;color:#1d1a14;cursor:pointer}
+.dsi-bh-pre-carga .dsi-bh-quebra-gelo.escolhido{background:#c2511d;border-style:solid;border-color:#c2511d;color:#fff}
+.dsi-bh-pre-carga .dsi-bh-form{display:flex;gap:6px;padding:10px;border-top:1px solid #bdb29c}
+.dsi-bh-pre-carga .dsi-bh-input{flex:1;padding:8px 10px;border:1px solid #bdb29c;border-radius:6px;font:inherit;line-height:1.4;resize:none}
+.dsi-bh-pre-carga .dsi-bh-enviar{background:#c2511d;color:#fff;border:none;border-radius:6px;padding:8px 12px;font-weight:600;cursor:pointer}
+.dsi-bh-pre-carga .dsi-bh-disclaimer{margin:0;padding:0 10px 8px;font-size:10px;line-height:1.3;color:#8a7f68;text-align:center}
 .dsi-lp__como{padding:48px 0 16px;display:flex;flex-direction:column;gap:36px}
 .dsi-lp__como-head{display:flex;flex-direction:column;gap:16px;text-align:center}
 .dsi-lp__como-eyebrow{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:700;letter-spacing:.28em;text-transform:uppercase;color:#1d1a14}
@@ -101,25 +104,34 @@
 		</div>
 
 		<div id="dsi-bh-lp-slot">
-			<div class="dsi-bh-esqueleto">
-				<div class="esq-cabecalho">
-					<span>🎬 O Deveserisso te ajuda!</span>
-					<span><button type="button" class="esq-reiniciar" tabindex="-1" aria-hidden="true">↺</button></span>
-				</div>
-				<div class="esq-thread">
-					<div class="esq-msg">Oi! Sou o seu curador pessoal e vou te ajudar a encontrar o que assistir hoje.</div>
-					<div class="esq-msg">Que gênero te chama mais atenção hoje? Escolha uma das opções abaixo ou digite livremente o que te parece mais interessante.</div>
-					<div class="dsi-bh-quebra-gelo-wrap">
-						<?php foreach ( [ 'Ação', 'Comédia', 'Terror', 'Romance', 'Drama' ] as $genero ) : ?>
-						<button type="button" class="dsi-bh-quebra-gelo"><?php echo esc_html( $genero ); ?></button>
-						<?php endforeach; ?>
+			<?php /* Mesmo markup que montarWidget() gera em modo LP -- o widget
+			         adota estes elementos (ver adotouPreCarga no JS). */ ?>
+			<div class="dsi-bh-widget dsi-bh-widget--lp dsi-bh-pre-carga">
+				<button class="dsi-bh-bolha" type="button" aria-expanded="true" hidden>🎬 O que assistir hoje?</button>
+				<div class="dsi-bh-painel aberto">
+					<div class="dsi-bh-cabecalho">
+						<span>🎬 O Deveserisso te ajuda!</span>
+						<span>
+							<button class="dsi-bh-reiniciar" type="button" title="Começar uma nova busca">↺</button>
+							<button class="dsi-bh-expandir" type="button" title="Expandir chat" hidden>⤢</button>
+							<button class="dsi-bh-fechar" type="button" aria-label="Fechar" hidden>×</button>
+						</span>
 					</div>
+					<div class="dsi-bh-thread">
+						<div class="dsi-bh-msg dsi-bh-msg--bot">Oi! Sou o seu curador pessoal e vou te ajudar a encontrar o que assistir hoje.</div>
+						<div class="dsi-bh-msg dsi-bh-msg--bot">Que gênero te chama mais atenção hoje? Escolha uma das opções abaixo ou digite livremente o que te parece mais interessante.</div>
+						<div class="dsi-bh-quebra-gelo-wrap">
+							<?php foreach ( [ 'Ação', 'Comédia', 'Terror', 'Romance', 'Drama' ] as $genero ) : ?>
+							<button type="button" class="dsi-bh-quebra-gelo"><?php echo esc_html( $genero ); ?></button>
+							<?php endforeach; ?>
+						</div>
+					</div>
+					<form class="dsi-bh-form">
+						<textarea class="dsi-bh-input" rows="2" placeholder="Digite sua resposta..." autocomplete="off" enterkeyhint="send" aria-label="Digite sua resposta"></textarea>
+						<button type="submit" class="dsi-bh-enviar">Enviar</button>
+					</form>
+					<p class="dsi-bh-disclaimer">O Curador é uma IA e pode cometer erros. Considere checar informações importantes.</p>
 				</div>
-				<form class="esq-form">
-					<textarea class="dsi-bh-input" rows="2" placeholder="Digite sua resposta..." autocomplete="off" aria-label="Digite sua resposta"></textarea>
-					<button type="submit" class="esq-enviar">Enviar</button>
-				</form>
-				<p class="esq-disclaimer">O Curador é uma IA e pode cometer erros. Considere checar informações importantes.</p>
 			</div>
 		</div>
 		<script>
@@ -129,6 +141,8 @@
 		   desliga estes handlers e o widget assume tudo. */
 		( function () {
 			var slot = document.getElementById( 'dsi-bh-lp-slot' );
+			var quebraLinhaPedida = false;
+			function enviar( form ) { if ( form.requestSubmit ) form.requestSubmit(); }
 			slot.addEventListener( 'click', function ( e ) {
 				if ( window.dsiBhMontado ) return;
 				var botao = e.target.closest( '.dsi-bh-quebra-gelo' );
@@ -147,11 +161,35 @@
 				campo.value = '';
 				campo.placeholder = 'Enviando...';
 			} );
+			// Mesma logica de Enter do widget (keydown + beforeinput pro
+			// teclado do Android), ver comentario la.
 			slot.addEventListener( 'keydown', function ( e ) {
-				if ( window.dsiBhMontado || e.key !== 'Enter' || e.shiftKey || e.isComposing ) return;
+				if ( window.dsiBhMontado || e.key !== 'Enter' ) return;
 				if ( ! e.target.classList.contains( 'dsi-bh-input' ) ) return;
+				if ( e.shiftKey ) { quebraLinhaPedida = true; return; }
+				if ( e.isComposing ) return;
 				e.preventDefault();
-				if ( e.target.form.requestSubmit ) e.target.form.requestSubmit();
+				enviar( e.target.form );
+			} );
+			slot.addEventListener( 'beforeinput', function ( e ) {
+				if ( window.dsiBhMontado || ! e.target.classList.contains( 'dsi-bh-input' ) ) return;
+				if ( e.inputType !== 'insertLineBreak' && e.inputType !== 'insertParagraph' ) return;
+				if ( quebraLinhaPedida ) { quebraLinhaPedida = false; return; }
+				e.preventDefault();
+				enviar( e.target.form );
+			} );
+			// Scripts defer rodam antes do load -- se chegou aqui sem montar,
+			// o widget nao carregou (erro de rede, bloqueador, erro de JS).
+			// Sem isso a pessoa clicaria num genero e nada aconteceria, pra
+			// sempre, sem nenhuma explicacao.
+			window.addEventListener( 'load', function () {
+				if ( window.dsiBhMontado ) return;
+				var wrap = slot.querySelector( '.dsi-bh-quebra-gelo-wrap' );
+				if ( wrap ) wrap.remove();
+				var aviso = document.createElement( 'div' );
+				aviso.className = 'dsi-bh-msg dsi-bh-msg--bot';
+				aviso.textContent = 'Não consegui carregar o chat agora. Recarregue a página para tentar de novo.';
+				slot.querySelector( '.dsi-bh-thread' ).appendChild( aviso );
 			} );
 		} )();
 		</script>

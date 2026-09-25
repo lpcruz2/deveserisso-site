@@ -267,7 +267,16 @@
 		var lpSlot = document.getElementById( 'dsi-bh-lp-slot' );
 		var modoLP = !! lpSlot;
 
-		var raiz = document.createElement( 'div' );
+		// A LP ja vem com o chat renderizado no HTML (mesmo markup deste
+		// widget, ver page-filme-serie-bom-assistir-hoje.php), pra aparecer
+		// antes deste script carregar. O widget ADOTA esse DOM em vez de
+		// trocar: substituir o <textarea> tiraria o foco de quem ja estava
+		// digitando (no iPhone, fecha o teclado no meio da frase).
+		var raiz = modoLP ? lpSlot.querySelector( '.dsi-bh-widget' ) : null;
+		var adotouPreCarga = !! raiz;
+		if ( modoLP ) window.dsiBhMontado = true;
+		if ( ! raiz ) {
+		raiz = document.createElement( 'div' );
 		raiz.className = 'dsi-bh-widget' + ( modoLP ? ' dsi-bh-widget--lp' : '' );
 		raiz.innerHTML =
 			'<button class="dsi-bh-bolha" type="button" aria-expanded="false">' +
@@ -285,28 +294,14 @@
 				'<div class="dsi-bh-thread"></div>' +
 				'<form class="dsi-bh-form">' +
 					'<textarea class="dsi-bh-input" rows="' + ( modoLP ? 2 : 1 ) + '" placeholder="Digite sua resposta..." ' +
-						'autocomplete="off" aria-label="Digite sua resposta"></textarea>' +
+						'autocomplete="off" enterkeyhint="send" aria-label="Digite sua resposta"></textarea>' +
 					'<button type="submit" class="dsi-bh-enviar">Enviar</button>' +
 				'</form>' +
 				'<p class="dsi-bh-disclaimer">O Curador é uma IA e pode cometer erros. Considere checar informações importantes.</p>' +
 			'</div>';
-
-		// A LP ja vem com uma copia estatica do chat renderizada no HTML
-		// (page-filme-serie-bom-assistir-hoje.php), pra aparecer antes deste
-		// script carregar. Troca pela versao de verdade no mesmo frame
-		// (conteudo identico, sem piscar), mas sem perder o que a pessoa
-		// ja estava digitando nela.
-		var textoPreCarga = '', focoPreCarga = false;
-		if ( modoLP ) {
-			var inputPreCarga = lpSlot.querySelector( '.dsi-bh-input' );
-			if ( inputPreCarga ) {
-				textoPreCarga = inputPreCarga.value;
-				focoPreCarga  = document.activeElement === inputPreCarga;
-			}
-			lpSlot.innerHTML = '';
-			window.dsiBhMontado = true;
-		}
+		if ( modoLP ) lpSlot.innerHTML = '';
 		( lpSlot || document.body ).appendChild( raiz );
+		}
 
 		var bolha     = raiz.querySelector( '.dsi-bh-bolha' );
 		var painel    = raiz.querySelector( '.dsi-bh-painel' );
@@ -422,9 +417,21 @@
 		// pouco pra disparar depois do teclado abrir.
 		input.addEventListener( 'focus', function () { setTimeout( ajustarParaTeclado, 50 ); } );
 		// Campo virou textarea (2026-09-25) -- Enter continua enviando
-		// como no input antigo; Shift+Enter quebra linha.
+		// como no input antigo; Shift+Enter quebra linha. O beforeinput
+		// cobre teclado virtual do Android, que manda o Enter no meio da
+		// composicao do autocorretor (keydown com key "Unidentified"/229,
+		// nao "Enter") -- sem ele, virava quebra de linha em vez de enviar.
+		var quebraLinhaPedida = false;
 		input.addEventListener( 'keydown', function ( e ) {
-			if ( e.key !== 'Enter' || e.shiftKey || e.isComposing ) return;
+			if ( e.key !== 'Enter' ) return;
+			if ( e.shiftKey ) { quebraLinhaPedida = true; return; }
+			if ( e.isComposing ) return;
+			e.preventDefault();
+			enviarFormulario();
+		} );
+		input.addEventListener( 'beforeinput', function ( e ) {
+			if ( e.inputType !== 'insertLineBreak' && e.inputType !== 'insertParagraph' ) return;
+			if ( quebraLinhaPedida ) { quebraLinhaPedida = false; return; }
 			e.preventDefault();
 			enviarFormulario();
 		} );
@@ -1074,10 +1081,18 @@
 		// Modo LP: chat ja nasce aberto na dobra, sem esperar clique no
 		// balao (que nem existe aqui -- ver CSS display:none acima).
 		if ( modoLP ) {
+			if ( adotouPreCarga ) {
+				// Mensagens/botoes estaticos saem e sao recriados pelo
+				// abrir() logo abaixo (mesmo frame, sem piscar); form e
+				// textarea ficam intactos. Tirar a classe desliga o CSS
+				// pre-carga do template -- daqui pra frente vale so o
+				// CSS injetado por este script.
+				thread.innerHTML = '';
+				raiz.classList.remove( 'dsi-bh-pre-carga' );
+				input.placeholder = 'Digite sua resposta...';
+			}
 			if ( chegadaNovaDeCampanha() ) limparEstadoSalvo();
 			abrir();
-			if ( textoPreCarga ) input.value = textoPreCarga;
-			if ( focoPreCarga ) input.focus();
 			processarFilaPreCarga();
 		}
 
@@ -1089,13 +1104,16 @@
 			window.dsiBhFila = null;
 			if ( ! fila || ! fila.valor ) return;
 			if ( fila.tipo === 'botao' ) {
+				// Conversa salva restaurada ja passou da pergunta de genero
+				// (os botoes nao existem mais) -- mas a pessoa viu e clicou
+				// num genero na tela, entao a intencao e busca nova com ele,
+				// nao uma pergunta sobre os filmes que ela nem estava vendo.
+				if ( ! thread.querySelector( '.dsi-bh-quebra-gelo' ) ) reiniciarConversa();
 				var botoes = thread.querySelectorAll( '.dsi-bh-quebra-gelo' );
 				for ( var i = 0; i < botoes.length; i++ ) {
 					if ( botoes[ i ].textContent === fila.valor ) { botoes[ i ].click(); return; }
 				}
 			}
-			// Texto digitado, ou botao que nao existe mais (conversa salva
-			// restaurada ja passou do genero) -- vira mensagem normal.
 			input.value = fila.valor;
 			enviarFormulario();
 		}
