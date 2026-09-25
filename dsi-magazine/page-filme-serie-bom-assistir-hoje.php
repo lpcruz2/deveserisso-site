@@ -110,17 +110,16 @@ body.dsi-bh-lp-expandido #dsi-bh-lp-slot{position:static}
 <body <?php body_class( 'dsi-lp-body' ); ?>>
 <?php wp_body_open(); ?>
 
-<?php /* Logo completo do site (mesma marcacao/classes de
-         template-parts/masthead.php), sem nav nem busca -- variante compacta
-         (a mesma de masthead-search.php) pra nao empurrar o chat pra baixo
-         da dobra. */ ?>
+<?php /* Logo do site (mesma marcacao/classes de template-parts/masthead.php),
+         sem nav, busca nem o subtitulo "filmes · séries..." (pedido do
+         gestor: menos espaco no topo, mais do chat na primeira tela) --
+         variante compacta, a mesma de masthead-search.php. */ ?>
 <header class="dsi-masthead" role="banner">
 	<div class="dsi-masthead__brand dsi-masthead__brand--compact">
 		<p class="dsi-masthead__established">Desde 2009</p>
 		<a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="dsi-masthead__wordmark" aria-label="<?php bloginfo( 'name' ); ?>">
 			Deve<em>ser</em>isso
 		</a>
-		<p class="dsi-masthead__subtitle">filmes · séries · livros · programação da tv</p>
 	</div>
 </header>
 
