@@ -18,7 +18,8 @@
 // Curador" (dsi_lp_em_alta) ficaria ate uma semana velho. 3h aqui, 1h no
 // transient do ranking. Hook do plugin LiteSpeed Cache; sem o plugin, no-op.
 do_action( 'litespeed_control_set_ttl', 3 * HOUR_IN_SECONDS );
-$dsi_em_alta = dsi_lp_em_alta();
+$dsi_em_alta    = dsi_lp_em_alta();
+$dsi_top_atores = dsi_lp_top_atores();
 ?><!DOCTYPE html>
 <html <?php language_attributes(); ?>>
 <head>
@@ -66,7 +67,8 @@ $dsi_em_alta = dsi_lp_em_alta();
 .dsi-lp__passo-corpo{display:flex;flex-direction:column;gap:6px}
 .dsi-lp__passo-titulo{font-weight:700;font-size:15px;color:#1d1a14}
 .dsi-lp__passo-texto{font-size:14px;color:#4a4436;line-height:1.5}
-.dsi-lp__alta{padding:48px 0 8px;display:flex;flex-direction:column;gap:24px}
+.dsi-lp__destaques{padding:48px 0 8px;display:flex;flex-direction:column;gap:48px}
+.dsi-lp__alta,.dsi-lp__atores{display:flex;flex-direction:column;gap:24px}
 .dsi-lp__alta-head{display:flex;flex-direction:column;gap:12px;text-align:center}
 .dsi-lp__alta-lista{list-style:none;margin:0;padding:0;border-bottom:1px solid #d8cdb8}
 .dsi-lp__alta-item{display:flex;align-items:center;gap:14px;padding:14px 0;border-top:1px solid #d8cdb8}
@@ -95,10 +97,9 @@ $dsi_em_alta = dsi_lp_em_alta();
 .dsi-lp__como-head{text-align:left;align-items:flex-start}
 .dsi-lp__como-titulo{font-size:32px}
 .dsi-lp__stat{justify-content:flex-start;margin-top:8px}
-.dsi-lp__alta{display:grid;grid-template-columns:1fr 1fr;gap:20px 72px;align-items:start;padding:88px 0 24px}
-.dsi-lp__alta-head{grid-column:1;text-align:left;align-items:flex-start}
-.dsi-lp__alta-lista{grid-column:2;grid-row:1 / span 2}
-.dsi-lp__alta-apoio{grid-column:1;text-align:left}
+.dsi-lp__destaques{display:grid;grid-template-columns:1fr 1fr;gap:20px 72px;align-items:start;padding:88px 0 24px}
+.dsi-lp__alta-head{text-align:left;align-items:flex-start}
+.dsi-lp__alta-apoio{text-align:left}
 }
 </style>
 </head>
@@ -240,6 +241,85 @@ $dsi_em_alta = dsi_lp_em_alta();
 		</script>
 	</div>
 
+	<?php
+	// Com menos de 3 itens (pouco uso ainda) um "ranking" parece vazio --
+	// melhor nao mostrar o bloco. Cada um esconde independente do outro.
+	$dsi_mostra_alta   = count( $dsi_em_alta['itens'] ) >= 3;
+	$dsi_mostra_atores = count( $dsi_top_atores['itens'] ) >= 3;
+	if ( $dsi_mostra_alta || $dsi_mostra_atores ) :
+	?>
+	<div class="dsi-lp__destaques">
+
+		<?php if ( $dsi_mostra_alta ) : ?>
+		<section class="dsi-lp__alta" aria-labelledby="dsi-lp-alta-titulo">
+			<div class="dsi-lp__alta-head">
+				<span class="dsi-lp__como-eyebrow">Em alta no Curador</span>
+				<h2 id="dsi-lp-alta-titulo" class="dsi-lp__como-titulo">
+					<?php echo $dsi_em_alta['janela'] === 'semana'
+						? 'Os títulos que o Curador mais indicou esta semana'
+						: 'Os títulos que o Curador mais indicou no último mês'; ?>
+				</h2>
+			</div>
+			<ol class="dsi-lp__alta-lista">
+				<?php foreach ( $dsi_em_alta['itens'] as $i => $item ) :
+					$meta   = array_filter( [ $item['genero'], $item['ano'] ] );
+					$pedido = 'Quero algo parecido com ' . $item['titulo']
+						. ( $item['genero'] !== '' ? ', de ' . mb_strtolower( $item['genero'] ) : '' );
+				?>
+				<li class="dsi-lp__alta-item">
+					<span class="dsi-lp__alta-pos"><?php echo (int) $i + 1; ?></span>
+					<div class="dsi-lp__alta-info">
+						<span class="dsi-lp__alta-titulo"><?php echo esc_html( $item['titulo'] ); ?></span>
+						<?php if ( $meta ) : ?>
+						<span class="dsi-lp__alta-meta"><?php echo esc_html( implode( ' · ', $meta ) ); ?></span>
+						<?php endif; ?>
+					</div>
+					<button type="button" class="dsi-lp__alta-btn"
+						data-pedido="<?php echo esc_attr( $pedido ); ?>"
+						data-titulo="<?php echo esc_attr( $item['titulo'] ); ?>"
+						data-posicao="<?php echo (int) $i + 1; ?>"
+						aria-label="<?php echo esc_attr( 'Quero algo parecido com ' . $item['titulo'] ); ?>">Quero parecido</button>
+				</li>
+				<?php endforeach; ?>
+			</ol>
+			<p class="dsi-lp__alta-apoio">Toque em "Quero parecido" e o Curador já começa sabendo o gênero e o título que você curtiu.</p>
+		</section>
+		<?php endif; ?>
+
+		<?php if ( $dsi_mostra_atores ) : ?>
+		<section class="dsi-lp__atores" aria-labelledby="dsi-lp-atores-titulo">
+			<div class="dsi-lp__alta-head">
+				<span class="dsi-lp__como-eyebrow">Pedidos frequentes</span>
+				<h2 id="dsi-lp-atores-titulo" class="dsi-lp__como-titulo">
+					<?php echo $dsi_top_atores['janela'] === 'semana'
+						? 'Atores e atrizes mais pedidos esta semana'
+						: 'Atores e atrizes mais pedidos no último mês'; ?>
+				</h2>
+			</div>
+			<ol class="dsi-lp__alta-lista">
+				<?php foreach ( $dsi_top_atores['itens'] as $i => $item ) :
+					$pedido = 'Quero um filme ou série com ' . $item['nome'] . ' no elenco';
+				?>
+				<li class="dsi-lp__alta-item">
+					<span class="dsi-lp__alta-pos"><?php echo (int) $i + 1; ?></span>
+					<div class="dsi-lp__alta-info">
+						<span class="dsi-lp__alta-titulo"><?php echo esc_html( $item['nome'] ); ?></span>
+					</div>
+					<button type="button" class="dsi-lp__alta-btn"
+						data-pedido="<?php echo esc_attr( $pedido ); ?>"
+						data-titulo="<?php echo esc_attr( $item['nome'] ); ?>"
+						data-posicao="<?php echo (int) $i + 1; ?>"
+						aria-label="<?php echo esc_attr( 'Quero um filme ou série com ' . $item['nome'] ); ?>">Quero indicação</button>
+				</li>
+				<?php endforeach; ?>
+			</ol>
+			<p class="dsi-lp__alta-apoio">Toque em "Quero indicação" e o Curador já busca algo com esse nome no elenco.</p>
+		</section>
+		<?php endif; ?>
+
+	</div>
+	<?php endif; ?>
+
 	<div class="dsi-lp__como">
 		<div class="dsi-lp__como-grid">
 		<div class="dsi-lp__como-intro">
@@ -280,46 +360,6 @@ $dsi_em_alta = dsi_lp_em_alta();
 		</div>
 		</div>
 	</div>
-
-	<?php
-	// Com menos de 3 titulos (pouco uso ainda) um "ranking" parece vazio --
-	// melhor nao mostrar o bloco.
-	if ( count( $dsi_em_alta['itens'] ) >= 3 ) :
-	?>
-	<section class="dsi-lp__alta" aria-labelledby="dsi-lp-alta-titulo">
-		<div class="dsi-lp__alta-head">
-			<span class="dsi-lp__como-eyebrow">Em alta no Curador</span>
-			<h2 id="dsi-lp-alta-titulo" class="dsi-lp__como-titulo">
-				<?php echo $dsi_em_alta['janela'] === 'semana'
-					? 'Os títulos que o Curador mais indicou esta semana'
-					: 'Os títulos que o Curador mais indicou no último mês'; ?>
-			</h2>
-		</div>
-		<ol class="dsi-lp__alta-lista">
-			<?php foreach ( $dsi_em_alta['itens'] as $i => $item ) :
-				$meta   = array_filter( [ $item['genero'], $item['ano'] ] );
-				$pedido = 'Quero algo parecido com ' . $item['titulo']
-					. ( $item['genero'] !== '' ? ', de ' . mb_strtolower( $item['genero'] ) : '' );
-			?>
-			<li class="dsi-lp__alta-item">
-				<span class="dsi-lp__alta-pos"><?php echo (int) $i + 1; ?></span>
-				<div class="dsi-lp__alta-info">
-					<span class="dsi-lp__alta-titulo"><?php echo esc_html( $item['titulo'] ); ?></span>
-					<?php if ( $meta ) : ?>
-					<span class="dsi-lp__alta-meta"><?php echo esc_html( implode( ' · ', $meta ) ); ?></span>
-					<?php endif; ?>
-				</div>
-				<button type="button" class="dsi-lp__alta-btn"
-					data-pedido="<?php echo esc_attr( $pedido ); ?>"
-					data-titulo="<?php echo esc_attr( $item['titulo'] ); ?>"
-					data-posicao="<?php echo (int) $i + 1; ?>"
-					aria-label="<?php echo esc_attr( 'Quero algo parecido com ' . $item['titulo'] ); ?>">Quero parecido</button>
-			</li>
-			<?php endforeach; ?>
-		</ol>
-		<p class="dsi-lp__alta-apoio">Toque em "Quero parecido" e o Curador já começa sabendo o gênero e o título que você curtiu.</p>
-	</section>
-	<?php endif; ?>
 
 </div>
 </main>

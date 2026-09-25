@@ -4335,7 +4335,8 @@ add_action( 'wp_enqueue_scripts', function (): void {
 // pra uma conversa insistente nao inflar o ranking. Com pouco dado na
 // semana, cai pra 30 dias -- e o bloco diz qual janela vale, nunca chama
 // de "semana" um ranking de 30 dias. Usado por
-// page-filme-serie-bom-assistir-hoje.php.
+// page-filme-serie-bom-assistir-hoje.php. Nome da funcao mantido (usado
+// tambem no ranking de atores logo abaixo).
 function dsi_lp_em_alta( int $max = 5 ): array {
 	$cache = get_transient( 'dsi_lp_em_alta_v1' );
 	if ( is_array( $cache ) ) {
@@ -4394,6 +4395,77 @@ function dsi_lp_em_alta( int $max = 5 ): array {
 	}
 
 	set_transient( 'dsi_lp_em_alta_v1', $resultado, HOUR_IN_SECONDS );
+	return $resultado;
+}
+
+// Atores/atrizes mais mencionados como preferencia (campo "atores" do
+// estado da conversa, tipo_evento=mensagem) -- diferente de dsi_lp_em_alta
+// acima (o que o Curador RECOMENDOU); aqui e o que as PESSOAS pediram.
+// Pega so o estado_depois mais recente de cada sessao dentro da janela
+// (o estado e acumulativo turno a turno -- somar toda linha contaria a
+// mesma sessao varias vezes). Nomes normalizados pra "Tom Hanks" e
+// "tom hanks" contarem juntos; exibe a primeira grafia vista.
+function dsi_lp_top_atores( int $max = 5 ): array {
+	$cache = get_transient( 'dsi_lp_top_atores_v1' );
+	if ( is_array( $cache ) ) {
+		return $cache;
+	}
+
+	global $wpdb;
+	$tabela    = dsi_bilheteiro_log_table_name();
+	$agora     = current_time( 'timestamp' );
+	$resultado = [ 'janela' => 'semana', 'itens' => [] ];
+
+	foreach ( [ 'semana' => 7, 'mes' => 30 ] as $janela => $dias ) {
+		$linhas = $wpdb->get_results( $wpdb->prepare(
+			"SELECT sessao_id, estado_depois FROM {$tabela}
+			 WHERE tipo_evento = 'mensagem' AND criado_em >= %s
+			   AND sessao_id NOT LIKE 'teste-%%' AND sessao_id NOT LIKE 'webmcp-%%'
+			 ORDER BY id ASC",
+			gmdate( 'Y-m-d H:i:s', $agora - $dias * DAY_IN_SECONDS )
+		), ARRAY_A );
+
+		// Ultimo estado de cada sessao dentro da janela (mensagens
+		// posteriores sobrescrevem -- so a leitura final da sessao importa).
+		$estado_final_por_sessao = [];
+		foreach ( $linhas as $linha ) {
+			$estado_final_por_sessao[ $linha['sessao_id'] ] = $linha['estado_depois'];
+		}
+
+		$sessoes_por_ator = [];
+		$grafia_por_ator  = [];
+		foreach ( $estado_final_por_sessao as $sessao_id => $estado_json ) {
+			$estado = json_decode( (string) $estado_json, true );
+			foreach ( (array) ( $estado['atores'] ?? [] ) as $nome ) {
+				$nome = trim( (string) $nome );
+				if ( $nome === '' || mb_strlen( $nome ) > 60 ) {
+					continue; // texto livre pode trazer frase inteira, nao um nome
+				}
+				$chave = dsi_dt_normalize_key( $nome );
+				$sessoes_por_ator[ $chave ][ $sessao_id ] = true;
+				if ( ! isset( $grafia_por_ator[ $chave ] ) ) {
+					$grafia_por_ator[ $chave ] = $nome;
+				}
+			}
+		}
+		$contagem = array_map( 'count', $sessoes_por_ator );
+		arsort( $contagem );
+
+		$itens = [];
+		foreach ( array_keys( $contagem ) as $chave ) {
+			$itens[] = [ 'nome' => $grafia_por_ator[ $chave ], 'sessoes' => $contagem[ $chave ] ];
+			if ( count( $itens ) >= $max ) {
+				break;
+			}
+		}
+
+		$resultado = [ 'janela' => $janela, 'itens' => $itens ];
+		if ( count( $itens ) >= $max ) {
+			break;
+		}
+	}
+
+	set_transient( 'dsi_lp_top_atores_v1', $resultado, HOUR_IN_SECONDS );
 	return $resultado;
 }
 
