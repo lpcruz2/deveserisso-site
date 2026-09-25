@@ -46,6 +46,25 @@
 .dsi-lp__passo-corpo{display:flex;flex-direction:column;gap:6px}
 .dsi-lp__passo-titulo{font-weight:700;font-size:15px;color:#1d1a14}
 .dsi-lp__passo-texto{font-size:14px;color:#4a4436;line-height:1.5}
+/* Acima de ~900px o layout de 1 coluna centralizada (pensado pra trafego
+   pago via celular) sobrava vazio nas laterais -- vira duas colunas:
+   texto + chat lado a lado no hero, texto + passos lado a lado no
+   "como funciona" (mesmo padrao de grid do .dsi-hero do tema, mas com
+   proporcoes proprias porque o chat precisa de largura fixa, nao 1fr). */
+@media(min-width:900px){
+.dsi-lp__inner{max-width:1120px;padding:0 48px 96px}
+.dsi-lp__topbar{padding:28px 0}
+.dsi-lp__hero-grid{display:grid;grid-template-columns:1fr 440px;gap:56px;align-items:start;padding:64px 0 56px}
+.dsi-lp__hero{text-align:left;align-items:flex-start;padding:0;gap:20px}
+.dsi-lp__titulo{font-size:52px}
+.dsi-lp__sub{max-width:440px}
+#dsi-bh-lp-slot{position:sticky;top:24px}
+.dsi-lp__como{padding:88px 0 24px}
+.dsi-lp__como-grid{display:grid;grid-template-columns:1fr 1fr;gap:72px;align-items:start}
+.dsi-lp__como-head{text-align:left;align-items:flex-start}
+.dsi-lp__como-titulo{font-size:32px}
+.dsi-lp__stat{justify-content:flex-start;margin-top:8px}
+}
 </style>
 </head>
 <body <?php body_class( 'dsi-lp-body' ); ?>>
@@ -59,15 +78,19 @@
 		<span class="dsi-lp__desde">Desde 2009</span>
 	</div>
 
-	<div class="dsi-lp__hero">
-		<span class="dsi-lp__eyebrow">Curadoria ao vivo</span>
-		<h1 class="dsi-lp__titulo">Não sabe o que assistir <em>hoje</em>?</h1>
-		<p class="dsi-lp__sub">O Curador é um assistente de IA que conversa com você e recomenda filmes e séries sob medida, direto do nosso catálogo. Sem rolar feed. Sem ficar horas decidindo.</p>
+	<div class="dsi-lp__hero-grid">
+		<div class="dsi-lp__hero">
+			<span class="dsi-lp__eyebrow">Curadoria ao vivo</span>
+			<h1 class="dsi-lp__titulo">Não sabe o que assistir <em>hoje</em>?</h1>
+			<p class="dsi-lp__sub">O Curador é um assistente de IA que conversa com você e recomenda filmes e séries sob medida, direto do nosso catálogo. Sem rolar feed. Sem ficar horas decidindo.</p>
+		</div>
+
+		<div id="dsi-bh-lp-slot"></div>
 	</div>
 
-	<div id="dsi-bh-lp-slot"></div>
-
 	<div class="dsi-lp__como">
+		<div class="dsi-lp__como-grid">
+		<div class="dsi-lp__como-intro">
 		<div class="dsi-lp__como-head">
 			<span class="dsi-lp__como-eyebrow">Como funciona</span>
 			<h2 class="dsi-lp__como-titulo">Um crítico particular, pronto em 1 minuto</h2>
@@ -77,6 +100,7 @@
 		<div class="dsi-lp__stat">
 			<span class="dsi-lp__stat-numero">+3.000</span>
 			<span class="dsi-lp__stat-texto">filmes e séries no nosso catálogo pra recomendar</span>
+		</div>
 		</div>
 
 		<div class="dsi-lp__passos">
@@ -101,6 +125,7 @@
 					<div class="dsi-lp__passo-texto">Nota, sinopse e a resenha completa de quem realmente assistiu, na hora.</div>
 				</div>
 			</div>
+		</div>
 		</div>
 	</div>
 
