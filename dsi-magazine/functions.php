@@ -2075,19 +2075,6 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// excluir_filmes e nao repetir o mesmo titulo numa proxima rodada.
 	$sem_resenha = array_map( fn( array $c ) => array_merge( $c['dados'], [ 'id' => $c['id'], 'fonte' => 'externo', 'nota' => $c['nota'] ] ), $sem_resenha_candidatos );
 
-	// Registra a rodada no mesmo log do bilheteiro (tipo_evento=recomendacao)
-	// pra o feedback (dsi_recomendacao_feedback) poder referenciar por
-	// sessao_id + rodada -- so quando o chamador manda sessao_id (o fluxo de
-	// botao antigo, sem sessao, continua funcionando sem isso).
-	$sessao_id = (string) $req->get_param( 'sessao_id' );
-	if ( $sessao_id !== '' ) {
-		dsi_bilheteiro_registrar_recomendacao(
-			$sessao_id,
-			(int) $req->get_param( 'rodada' ) ?: 1,
-			array_map( fn( array $r ) => [ 'id' => $r['id'], 'fonte' => $r['fonte'] ], $resultados )
-		);
-	}
-
 	// Aviso sobre o ator pedido (2026-09-25, achados com transcripts reais),
 	// dito pelo widget antes da lista:
 	// - sem_ator: o ator nao tem nenhum titulo no catalogo, entao a lista
@@ -2121,6 +2108,25 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 				$aviso_atores = [ 'tipo' => 'sem_genero', 'ator' => $ator, 'generos_com_ator' => array_slice( $generos, 0, 3 ) ];
 			}
 		}
+	}
+
+	// Registra a rodada no mesmo log do bilheteiro (tipo_evento=recomendacao)
+	// pra o feedback (dsi_recomendacao_feedback) poder referenciar por
+	// sessao_id + rodada -- so quando o chamador manda sessao_id (o fluxo de
+	// botao antigo, sem sessao, continua funcionando sem isso). Tudo o que
+	// foi mostrado entra: com resenha, sem resenha e o aviso do ator.
+	$sessao_id = (string) $req->get_param( 'sessao_id' );
+	if ( $sessao_id !== '' ) {
+		$mostrados = array_merge(
+			array_map( fn( array $r ) => [ 'id' => $r['id'], 'fonte' => $r['fonte'], 'titulo' => $r['titulo'] ?? '' ], $resultados ),
+			array_map( fn( array $r ) => [ 'id' => $r['id'], 'fonte' => $r['fonte'], 'titulo' => $r['titulo'] ?? '' ], $sem_resenha )
+		);
+		dsi_bilheteiro_registrar_recomendacao(
+			$sessao_id,
+			(int) $req->get_param( 'rodada' ) ?: 1,
+			$mostrados,
+			$aviso_atores ? wp_json_encode( [ 'aviso_atores' => $aviso_atores ] ) : null
+		);
 	}
 
 	return new WP_REST_Response( [
@@ -2506,6 +2512,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		// verdade (2026-09-22, pedido do funil no relatorio) -- esse ramo so
 		// roda uma vez por sessao (perguntas_feitas > 0 ja rejeita acima),
 		// entao nao precisa de trava extra contra duplicata.
+		$resposta = dsi_bilheteiro_recap_prefixo( $estado, $contexto_minigames ) . dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames );
 		global $wpdb;
 		$wpdb->insert(
 			dsi_bilheteiro_log_table_name(),
@@ -2513,10 +2520,10 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 				'criado_em'   => current_time( 'mysql' ),
 				'sessao_id'   => $sessao_id,
 				'tipo_evento' => 'sessao_iniciada',
+				'resposta'    => $resposta,
 			],
-			[ '%s', '%s', '%s' ]
+			[ '%s', '%s', '%s', '%s' ]
 		);
-		$resposta = dsi_bilheteiro_recap_prefixo( $estado, $contexto_minigames ) . dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames );
 		return new WP_REST_Response( [
 			'estado'                       => $estado,
 			'perguntas_feitas'             => 0,
@@ -2736,7 +2743,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	$criterio_real   = empty( $campos_faltando );
 	$deve_parar      = $pedido_pular || $criterio_real || $limite_atingido;
 
-	dsi_bilheteiro_registrar_interacao( [
+	$id_linha_log = dsi_bilheteiro_registrar_interacao( [
 		'sessao_id'        => $sessao_id,
 		'mensagem'         => $mensagem,
 		'estado_antes'     => $estado_antes,
@@ -2762,6 +2769,9 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		} else {
 			$mensagem_resposta = DSI_BILHETEIRO_MSG_LIMITE;
 		}
+		// O widget nao mostra $mensagem_resposta quando pronto -- vai direto
+		// pras recomendacoes (linha tipo_evento=recomendacao da mesma sessao).
+		dsi_bilheteiro_registrar_resposta( $id_linha_log, '[mostrou as recomendações]' );
 		return new WP_REST_Response( [
 			'estado'                       => $estado,
 			'perguntas_feitas'             => $perguntas_feitas,
@@ -2816,6 +2826,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 			$proxima_pergunta = $reconhecimento . ' ' . $proxima_pergunta;
 		}
 	}
+	dsi_bilheteiro_registrar_resposta( $id_linha_log, $proxima_pergunta );
 	return new WP_REST_Response( [
 		'estado'                       => $estado,
 		'perguntas_feitas'             => $perguntas_feitas,
@@ -2974,10 +2985,13 @@ function dsi_bilheteiro_perguntar_pos_recomendacao( WP_REST_Request $req ): WP_R
 		return $normalizado['titulo'] !== '' ? $normalizado : null;
 	}, $itens_brutos ) );
 
-	$resposta = dsi_bilheteiro_responder_pos_recomendacao( $pergunta, array_values( $itens ), $api_key );
+	$resposta  = dsi_bilheteiro_responder_pos_recomendacao( $pergunta, array_values( $itens ), $api_key );
+	$sessao_id = (string) $req->get_param( 'sessao_id' );
 	if ( is_wp_error( $resposta ) ) {
+		dsi_bilheteiro_registrar_pergunta( $sessao_id, $pergunta, null, 'erro' );
 		return new WP_REST_Response( [ 'erro' => $resposta->get_error_message() ], 502 );
 	}
+	dsi_bilheteiro_registrar_pergunta( $sessao_id, $pergunta, (string) $resposta );
 	return new WP_REST_Response( [ 'resposta' => $resposta ] );
 }
 
@@ -3260,8 +3274,13 @@ function dsi_bilheteiro_log_table_name(): string {
 // quando o turno ja fechou (pronto/pedido_pular/limite). fora_do_tema grava
 // o flag que a extracao ja retornava mas nunca persistia, pra virar metrica
 // sistematica em vez de inspecao manual da amostra.
+// v1.3 (2026-09-25, pedido do gestor: "tem de gravar"): o log guardava so o
+// que o visitante disse, nunca o que o Curador respondeu -- nao dava pra
+// reler uma conversa como ela aconteceu. resposta grava o texto que o bot
+// mostrou no turno (e a resposta das perguntas pos-recomendacao, tipo_evento
+// 'pergunta').
 add_action( 'init', function (): void {
-	$versao_atual = '1.2';
+	$versao_atual = '1.3';
 	if ( get_option( 'dsi_bilheteiro_log_versao' ) === $versao_atual ) {
 		return;
 	}
@@ -3275,6 +3294,7 @@ add_action( 'init', function (): void {
 		sessao_id VARCHAR(64) NOT NULL DEFAULT '',
 		tipo_evento VARCHAR(20) NOT NULL DEFAULT 'mensagem',
 		mensagem TEXT NULL,
+		resposta TEXT NULL,
 		estado_antes TEXT NULL,
 		estado_depois TEXT NULL,
 		pedido_pular TINYINT(1) NOT NULL DEFAULT 0,
@@ -3294,7 +3314,9 @@ add_action( 'init', function (): void {
 	update_option( 'dsi_bilheteiro_log_versao', $versao_atual );
 } );
 
-function dsi_bilheteiro_registrar_interacao( array $dados ): void {
+// Devolve o id da linha -- a resposta do bot so fica pronta depois (ver
+// dsi_bilheteiro_registrar_resposta).
+function dsi_bilheteiro_registrar_interacao( array $dados ): int {
 	global $wpdb;
 	$wpdb->insert(
 		dsi_bilheteiro_log_table_name(),
@@ -3313,12 +3335,24 @@ function dsi_bilheteiro_registrar_interacao( array $dados ): void {
 		],
 		[ '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%d' ]
 	);
+	return (int) $wpdb->insert_id;
+}
+
+function dsi_bilheteiro_registrar_resposta( int $id_linha, string $resposta ): void {
+	if ( $id_linha <= 0 ) {
+		return;
+	}
+	global $wpdb;
+	$wpdb->update( dsi_bilheteiro_log_table_name(), [ 'resposta' => $resposta ], [ 'id' => $id_linha ], [ '%s' ], [ '%d' ] );
 }
 
 // tipo_evento=recomendacao -- registrado pelo proprio dsi_recomendar_filme()
 // quando chamado com sessao_id, pra existir uma linha que o feedback (ver
-// dsi_recomendacao_feedback) possa referenciar por rodada.
-function dsi_bilheteiro_registrar_recomendacao( string $sessao_id, int $rodada, array $filmes ): void {
+// dsi_recomendacao_feedback) possa referenciar por rodada. $filmes traz os
+// com resenha (fonte 'catalogo') E os sem resenha (fonte 'externo'), com
+// titulo (2026-09-25: antes so os com resenha, e so o id). $motivo guarda o
+// aviso sobre o ator pedido, quando houve (JSON).
+function dsi_bilheteiro_registrar_recomendacao( string $sessao_id, int $rodada, array $filmes, ?string $motivo = null ): void {
 	global $wpdb;
 	$wpdb->insert(
 		dsi_bilheteiro_log_table_name(),
@@ -3328,8 +3362,28 @@ function dsi_bilheteiro_registrar_recomendacao( string $sessao_id, int $rodada, 
 			'tipo_evento' => 'recomendacao',
 			'rodada'      => $rodada,
 			'filmes'      => wp_json_encode( $filmes ),
+			'motivo'      => $motivo,
 		],
-		[ '%s', '%s', '%s', '%d', '%s' ]
+		[ '%s', '%s', '%s', '%d', '%s', '%s' ]
+	);
+}
+
+// tipo_evento=pergunta (2026-09-25): pergunta feita depois das
+// recomendacoes ("tem o De Niro?") e o que o Curador respondeu. motivo
+// 'erro' quando a resposta falhou (a pessoa viu a mensagem de erro).
+function dsi_bilheteiro_registrar_pergunta( string $sessao_id, string $pergunta, ?string $resposta, ?string $motivo = null ): void {
+	global $wpdb;
+	$wpdb->insert(
+		dsi_bilheteiro_log_table_name(),
+		[
+			'criado_em'   => current_time( 'mysql' ),
+			'sessao_id'   => mb_substr( sanitize_text_field( $sessao_id ), 0, 64 ),
+			'tipo_evento' => 'pergunta',
+			'mensagem'    => $pergunta,
+			'resposta'    => $resposta,
+			'motivo'      => $motivo,
+		],
+		[ '%s', '%s', '%s', '%s', '%s', '%s' ]
 	);
 }
 
