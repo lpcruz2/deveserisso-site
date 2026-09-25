@@ -541,19 +541,17 @@
 				thread.scrollTop = ancoraComResenha ? offsetDentroDoThread( ancoraComResenha ) : thread.scrollHeight;
 			}
 		}
-		// Quem recolheu na mao nao e expandido sozinho de novo nesta visita.
-		var recolhidoPelaPessoa = false;
 		expandirBtn.addEventListener( 'click', function () {
-			var expandir = ! painel.classList.contains( 'expandido' );
-			if ( ! expandir ) recolhidoPelaPessoa = true;
-			definirExpandido( expandir );
+			definirExpandido( ! painel.classList.contains( 'expandido' ) );
 		} );
-		// No celular, a conversa vai pra tela inteira na primeira interacao
-		// (2026-09-25, decisao do gestor): chat embutido numa pagina que
+		// No celular, a conversa vai pra tela inteira a cada interacao com o
+		// chat (2026-09-25, decisao do gestor): chat embutido numa pagina que
 		// tambem rola dava duas rolagens, e no celular o dedo "prendia" na
-		// do chat. Desktop continua embutido.
+		// do chat. Recolher vale so ate a proxima interacao -- quem recolhe
+		// quer olhar a pagina, quem volta a interagir quer conversar.
+		// Desktop continua embutido.
 		function autoExpandirNoCelular() {
-			if ( ! modoLP || recolhidoPelaPessoa || window.innerWidth > 899 || painel.classList.contains( 'expandido' ) ) return;
+			if ( ! modoLP || window.innerWidth > 899 || painel.classList.contains( 'expandido' ) ) return;
 			definirExpandido( true );
 		}
 		// Girou o celular / redimensionou com o chat expandido: recalcula se
