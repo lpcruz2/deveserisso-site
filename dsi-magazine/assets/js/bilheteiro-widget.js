@@ -455,7 +455,10 @@
 		}
 		// Reforco: em alguns navegadores o resize do visualViewport demora um
 		// pouco pra disparar depois do teclado abrir.
-		input.addEventListener( 'focus', function () { setTimeout( ajustarParaTeclado, 50 ); } );
+		input.addEventListener( 'focus', function () {
+			autoExpandirNoCelular();
+			setTimeout( ajustarParaTeclado, 50 );
+		} );
 		// Campo virou textarea (2026-09-25) -- Enter continua enviando
 		// como no input antigo; Shift+Enter quebra linha. O beforeinput
 		// cobre teclado virtual do Android, que manda o Enter no meio da
@@ -516,24 +519,47 @@
 			if ( painel.classList.contains( 'aberto' ) ) fecharPainel(); else abrir();
 		} );
 		fechar.addEventListener( 'click', fecharPainel );
-		expandirBtn.addEventListener( 'click', function () {
-			var expandido = painel.classList.toggle( 'expandido' );
-			expandirBtn.textContent = expandido ? '⤡' : '⤢';
-			expandirBtn.title = expandido ? 'Recolher chat' : 'Expandir chat';
+		function definirExpandido( expandido ) {
+			painel.classList.toggle( 'expandido', expandido );
+			var telaCheia = modoLP && expandido && window.innerWidth <= 899;
+			// Em tela cheia no celular o ⤡ nao diz nada -- vira um "×" de
+			// voltar pra pagina (so recolhe, nao fecha o chat).
+			expandirBtn.textContent = telaCheia ? '×' : ( expandido ? '⤡' : '⤢' );
+			expandirBtn.title = telaCheia ? 'Voltar para a página' : ( expandido ? 'Recolher chat' : 'Expandir chat' );
+			expandirBtn.setAttribute( 'aria-label', expandirBtn.title );
 			if ( modoLP ) {
 				// Desktop: a pagina tira a coluna do texto e o chat ocupa a
 				// largura toda (CSS do template). Celular: tela inteira, entao
-				// trava a rolagem da pagina por tras.
+				// trava a rolagem da pagina por tras -- uma rolagem so.
 				document.body.classList.toggle( 'dsi-bh-lp-expandido', expandido );
-				var telaCheia = expandido && window.innerWidth <= 899;
 				document.documentElement.style.overflow = telaCheia ? 'hidden' : '';
 				ajustarParaTeclado();
 				if ( ! telaCheia ) {
 					var semAnimacao = window.matchMedia && window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches;
 					raiz.scrollIntoView( { behavior: semAnimacao ? 'auto' : 'smooth', block: 'start' } );
 				}
-				thread.scrollTop = thread.scrollHeight;
+				thread.scrollTop = ancoraComResenha ? offsetDentroDoThread( ancoraComResenha ) : thread.scrollHeight;
 			}
+		}
+		// Quem recolheu na mao nao e expandido sozinho de novo nesta visita.
+		var recolhidoPelaPessoa = false;
+		expandirBtn.addEventListener( 'click', function () {
+			var expandir = ! painel.classList.contains( 'expandido' );
+			if ( ! expandir ) recolhidoPelaPessoa = true;
+			definirExpandido( expandir );
+		} );
+		// No celular, a conversa vai pra tela inteira na primeira interacao
+		// (2026-09-25, decisao do gestor): chat embutido numa pagina que
+		// tambem rola dava duas rolagens, e no celular o dedo "prendia" na
+		// do chat. Desktop continua embutido.
+		function autoExpandirNoCelular() {
+			if ( ! modoLP || recolhidoPelaPessoa || window.innerWidth > 899 || painel.classList.contains( 'expandido' ) ) return;
+			definirExpandido( true );
+		}
+		// Girou o celular / redimensionou com o chat expandido: recalcula se
+		// ainda e tela cheia (trava de rolagem e icone dependem disso).
+		window.addEventListener( 'resize', function () {
+			if ( modoLP && painel.classList.contains( 'expandido' ) ) definirExpandido( true );
 		} );
 		// Extraida do handler do botao (2026-09-24) pra poder ser chamada
 		// tambem pelo link "clique aqui" dentro do aviso de limite de
@@ -728,6 +754,7 @@
 				botao.className = 'dsi-bh-quebra-gelo';
 				botao.textContent = opcao;
 				botao.addEventListener( 'click', function () {
+					autoExpandirNoCelular();
 					wrap.remove();
 					addUser( opcao );
 					mensagensEnviadas++;
@@ -1228,6 +1255,9 @@
 			if ( chegadaNovaDeCampanha() ) limparEstadoSalvo();
 			abrir();
 			window.dsiBhPedirParecido = pedirParecido;
+			// Tocou no campo antes do script carregar -- o foco nao dispara
+			// de novo, entao expande aqui.
+			if ( document.activeElement === input ) autoExpandirNoCelular();
 			processarFilaPreCarga();
 		}
 
@@ -1243,6 +1273,7 @@
 				sessao_id: sessaoId
 			} );
 			if ( perguntasEncerradas ) reiniciarConversa();
+			autoExpandirNoCelular();
 			input.value = texto;
 			enviarFormulario();
 		}
