@@ -2406,9 +2406,11 @@ function dsi_bilheteiro_limite_excedido( string $ip ): string {
 	$por_dia    = (int) get_transient( $chave_dia );
 
 	// 10/minuto cobre folgado uma conversa real (DSI_BILHETEIRO_LIMITE_PERGUNTAS
-	// limita a 6 perguntas de acompanhamento, atualizado 2026-09-22); 50/dia
-	// trava quem tenta contornar o limite por minuto indo devagar.
-	if ( $por_dia >= 50 ) {
+	// limita a 6 perguntas de acompanhamento, atualizado 2026-09-22); o teto
+	// diario trava quem tenta contornar o limite por minuto indo devagar.
+	// Subiu de 50 pra 100 em 2026-09-25 (pedido do gestor: 50 acabava no meio
+	// dos testes da LP de midia paga).
+	if ( $por_dia >= 100 ) {
 		return 'dia';
 	}
 	if ( $por_minuto >= 10 ) {
@@ -2422,7 +2424,7 @@ function dsi_bilheteiro_limite_excedido( string $ip ): string {
 
 // Acompanhamento de bloqueios (2026-09-25, pedido do gestor pro teste de
 // midia paga). cf_ip registra se o CF-Connecting-IP chegou na origem: se nao
-// chega, a chave do limite e o IP do edge da Cloudflare e o teto de 50/dia e
+// chega, a chave do limite e o IP do edge da Cloudflare e o teto de 100/dia e
 // dividido entre todos os visitantes daquele edge (ver CLAUDE.md, achado de
 // 2026-09-07). Sem IP, mesma regra permanente do log.
 // Ate DSI_BILHETEIRO_BLOQUEIOS_LOG_MAX linhas por sessao+teto por dia
