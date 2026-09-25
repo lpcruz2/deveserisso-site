@@ -1696,6 +1696,19 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// ganha bonus proprio e o aviso de "nao achei com esse ator" (2026-09-25).
 	$atores_pedidos      = $atores_pessoa;
 	$atores_pedidos_norm = array_map( 'dsi_dt_normalize_key', $atores_pedidos );
+	// Ator pedido que existe no catalogo vira filtro das duas listas
+	// (decisao do gestor 2026-09-25: "não faz sentido mostrar filmes
+	// genericos so para mostrar algo com resenha"). O genero passa a so
+	// ordenar os titulos dele. Ator sem nenhum titulo no catalogo nao filtra
+	// nada -- ai a lista sai pelo resto das respostas, com aviso (sem_ator).
+	$filtro_ator_ativo = false;
+	foreach ( $atores_pedidos as $ator_pedido ) {
+		$no_catalogo = dsi_ator_no_catalogo( (string) $ator_pedido );
+		if ( $no_catalogo['resenha'] || $no_catalogo['externo'] ) {
+			$filtro_ator_ativo = true;
+			break;
+		}
+	}
 	$exclusoes_pessoa  = dsi_score_csv_para_array( $req->get_param( 'exclusoes' ) );
 	$confirmacoes      = json_decode( (string) $req->get_param( 'confirmacoes' ), true ) ?: [];
 	$excluir_filmes    = json_decode( (string) $req->get_param( 'excluir_filmes' ), true ) ?: [];
@@ -1826,6 +1839,9 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			if ( ( $d['tipo'] ?? 'filme' ) !== $tipo_pedido ) {
 				continue;
 			}
+		}
+		if ( $filtro_ator_ativo && ! array_intersect( $atores_pedidos_norm, array_map( 'dsi_dt_normalize_key', (array) ( $d['elenco'] ?? [] ) ) ) ) {
+			continue;
 		}
 
 		// Formula unica de score (PRD secao 5) -- diferenca de ordem de
@@ -1992,6 +2008,9 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			json_decode( $linha['subtemas'] ?? '[]', true ) ?: []
 		);
 		$atores_linha = json_decode( $linha['atores'] ?? '[]', true ) ?: [];
+		if ( $filtro_ator_ativo && ! array_intersect( $atores_pedidos_norm, array_map( 'dsi_dt_normalize_key', $atores_linha ) ) ) {
+			continue;
+		}
 
 		$score = 0.0;
 		if ( $filtro_genero !== null ) {
@@ -2069,31 +2088,38 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		);
 	}
 
-	// Ator pedido que nao aparece em NENHUM resultado (2026-09-25, achado com
-	// transcript real: "Ben Stiller" + terror devolveu 10 terrores sem ele e
-	// o Curador nao disse nada). O widget avisa antes da lista e oferece os
-	// generos em que o ator tem titulo. So quando nenhum dos atores pedidos
-	// aparece -- se pediu dois e um veio, a lista ja atende.
+	// Aviso sobre o ator pedido (2026-09-25, achados com transcripts reais),
+	// dito pelo widget antes da lista:
+	// - sem_ator: o ator nao tem nenhum titulo no catalogo, entao a lista
+	//   saiu so pelo resto das respostas.
+	// - sem_genero: a lista ja so tem titulos com o ator (filtro acima), mas
+	//   nenhum com resenha e do genero pedido -- diz isso e oferece os
+	//   generos em que ele tem resenha.
 	$aviso_atores = null;
 	if ( $atores_pedidos && ( $resultados || $sem_resenha ) ) {
-		$presentes = [];
-		foreach ( $resultados as $r ) {
-			foreach ( (array) ( $r['elenco'] ?? [] ) as $a ) {
-				$presentes[ dsi_dt_normalize_key( (string) $a ) ] = true;
+		$ator = (string) $atores_pedidos[0];
+		if ( ! $filtro_ator_ativo ) {
+			$aviso_atores = [ 'tipo' => 'sem_ator', 'ator' => $ator, 'generos_com_ator' => [] ];
+		} elseif ( $filtro_genero !== null ) {
+			$bate_genero = function ( array $generos ) use ( $filtro_genero ): bool {
+				foreach ( $generos as $g ) {
+					if ( strpos( dsi_dt_normalize_key( (string) $g ), $filtro_genero ) !== false ) {
+						return true;
+					}
+				}
+				return false;
+			};
+			$alguma_resenha_bate = false;
+			foreach ( $resultados as $r ) {
+				$alguma_resenha_bate = $alguma_resenha_bate || $bate_genero( (array) ( $r['genero'] ?? [] ) );
 			}
-		}
-		foreach ( $sem_resenha as $r ) {
-			foreach ( (array) ( $r['atores'] ?? [] ) as $a ) {
-				$presentes[ dsi_dt_normalize_key( (string) $a ) ] = true;
+			if ( ! $alguma_resenha_bate ) {
+				$generos = array_values( array_filter(
+					dsi_generos_sugeridos_ator( $ator ),
+					fn( $g ) => strpos( dsi_dt_normalize_key( $g ), $filtro_genero ) === false
+				) );
+				$aviso_atores = [ 'tipo' => 'sem_genero', 'ator' => $ator, 'generos_com_ator' => array_slice( $generos, 0, 3 ) ];
 			}
-		}
-		if ( ! array_intersect_key( array_flip( $atores_pedidos_norm ), $presentes ) ) {
-			$ator      = (string) $atores_pedidos[0];
-			$generos   = dsi_generos_do_ator( $ator );
-			if ( $filtro_genero !== null ) {
-				$generos = array_values( array_filter( $generos, fn( $g ) => strpos( dsi_dt_normalize_key( $g ), $filtro_genero ) === false ) );
-			}
-			$aviso_atores = [ 'ator' => $ator, 'generos_com_ator' => array_slice( $generos, 0, 3 ) ];
 		}
 	}
 
@@ -2742,7 +2768,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// como botoes). Sem titulo nenhum do ator, fica a pergunta de sempre.
 	$sugestoes_genero = [];
 	if ( ( $campos_faltando[0] ?? null ) === 'genero' && ! empty( $estado['atores'] ) ) {
-		$sugestoes_genero = dsi_generos_do_ator( (string) $estado['atores'][0] );
+		$sugestoes_genero = dsi_generos_sugeridos_ator( (string) $estado['atores'][0] );
 	}
 	$proxima_pergunta = dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames );
 	if ( $sugestoes_genero ) {
@@ -2777,35 +2803,36 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	] );
 }
 
-// Generos em que um ator/atriz tem titulo no catalogo (posts com ficha
-// tecnica + catalogo externo sem resenha), do mais frequente pro menos.
+// Generos em que um ator/atriz tem titulo no catalogo, separados entre posts
+// com resenha e catalogo externo sem resenha -- do mais frequente pro menos.
 // LIKE e so pre-filtro barato; a confirmacao e sempre pelo elenco parseado
 // e normalizado, pra "Ben Stiller" nao casar com "Jerry Stiller". Cache de
 // 1 dia por nome -- o catalogo muda devagar.
-function dsi_generos_do_ator( string $nome, int $max = 5 ): array {
-	$nome = trim( $nome );
+function dsi_ator_no_catalogo( string $nome ): array {
+	$vazio = [ 'resenha' => [], 'externo' => [] ];
+	$nome  = trim( $nome );
 	if ( mb_strlen( $nome ) < 3 ) {
-		return [];
+		return $vazio;
 	}
 	$chave     = dsi_dt_normalize_key( $nome );
-	$cache_key = 'dsi_generos_ator_v1_' . md5( $chave );
+	$cache_key = 'dsi_ator_catalogo_v1_' . md5( $chave );
 	$cache     = get_transient( $cache_key );
 	if ( is_array( $cache ) ) {
 		return $cache;
 	}
 
 	global $wpdb;
-	$contagem = [];
+	$contagem = $vazio;
 	$grafia   = [];
-	$somar    = function ( array $generos ) use ( &$contagem, &$grafia ): void {
+	$somar    = function ( string $fonte, array $generos ) use ( &$contagem, &$grafia ): void {
 		foreach ( $generos as $g ) {
 			$g = trim( (string) $g );
 			if ( $g === '' ) {
 				continue;
 			}
-			$k              = dsi_dt_normalize_key( $g );
-			$contagem[ $k ] = ( $contagem[ $k ] ?? 0 ) + 1;
-			$grafia[ $k ]   = $grafia[ $k ] ?? $g;
+			$k                         = dsi_dt_normalize_key( $g );
+			$contagem[ $fonte ][ $k ]  = ( $contagem[ $fonte ][ $k ] ?? 0 ) + 1;
+			$grafia[ $k ]              = $grafia[ $k ] ?? $g;
 		}
 	};
 
@@ -2820,7 +2847,7 @@ function dsi_generos_do_ator( string $nome, int $max = 5 ): array {
 	foreach ( $metas as $raw ) {
 		$d = dsi_parse_dados_tecnicos( (string) $raw );
 		if ( in_array( $chave, array_map( 'dsi_dt_normalize_key', (array) ( $d['elenco'] ?? [] ) ), true ) ) {
-			$somar( (array) ( $d['genero'] ?? [] ) );
+			$somar( 'resenha', (array) ( $d['genero'] ?? [] ) );
 		}
 	}
 
@@ -2838,15 +2865,27 @@ function dsi_generos_do_ator( string $nome, int $max = 5 ): array {
 		foreach ( $linhas as $linha ) {
 			$atores = array_map( 'dsi_dt_normalize_key', (array) ( json_decode( (string) $linha['atores'], true ) ?: [] ) );
 			if ( in_array( $chave, $atores, true ) ) {
-				$somar( (array) ( json_decode( (string) $linha['generos'], true ) ?: [] ) );
+				$somar( 'externo', (array) ( json_decode( (string) $linha['generos'], true ) ?: [] ) );
 			}
 		}
 	}
 
-	arsort( $contagem );
-	$generos = array_slice( array_map( fn( $k ) => $grafia[ $k ], array_keys( $contagem ) ), 0, $max );
-	set_transient( $cache_key, $generos, DAY_IN_SECONDS );
-	return $generos;
+	$resultado = $vazio;
+	foreach ( [ 'resenha', 'externo' ] as $fonte ) {
+		arsort( $contagem[ $fonte ] );
+		$resultado[ $fonte ] = array_map( fn( $k ) => $grafia[ $k ], array_keys( $contagem[ $fonte ] ) );
+	}
+	set_transient( $cache_key, $resultado, DAY_IN_SECONDS );
+	return $resultado;
+}
+
+// Generos pra oferecer a quem pediu um ator (decisao do gestor 2026-09-25:
+// "apenas as categorias que tem na base atreladas a ele") -- so os dos
+// titulos COM resenha, que sao o conteudo do site. So cai pros do catalogo
+// externo quando o ator nao tem nenhum post com resenha.
+function dsi_generos_sugeridos_ator( string $nome, int $max = 5 ): array {
+	$catalogo = dsi_ator_no_catalogo( $nome );
+	return array_slice( $catalogo['resenha'] ?: $catalogo['externo'], 0, $max );
 }
 
 // Rota separada de /bilheteiro-chat (2026-09-23, achado do relatorio
@@ -4508,7 +4547,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.7.0',
+		'1.7.1',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de

@@ -1006,9 +1006,21 @@
 			var aviso  = item.aviso;
 			var ator   = escapeHtml( aviso.ator );
 			var genero = valorOuVazio( item.genero ) ? escapeHtml( String( item.genero ).toLowerCase() ) : '';
-			var html = genero
-				? 'Não encontrei nenhum título de ' + genero + ' com ' + ator + ' no nosso catálogo, então separei os de ' + genero + ' que mais combinam com o que você contou.'
-				: 'Não encontrei títulos com ' + ator + ' que combinem com o resto das suas respostas, então separei os mais próximos.';
+			var html;
+			if ( aviso.tipo === 'sem_ator' ) {
+				// Ator sem nenhum titulo no catalogo -- lista saiu pelo resto.
+				html = 'Ainda não temos títulos com ' + ator + ' no nosso catálogo, então separei os ' +
+					( genero ? 'de ' + genero + ' ' : '' ) + 'que mais combinam com o que você contou.';
+			} else if ( aviso.tipo === 'sem_genero' ) {
+				// Lista so com o ator, mas nenhuma resenha dele no genero pedido.
+				html = 'Não temos resenha de ' + ( genero || 'esse gênero' ) + ' com ' + ator +
+					' no site, então separei os títulos com ' + ator + ' que temos por aqui.';
+			} else {
+				// Item salvo antes de 2026-09-25 (sem tipo) -- texto da epoca.
+				html = genero
+					? 'Não encontrei nenhum título de ' + genero + ' com ' + ator + ' no nosso catálogo, então separei os de ' + genero + ' que mais combinam com o que você contou.'
+					: 'Não encontrei títulos com ' + ator + ' que combinem com o resto das suas respostas, então separei os mais próximos.';
+			}
 			var generos = aviso.generos_com_ator || [];
 			if ( generos.length && ! item.usado ) {
 				html += '<p class="dsi-bh-aviso-ator-apoio">Com ' + ator + ', temos títulos de:</p><div class="dsi-bh-aviso-ator-botoes">';
