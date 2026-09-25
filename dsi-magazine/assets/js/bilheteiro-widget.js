@@ -560,6 +560,12 @@
 			} );
 		}
 
+		// Par do log 'bloqueio' do servidor: la da pra contar, aqui da pra
+		// cruzar com a origem da sessao (utm da campanha) no GA4.
+		function trackBloqueio( rota ) {
+			track( 'widget_bloqueado', { rota: rota, sessao_id: sessaoId } );
+		}
+
 		function chamarBilheteiro( mensagem ) {
 			return fetch( BILHETEIRO_CHAT_ENDPOINT, {
 				method: 'POST',
@@ -579,6 +585,7 @@
 			} ).then( function ( r ) {
 				return r.json().then( function ( body ) {
 					if ( ! r.ok ) {
+						if ( r.status === 429 ) trackBloqueio( 'chat' );
 						// Mostra o motivo real (ex: "Muitas mensagens em pouco
 						// tempo...", limite RNF3) em vez de um erro generico --
 						// achado do gestor 2026-09-20: sem isso, um 429 e um erro
@@ -683,11 +690,17 @@
 			fetch( NEWSLETTER_ENDPOINT, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify( { email: email } )
-			} ).then( function ( r ) { return r.json(); } ).then( function ( data ) {
+				body: JSON.stringify( { email: email, sessao_id: sessaoId } )
+			} ).then( function ( r ) {
+				if ( r.status === 429 ) trackBloqueio( 'newsletter' );
+				return r.json();
+			} ).then( function ( data ) {
 				carregando.remove();
 				if ( data && data.sucesso ) {
 					marcarEmailCapturado();
+					// Conversao do teste de midia paga (2026-09-25). Nunca o
+					// email em si no evento -- so o fato de ter cadastrado.
+					track( 'widget_email_capturado', { sessao_id: sessaoId } );
 					addBot( 'Prontinho, cadastro feito! 🎬 Vamos continuar de onde paramos.' );
 				} else {
 					addBot( ( data && data.mensagem ) || 'Não consegui cadastrar agora, mas pode seguir aproveitando as recomendações!' );
@@ -767,10 +780,11 @@
 			fetch( PERGUNTAR_ENDPOINT, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify( { pergunta: texto, itens: ultimosItensRecomendados } )
+				body: JSON.stringify( { pergunta: texto, itens: ultimosItensRecomendados, sessao_id: sessaoId } )
 			} ).then( function ( r ) {
 				return r.json().then( function ( body ) {
 					if ( ! r.ok ) {
+						if ( r.status === 429 ) trackBloqueio( 'perguntar' );
 						var erro = new Error( ( body && body.erro ) || ( 'http ' + r.status ) );
 						erro.mensagemAmigavel = body && body.erro;
 						throw erro;

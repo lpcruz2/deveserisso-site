@@ -2294,7 +2294,8 @@ function dsi_bilheteiro_ip_visitante(): string {
 	) );
 }
 
-function dsi_bilheteiro_limite_excedido( string $ip ): bool {
+// Retorna '' se liberado, ou qual teto estourou ('minuto'/'dia').
+function dsi_bilheteiro_limite_excedido( string $ip ): string {
 	// Allowlist de IP conhecido (dev/dono do site), configurada via
 	// DSI_BILHETEIRO_IPS_LIBERADOS em wp-config.php -- NAO e dado de
 	// visitante (regra permanente do projeto e sobre nao logar IP de
@@ -2302,7 +2303,7 @@ function dsi_bilheteiro_limite_excedido( string $ip ): bool {
 	// liberado sob pedido explicito 2026-09-22, mesmo padrao das chaves de
 	// API que ja ficam so no wp-config.php, nunca no tema).
 	if ( defined( 'DSI_BILHETEIRO_IPS_LIBERADOS' ) && in_array( $ip, DSI_BILHETEIRO_IPS_LIBERADOS, true ) ) {
-		return false;
+		return '';
 	}
 	$chave_min = 'dsi_bh_rl_min_' . md5( $ip );
 	$chave_dia = 'dsi_bh_rl_dia_' . md5( $ip );
@@ -2313,20 +2314,55 @@ function dsi_bilheteiro_limite_excedido( string $ip ): bool {
 	// 10/minuto cobre folgado uma conversa real (DSI_BILHETEIRO_LIMITE_PERGUNTAS
 	// limita a 6 perguntas de acompanhamento, atualizado 2026-09-22); 50/dia
 	// trava quem tenta contornar o limite por minuto indo devagar.
-	if ( $por_minuto >= 10 || $por_dia >= 50 ) {
-		return true;
+	if ( $por_dia >= 50 ) {
+		return 'dia';
+	}
+	if ( $por_minuto >= 10 ) {
+		return 'minuto';
 	}
 
 	set_transient( $chave_min, $por_minuto + 1, MINUTE_IN_SECONDS );
 	set_transient( $chave_dia, $por_dia + 1, DAY_IN_SECONDS );
-	return false;
+	return '';
+}
+
+// Acompanhamento de bloqueios (2026-09-25, pedido do gestor pro teste de
+// midia paga). cf_ip registra se o CF-Connecting-IP chegou na origem: se nao
+// chega, a chave do limite e o IP do edge da Cloudflare e o teto de 50/dia e
+// dividido entre todos os visitantes daquele edge (ver CLAUDE.md, achado de
+// 2026-09-07). Sem IP, mesma regra permanente do log. Uma linha por
+// sessao+teto por dia, pra um bot insistente nao encher a tabela.
+function dsi_bilheteiro_resposta_bloqueio( string $rota, string $limite, string $sessao_id ): WP_REST_Response {
+	$sessao_id = mb_substr( sanitize_text_field( $sessao_id ), 0, 64 );
+	$chave_dedup = 'dsi_bh_bloq_' . md5( $sessao_id . '|' . $limite );
+	if ( ! get_transient( $chave_dedup ) ) {
+		set_transient( $chave_dedup, 1, DAY_IN_SECONDS );
+		global $wpdb;
+		$wpdb->insert(
+			dsi_bilheteiro_log_table_name(),
+			[
+				'criado_em'   => current_time( 'mysql' ),
+				'sessao_id'   => $sessao_id,
+				'tipo_evento' => 'bloqueio',
+				'motivo'      => sprintf(
+					'limite=%s rota=%s cf_ip=%s',
+					$limite,
+					$rota,
+					isset( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ? 'sim' : 'nao'
+				),
+			],
+			[ '%s', '%s', '%s', '%s' ]
+		);
+	}
+	return new WP_REST_Response( [ 'erro' => 'Muitas mensagens em pouco tempo. Tente novamente em instantes.' ], 429 );
 }
 
 function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	header( 'Access-Control-Allow-Origin: *' );
 
-	if ( dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() ) ) {
-		return new WP_REST_Response( [ 'erro' => 'Muitas mensagens em pouco tempo. Tente novamente em instantes.' ], 429 );
+	$limite = dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() );
+	if ( $limite !== '' ) {
+		return dsi_bilheteiro_resposta_bloqueio( 'chat', $limite, (string) $req->get_param( 'sessao_id' ) );
 	}
 
 	$sessao_id = (string) $req->get_param( 'sessao_id' );
@@ -2646,8 +2682,9 @@ add_action( 'rest_api_init', function (): void {
 function dsi_bilheteiro_perguntar_pos_recomendacao( WP_REST_Request $req ): WP_REST_Response {
 	header( 'Access-Control-Allow-Origin: *' );
 
-	if ( dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() ) ) {
-		return new WP_REST_Response( [ 'erro' => 'Muitas mensagens em pouco tempo. Tente novamente em instantes.' ], 429 );
+	$limite = dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() );
+	if ( $limite !== '' ) {
+		return dsi_bilheteiro_resposta_bloqueio( 'perguntar', $limite, (string) $req->get_param( 'sessao_id' ) );
 	}
 
 	$api_key = defined( 'DSI_DEEPSEEK_KEY' ) ? DSI_DEEPSEEK_KEY : '';
@@ -2719,8 +2756,9 @@ add_action( 'rest_api_init', function (): void {
 function dsi_bilheteiro_assinar_newsletter( WP_REST_Request $req ): WP_REST_Response {
 	header( 'Access-Control-Allow-Origin: *' );
 
-	if ( dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() ) ) {
-		return new WP_REST_Response( [ 'erro' => 'Muitas mensagens em pouco tempo. Tente novamente em instantes.' ], 429 );
+	$limite = dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() );
+	if ( $limite !== '' ) {
+		return dsi_bilheteiro_resposta_bloqueio( 'newsletter', $limite, (string) $req->get_param( 'sessao_id' ) );
 	}
 
 	$email = (string) $req->get_param( 'email' );
@@ -4277,7 +4315,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.5.1',
+		'1.5.2',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de
