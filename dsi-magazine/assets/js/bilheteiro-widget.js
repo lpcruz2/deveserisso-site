@@ -251,7 +251,7 @@
 			   page-filme-serie-bom-assistir-hoje.php), nao flutuante --
 			   sobrescreve o posicionamento fixo do balao padrao. */
 			'.dsi-bh-widget--lp .dsi-bh-bolha{display:none;}' +
-			'.dsi-bh-widget--lp .dsi-bh-fechar,.dsi-bh-widget--lp .dsi-bh-expandir{display:none;}' +
+			'.dsi-bh-widget--lp .dsi-bh-fechar{display:none;}' +
 			'.dsi-bh-widget--lp .dsi-bh-painel{position:static;display:flex;width:100%;max-width:100%;' +
 			'height:auto;border-radius:14px;box-shadow:0 16px 40px rgba(29,26,20,.18);}' +
 			'.dsi-bh-widget--lp .dsi-bh-thread{max-height:420px;}' +
@@ -262,7 +262,7 @@
 			   page-filme-serie-bom-assistir-hoje.php. */
 			'.dsi-bh-widget--lp .dsi-bh-painel{font-size:15px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-cabecalho{padding:16px 18px;font-size:16px;}' +
-			'.dsi-bh-widget--lp .dsi-bh-reiniciar{font-size:20px;}' +
+			'.dsi-bh-widget--lp .dsi-bh-reiniciar,.dsi-bh-widget--lp .dsi-bh-expandir{font-size:20px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-thread{padding:16px;gap:10px;min-height:300px;}' +
 			'.dsi-bh-widget--lp .dsi-bh-msg{padding:10px 14px;line-height:1.45;}' +
 			'.dsi-bh-widget--lp .dsi-bh-quebra-gelo{font-size:14px;padding:10px 16px;}' +
@@ -276,7 +276,20 @@
 			'.dsi-bh-widget--lp .dsi-bh-painel.com-filmes .dsi-bh-thread{max-height:max(420px,calc(100vh - 200px));}' +
 			'@media(max-width:480px){.dsi-bh-widget--lp .dsi-bh-painel.aberto{position:static!important;' +
 			'inset:auto!important;width:100%!important;height:auto!important;max-width:100%!important;' +
-			'max-height:none!important;border-radius:14px!important;}}';
+			'max-height:none!important;border-radius:14px!important;}}' +
+			/* Expandir na LP (2026-09-25, pedido do gestor): no desktop so
+			   aumenta o chat na propria pagina (a pagina tira a coluna do
+			   texto, ver body.dsi-bh-lp-expandido no template); abaixo de
+			   900px (mesmo corte do layout da LP) ocupa a tela inteira.
+			   TEM que ficar por ultimo: mesma especificidade das regras LP
+			   acima (inclusive as !important do celular), a ultima vence. */
+			'.dsi-bh-widget--lp .dsi-bh-painel.expandido{width:100%;height:auto;}' +
+			'.dsi-bh-widget--lp .dsi-bh-painel.expandido .dsi-bh-thread{min-height:min(560px,calc(100vh - 260px));' +
+			'max-height:calc(100vh - 200px);}' +
+			'@media(max-width:899px){.dsi-bh-widget--lp .dsi-bh-painel.expandido{position:fixed!important;' +
+			'inset:0!important;width:100%!important;height:100%!important;max-width:100%!important;' +
+			'max-height:100%!important;border-radius:0!important;z-index:9999;}' +
+			'.dsi-bh-widget--lp .dsi-bh-painel.expandido .dsi-bh-thread{min-height:0;max-height:none;}}';
 		document.head.appendChild( style );
 	}
 
@@ -403,8 +416,8 @@
 		// com o painel aberto -- limpa o estilo inline no resto dos casos
 		// pra nao atrapalhar o CSS normal (painel pequeno no canto).
 		function limparAjusteTeclado() {
-			painel.style.height = '';
-			painel.style.top = '';
+			painel.style.removeProperty( 'height' );
+			painel.style.removeProperty( 'top' );
 		}
 		// El.offsetTop sozinho da a posicao relativa ao offsetParent mais
 		// proximo (aqui, .dsi-bh-painel, ja que .dsi-bh-thread nao tem
@@ -418,17 +431,22 @@
 			return el.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop;
 		}
 		function ajustarParaTeclado() {
-			// No modo LP o painel e estatico dentro da pagina, nao um balao
-			// fixo -- o ajuste de teclado (pensado pro balao ocupar a tela
-			// inteira) nao se aplica aqui.
-			if ( modoLP ) { limparAjusteTeclado(); return; }
-			if ( ! window.visualViewport || window.innerWidth > 480 || ! painel.classList.contains( 'aberto' ) ) {
+			// No modo LP o painel e estatico dentro da pagina -- o ajuste de
+			// teclado so vale quando ele foi expandido pra tela inteira
+			// (abaixo de 900px, mesmo corte do CSS de expandido).
+			var telaCheia = modoLP
+				? painel.classList.contains( 'expandido' ) && window.innerWidth <= 899
+				: window.innerWidth <= 480 && painel.classList.contains( 'aberto' );
+			if ( ! window.visualViewport || ! telaCheia ) {
 				limparAjusteTeclado();
 				return;
 			}
 			var vv = window.visualViewport;
-			painel.style.height = vv.height + 'px';
-			painel.style.top = vv.offsetTop + 'px';
+			// 'important': na LP o CSS de tela cheia usa !important (precisa
+			// vencer o !important do modo estatico), e estilo inline comum
+			// perde pra ele.
+			painel.style.setProperty( 'height', vv.height + 'px', 'important' );
+			painel.style.setProperty( 'top', vv.offsetTop + 'px', 'important' );
 			thread.scrollTop = ancoraComResenha ? offsetDentroDoThread( ancoraComResenha ) : thread.scrollHeight;
 		}
 		if ( window.visualViewport ) {
@@ -502,6 +520,20 @@
 			var expandido = painel.classList.toggle( 'expandido' );
 			expandirBtn.textContent = expandido ? '⤡' : '⤢';
 			expandirBtn.title = expandido ? 'Recolher chat' : 'Expandir chat';
+			if ( modoLP ) {
+				// Desktop: a pagina tira a coluna do texto e o chat ocupa a
+				// largura toda (CSS do template). Celular: tela inteira, entao
+				// trava a rolagem da pagina por tras.
+				document.body.classList.toggle( 'dsi-bh-lp-expandido', expandido );
+				var telaCheia = expandido && window.innerWidth <= 899;
+				document.documentElement.style.overflow = telaCheia ? 'hidden' : '';
+				ajustarParaTeclado();
+				if ( ! telaCheia ) {
+					var semAnimacao = window.matchMedia && window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches;
+					raiz.scrollIntoView( { behavior: semAnimacao ? 'auto' : 'smooth', block: 'start' } );
+				}
+				thread.scrollTop = thread.scrollHeight;
+			}
 		} );
 		// Extraida do handler do botao (2026-09-24) pra poder ser chamada
 		// tambem pelo link "clique aqui" dentro do aviso de limite de
@@ -1188,6 +1220,9 @@
 				// CSS injetado por este script.
 				thread.innerHTML = '';
 				raiz.classList.remove( 'dsi-bh-pre-carga' );
+				// HTML da LP em cache de antes do botao de expandir existir
+				// ainda vem com ele escondido.
+				expandirBtn.hidden = false;
 				input.placeholder = 'Digite sua resposta...';
 			}
 			if ( chegadaNovaDeCampanha() ) limparEstadoSalvo();

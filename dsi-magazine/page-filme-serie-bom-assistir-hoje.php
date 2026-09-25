@@ -39,10 +39,10 @@ $dsi_top_atores = dsi_lp_top_atores();
    carregar -- o widget adota esse DOM e remove .dsi-bh-pre-carga, entao
    estas regras so valem ate ali. Valores espelham o CSS do widget em modo
    LP (injetarEstilos) -- se mudar la, mudar aqui, senao a troca pula. */
-.dsi-bh-pre-carga .dsi-bh-bolha,.dsi-bh-pre-carga .dsi-bh-expandir,.dsi-bh-pre-carga .dsi-bh-fechar{display:none}
+.dsi-bh-pre-carga .dsi-bh-bolha,.dsi-bh-pre-carga .dsi-bh-fechar{display:none}
 .dsi-bh-pre-carga .dsi-bh-painel{background:#f4eee2;color:#1d1a14;border-radius:14px;box-shadow:0 16px 40px rgba(29,26,20,.18);display:flex;flex-direction:column;overflow:hidden;font-family:Manrope,system-ui,sans-serif;font-size:15px}
 .dsi-bh-pre-carga .dsi-bh-cabecalho{background:#1d1a14;color:#e8a83c;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;font-weight:600;font-size:16px}
-.dsi-bh-pre-carga .dsi-bh-reiniciar{background:none;border:none;color:#e8a83c;font-size:20px;cursor:pointer;line-height:1;margin-right:8px}
+.dsi-bh-pre-carga .dsi-bh-reiniciar,.dsi-bh-pre-carga .dsi-bh-expandir{background:none;border:none;color:#e8a83c;font-size:20px;cursor:pointer;line-height:1;margin-right:8px}
 .dsi-bh-pre-carga .dsi-bh-thread{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;min-height:300px;max-height:420px}
 .dsi-bh-pre-carga .dsi-bh-msg{max-width:85%;padding:10px 14px;border-radius:10px;line-height:1.45}
 .dsi-bh-pre-carga .dsi-bh-msg--bot{background:#ebe3d2;align-self:flex-start;border-bottom-left-radius:2px}
@@ -92,6 +92,10 @@ $dsi_top_atores = dsi_lp_top_atores();
 .dsi-lp__titulo{font-size:52px}
 .dsi-lp__sub{max-width:440px}
 #dsi-bh-lp-slot{position:sticky;top:24px}
+/* Chat expandido (botao do cabecalho, ver bilheteiro-widget.js): tira a
+   coluna do texto e o chat ocupa a largura toda. */
+body.dsi-bh-lp-expandido .dsi-lp__hero-grid{grid-template-columns:1fr}
+body.dsi-bh-lp-expandido #dsi-bh-lp-slot{position:static}
 .dsi-lp__como{padding:88px 0 24px}
 .dsi-lp__como-grid{display:grid;grid-template-columns:1fr 1fr;gap:72px;align-items:start}
 .dsi-lp__como-head{text-align:left;align-items:flex-start}
@@ -140,7 +144,7 @@ $dsi_top_atores = dsi_lp_top_atores();
 						<span>O Deveserisso te ajuda!</span>
 						<span>
 							<button class="dsi-bh-reiniciar" type="button" title="Começar uma nova busca">↺</button>
-							<button class="dsi-bh-expandir" type="button" title="Expandir chat" hidden>⤢</button>
+							<button class="dsi-bh-expandir" type="button" title="Expandir chat">⤢</button>
 							<button class="dsi-bh-fechar" type="button" aria-label="Fechar" hidden>×</button>
 						</span>
 					</div>

@@ -2290,8 +2290,14 @@ Você é um extrator de parâmetros para um quiz de recomendação de filmes/sé
 A cada mensagem do visitante, extraia APENAS o que foi dito NESTA mensagem.
 
 Junto com a resposta voce recebe a pergunta que o visitante esta
-respondendo. Nunca extraia nada do texto da pergunta -- ela so serve pra
-entender respostas curtas. Se a pergunta era sobre filme/serie de
+respondendo e, quando houver, o que ele ja disse antes nesta conversa.
+Nunca extraia nada da pergunta nem do que ele ja disse antes -- extraia so
+da resposta atual. O que ja foi dito serve pra ligar o "reconhecimento" a
+conversa, sem parecer que voce esqueceu (ex: ja disse que quer ver Ben
+Stiller e agora respondeu "comédia" -> reconhecimento: "Comédia com Ben
+Stiller é sempre uma boa pedida pra relaxar!"). Nunca afirme se um ator
+esta ou nao em um filme ou serie -- outro sistema confere isso no catalogo.
+A pergunta serve pra entender respostas curtas. Se a pergunta era sobre filme/serie de
 referencia, plataforma ou ator/atriz, e a resposta e uma negativa ou falta
 de preferencia ("não", "nenhum", "não tenho", "tanto faz", "não sei"), isso
 JA e a pessoa dizendo que nao tem preferencia naquele campo: devolva
@@ -2528,7 +2534,12 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// A pergunta que esta mensagem responde -- mesma ordem que
 	// dsi_bilheteiro_proxima_pergunta() usou no turno anterior.
 	$campo_perguntado_antes = dsi_bilheteiro_campos_faltando( $estado, $contexto_minigames )[0] ?? null;
-	$extraido = dsi_bilheteiro_extrair( $mensagem, $api_key, dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames ) );
+	$extraido = dsi_bilheteiro_extrair(
+		$mensagem,
+		$api_key,
+		dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames ),
+		dsi_bilheteiro_contexto_conversa( $estado )
+	);
 	if ( is_wp_error( $extraido ) ) {
 		return new WP_REST_Response( [ 'erro' => $extraido->get_error_message() ], 502 );
 	}
@@ -2789,6 +2800,18 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		// de usar -- se reprovar, cai no comportamento de sempre (so a
 		// pergunta). Ver dsi_bilheteiro_validar_reconhecimento.
 		$reconhecimento = dsi_bilheteiro_validar_reconhecimento( $extraido['reconhecimento'] ?? null );
+		// Filme de referencia citado agora, com ator ja pedido: a frase sai
+		// do catalogo (tem ou nao o ator), no lugar da do LLM.
+		$q_atual = $estado['q'] ?? null;
+		if (
+			! empty( $estado['atores'] ) && is_string( $q_atual ) && $q_atual !== ''
+			&& $q_atual !== DSI_BILHETEIRO_SEM_PREFERENCIA && $q_atual !== ( $estado_antes['q'] ?? null )
+		) {
+			$frase_referencia = dsi_bilheteiro_frase_referencia_ator( $q_atual, (string) $estado['atores'][0] );
+			if ( $frase_referencia !== '' ) {
+				$reconhecimento = $frase_referencia;
+			}
+		}
 		if ( $reconhecimento !== '' ) {
 			$proxima_pergunta = $reconhecimento . ' ' . $proxima_pergunta;
 		}
@@ -3053,10 +3076,80 @@ function dsi_bilheteiro_responder_pos_recomendacao( string $pergunta, array $fil
 // $pergunta: o que o bot perguntou no turno anterior (2026-09-25) -- sem
 // isso, uma resposta curta tipo "não" chegava sem contexto nenhum e o LLM
 // nao tinha como saber de que campo era (ver DSI_BILHETEIRO_INSTRUCAO).
-function dsi_bilheteiro_extrair( string $mensagem, string $api_key, string $pergunta = '' ) {
+// Resumo do que o visitante ja disse, pro reconhecimento do LLM nao parecer
+// que esqueceu a conversa (ver dsi_bilheteiro_extrair). So valores reais --
+// "sem preferencia" nao entra.
+function dsi_bilheteiro_contexto_conversa( array $estado ): string {
+	$partes = [];
+	if ( ! empty( $estado['atores'] ) ) {
+		$partes[] = 'ator/atriz que quer ver: ' . implode( ', ', array_map( 'strval', $estado['atores'] ) );
+	}
+	$rotulos = [ 'genero' => 'gênero', 'emocao' => 'emoção', 'q' => 'filme/série de referência', 'plataforma' => 'onde assiste' ];
+	foreach ( $rotulos as $campo => $rotulo ) {
+		$valor = $estado[ $campo ] ?? null;
+		if ( is_string( $valor ) && $valor !== '' && $valor !== DSI_BILHETEIRO_SEM_PREFERENCIA ) {
+			$partes[] = $rotulo . ': ' . $valor;
+		}
+	}
+	return implode( '; ', $partes );
+}
+
+// Frase sobre o filme de referencia citado x ator pedido (2026-09-25, pedido
+// do gestor: "esse não é um filme do Ben Stiller, mas uma ótima referência" /
+// "esse é um dos filmes do Ben Stiller"). Montada pelo backend com o elenco
+// do catalogo -- o LLM nao afirma isso (poderia inventar). '' quando o
+// titulo nao esta no catalogo; ai fica o reconhecimento normal. Limite
+// conhecido: o elenco guardado sao os ~5 principais, entao participacao
+// pequena pode sair como "não é um filme com".
+function dsi_bilheteiro_frase_referencia_ator( string $referencia, string $ator ): string {
+	$titulo_citado = trim( explode( ',', $referencia )[0] );
+	if ( $titulo_citado === '' || trim( $ator ) === '' ) {
+		return '';
+	}
+	$chave = dsi_dt_normalize_key( $titulo_citado );
+
+	global $wpdb;
+	$titulo = null;
+	$tipo   = 'filme';
+	$elenco = [];
+	$linha  = $wpdb->get_row( $wpdb->prepare(
+		'SELECT titulo, tipo, atores FROM ' . dsi_filme_externo_table_name() . ' WHERE titulo_normalizado = %s LIMIT 1',
+		$chave
+	), ARRAY_A );
+	if ( $linha ) {
+		$titulo = (string) $linha['titulo'];
+		$tipo   = $linha['tipo'] ?: 'filme';
+		$elenco = json_decode( (string) $linha['atores'], true ) ?: [];
+	} else {
+		$post_id = dsi_catalogo_localizar_post_existente( $titulo_citado, $chave );
+		if ( $post_id ) {
+			$d      = dsi_parse_dados_tecnicos( (string) get_post_meta( $post_id, '_dsi_dados_tecnicos_raw', true ) );
+			$titulo = (string) ( $d['titulo'] ?? '' );
+			$tipo   = $d['tipo'] ?? 'filme';
+			$elenco = (array) ( $d['elenco'] ?? [] );
+		}
+	}
+	if ( ! $titulo || ! $elenco ) {
+		return '';
+	}
+
+	$tem   = in_array( dsi_dt_normalize_key( $ator ), array_map( 'dsi_dt_normalize_key', array_map( 'strval', $elenco ) ), true );
+	$serie = $tipo === 'serie';
+	return $tem
+		? sprintf( '%s é %s com %s, ótima referência!', $titulo, $serie ? 'uma das séries' : 'um dos filmes', $ator )
+		: sprintf( '%s não é %s com %s, mas é uma ótima referência!', $titulo, $serie ? 'uma série' : 'um filme', $ator );
+}
+
+// $contexto: o que o visitante ja disse antes (2026-09-25, pedido do gestor:
+// o reconhecimento parecia esquecer as respostas anteriores -- "comédia"
+// depois de "Ben Stiller" virava so "Comédia é sempre uma boa pedida").
+function dsi_bilheteiro_extrair( string $mensagem, string $api_key, string $pergunta = '', string $contexto = '' ) {
 	$conteudo_usuario = $pergunta !== ''
 		? "Pergunta que o visitante está respondendo: {$pergunta}\n\nResposta do visitante: {$mensagem}"
 		: $mensagem;
+	if ( $contexto !== '' ) {
+		$conteudo_usuario = "O que o visitante já disse antes nesta conversa: {$contexto}\n\n" . $conteudo_usuario;
+	}
 	$response = wp_remote_post(
 		'https://api.deepseek.com/chat/completions',
 		[
@@ -4547,7 +4640,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.7.1',
+		'1.8.0',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de
