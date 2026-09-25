@@ -93,14 +93,21 @@
 		} catch ( e ) {}
 	}
 
-	// GTM ja roda no site inteiro (container GTM-NHRLL7) -- manda o evento
-	// pro dataLayer de sempre. Sem isso nao existe NENHUM jeito de saber
-	// quantos filmes foram clicados: o log do bilheteiro (wp_dsi_bilheteiro_log)
-	// so guarda quais filmes foram recomendados e o like/dislike agregado da
+	// Ate 2026-09-22 o site rodava GTM e isso empurrava {event:eventName,...}
+	// pro dataLayer (convencao de "evento customizado" que so o GTM sabe
+	// escutar). Trocado por GA4 via gtag.js direto em 2026-09-23 (ver secao
+	// 36 de functions.php) -- sem GTM no meio, aquele push virava so um
+	// objeto solto no array, nunca processado por nada (achado do gestor
+	// 2026-09-25: "nao temos mais GTM"). gtag.js define window.gtag() como
+	// wrapper de dataLayer.push(arguments) -- a chamada correta pra um
+	// evento customizado em GA4 e gtag('event', nome, params), nao mais um
+	// push manual no array. Sem isso nao existe NENHUM jeito de saber quantos
+	// filmes foram clicados: o log do bilheteiro (wp_dsi_bilheteiro_log) so
+	// guarda quais filmes foram recomendados e o like/dislike agregado da
 	// rodada, nunca qual link especifico a pessoa abriu.
 	function track( eventName, params ) {
-		if ( ! window.dataLayer ) return;
-		window.dataLayer.push( Object.assign( { event: eventName }, params || {} ) );
+		if ( typeof window.gtag !== 'function' ) return;
+		window.gtag( 'event', eventName, params || {} );
 	}
 
 	function injetarEstilos() {
@@ -471,6 +478,7 @@
 				else if ( item.tipo === 'user' ) renderUser( item.texto );
 				else if ( item.tipo === 'filmes' ) renderFilmes( item.itens );
 				else if ( item.tipo === 'sem_resenha' ) renderSemResenha( item.itens );
+				else if ( item.tipo === 'feedback_pedido' ) renderFeedback();
 				else if ( item.tipo === 'aviso_limite' ) renderAvisoLimite();
 			} );
 		}
@@ -702,12 +710,7 @@
 					'<span class="dsi-bh-ver-resenha">Ver resenha →</span></div>' +
 				'</a>';
 			} );
-			html += '</div><div class="dsi-bh-feedback">' +
-				'<span class="dsi-bh-feedback-titulo">Gostou das indicações?</span>' +
-				'<div class="dsi-bh-feedback-botoes">' +
-				'<button type="button" class="dsi-bh-fb" data-v="positivo">👍 Gostei</button>' +
-				'<button type="button" class="dsi-bh-fb" data-v="negativo">👎 Quero outras</button>' +
-				'</div></div>';
+			html += '</div>';
 			return html;
 		}
 
@@ -751,7 +754,6 @@
 			var msgEl = renderBot( montarCardsFilmes( itens ) );
 			msgEl.classList.add( 'dsi-bh-msg--filmes' );
 			ancoraComResenha = msgEl;
-			ligarBotoesFeedback( msgEl );
 			ligarCliquesFilmes( msgEl );
 			return msgEl;
 		}
@@ -771,6 +773,38 @@
 			renderSemResenha( itens );
 			historico.push( { tipo: 'sem_resenha', itens: itens } );
 			salvarEstado();
+		}
+
+		// Extraido de montarCardsFilmes (2026-09-25, pedido do gestor: "a
+		// pergunta pode ficar depois dos filmes externos, assim a pessoa ja
+		// viu tudo -- hoje ele fica no meio e a pessoa pode ignorar"). Vira
+		// mensagem propria, renderizada depois de com E sem resenha, em vez
+		// de morar dentro do bloco com resenha e ficar espremida entre as
+		// duas listas.
+		function montarFeedback() {
+			return '<div class="dsi-bh-feedback">' +
+				'<span class="dsi-bh-feedback-titulo">Gostou das indicações?</span>' +
+				'<div class="dsi-bh-feedback-botoes">' +
+				'<button type="button" class="dsi-bh-fb" data-v="positivo">👍 Gostei</button>' +
+				'<button type="button" class="dsi-bh-fb" data-v="negativo">👎 Quero outras</button>' +
+				'</div></div>';
+		}
+		function renderFeedback() {
+			var el = renderBot( montarFeedback() );
+			// Mesma classe dos blocos de filme: sem isso a mensagem fica
+			// dentro do balao padrao de 85% de largura com fundo proprio,
+			// brigando visualmente com o card branco do .dsi-bh-feedback por
+			// dentro (antes nao precisava disso porque vivia junto do bloco
+			// com resenha, que ja tinha a classe).
+			el.classList.add( 'dsi-bh-msg--filmes' );
+			ligarBotoesFeedback( el );
+			return el;
+		}
+		function addFeedback() {
+			var el = renderFeedback();
+			historico.push( { tipo: 'feedback_pedido' } );
+			salvarEstado();
+			return el;
 		}
 
 		// Tipo de historico proprio (2026-09-24), nao um addBot() generico:
@@ -866,6 +900,14 @@
 					// nunca tinham exclusao nenhuma, entao repetiam sempre.
 					semResenha.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
 					addSemResenha( semResenha );
+				}
+				// Pedido de feedback DEPOIS dos externos tambem (2026-09-25,
+				// pedido do gestor: "hoje ele fica no meio e a pessoa pode
+				// ignorar" -- ficava espremido entre a lista com resenha e a
+				// lista externa). So pergunta quando houve algo com resenha
+				// pra avaliar, mesmo comportamento de antes.
+				if ( itens.length ) {
+					addFeedback();
 				}
 				if ( ancoraComResenha ) {
 					// Achado ao vivo 2026-09-22 (pedido do gestor): renderBot
