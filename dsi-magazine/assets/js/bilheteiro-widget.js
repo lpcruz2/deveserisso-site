@@ -19,7 +19,10 @@
 	// ou pergunta) o bot oferece cadastro na newsletter (2026-09-24, pedido
 	// do gestor: "a pessoa pode falar infinitamente... mas não ganho nada
 	// com isso"). Ver talvezPedirEmail() mais abaixo.
-	var LIMITE_MENSAGENS_PEDIR_EMAIL = 10;
+	// Descido de 10 pra 8 (2026-09-25, pedido do gestor apos a analise dos
+	// ultimos 3 dias): nenhuma conversa real passou de 8 mensagens nesse
+	// periodo, entao 10 nunca chegava a disparar de verdade.
+	var LIMITE_MENSAGENS_PEDIR_EMAIL = 8;
 	// A partir de quantas mensagens (sem email capturado) o bot avisa que a
 	// conversa vai precisar reiniciar (2026-09-24, pedido do gestor).
 	var LIMITE_MENSAGENS_AVISO = 15;
@@ -591,7 +594,9 @@
 			// acima) quando o teclado do celular abrir pra responder.
 			ancoraComResenha = null;
 			salvarEstado();
-			addBot( 'Estou gostando muito de conversar com você! Pra te dar recomendações ainda melhores, gostaria de registrar seu e-mail? Além de ajudar nas próximas indicações, você recebe uma newsletter com as melhores dicas de cinema todo mês, direto no seu e-mail.' );
+			// Reduzida a uma linha so (2026-09-25, pedido do gestor: mensagem
+			// anterior era longa demais pra um pedido no meio da conversa).
+			addBot( 'Vi que você gosta de falar de filmes — que tal receber novidades direto no seu e-mail?' );
 		}
 
 		// Quem ignora o pedido de email (talvezPedirEmail acima) e segue
