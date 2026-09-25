@@ -22,10 +22,6 @@
 <style>
 .dsi-lp{width:100%;display:flex;flex-direction:column;align-items:center}
 .dsi-lp__inner{width:100%;max-width:560px;box-sizing:border-box;padding:0 20px 64px}
-.dsi-lp__topbar{display:flex;justify-content:space-between;align-items:center;padding:20px 0;border-bottom:1px solid #1d1a14}
-.dsi-lp__selo{font-family:"DM Serif Display","Times New Roman",serif;font-size:20px;letter-spacing:-0.02em}
-.dsi-lp__selo em{font-style:italic;color:#c2511d}
-.dsi-lp__desde{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#6a5f4d}
 .dsi-lp__hero{text-align:center;padding:40px 0 28px;display:flex;flex-direction:column;align-items:center;gap:16px}
 .dsi-lp__eyebrow{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:#c2511d}
 .dsi-lp__titulo{margin:0;font-family:"DM Serif Display","Times New Roman",serif;font-weight:400;font-size:40px;line-height:1.08;letter-spacing:-0.02em;color:#1d1a14}
@@ -71,7 +67,6 @@
    proporcoes proprias porque o chat precisa de largura fixa, nao 1fr). */
 @media(min-width:900px){
 .dsi-lp__inner{max-width:1120px;padding:0 48px 96px}
-.dsi-lp__topbar{padding:28px 0}
 .dsi-lp__hero-grid{display:grid;grid-template-columns:1fr 440px;gap:56px;align-items:start;padding:64px 0 56px}
 .dsi-lp__hero{text-align:left;align-items:flex-start;padding:0;gap:20px}
 .dsi-lp__titulo{font-size:52px}
@@ -88,13 +83,22 @@
 <body <?php body_class( 'dsi-lp-body' ); ?>>
 <?php wp_body_open(); ?>
 
+<?php /* Logo completo do site (mesma marcacao/classes de
+         template-parts/masthead.php), sem nav nem busca -- variante compacta
+         (a mesma de masthead-search.php) pra nao empurrar o chat pra baixo
+         da dobra. */ ?>
+<header class="dsi-masthead" role="banner">
+	<div class="dsi-masthead__brand dsi-masthead__brand--compact">
+		<p class="dsi-masthead__established">Desde 2009</p>
+		<a href="<?php echo esc_url( home_url( '/' ) ); ?>" class="dsi-masthead__wordmark" aria-label="<?php bloginfo( 'name' ); ?>">
+			Deve<em>ser</em>isso
+		</a>
+		<p class="dsi-masthead__subtitle">filmes · séries · livros · programação da tv</p>
+	</div>
+</header>
+
 <main class="dsi-lp" id="main-content">
 <div class="dsi-lp__inner">
-
-	<div class="dsi-lp__topbar">
-		<span class="dsi-lp__selo">deve<em>se</em>risso</span>
-		<span class="dsi-lp__desde">Desde 2009</span>
-	</div>
 
 	<div class="dsi-lp__hero-grid">
 		<div class="dsi-lp__hero">
