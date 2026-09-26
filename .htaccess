@@ -242,6 +242,13 @@ Header append Vary Accept env=webp
 </IfModule>
 # END WebP Serve
 
+# AVIF sem MIME no servidor saia como text/plain; com o nosniff abaixo, o
+# navegador bloqueia a imagem quando ela e carregada de fora do site (ORB),
+# ex.: poster de John Wick 4 em branco no MCP App (2026-09-26).
+<IfModule mod_mime.c>
+AddType image/avif .avif
+</IfModule>
+
 # BEGIN Security Headers (H5 - Sprint 2026-07-12b)
 # Q13 (2026-09-03): wp-admin precisa de 'unsafe-eval' no script-src -- o WP core
 # usa _.template() (underscore.js -> new Function()) pra compilar templates do
