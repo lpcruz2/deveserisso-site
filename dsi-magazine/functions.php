@@ -1871,7 +1871,9 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 				}
 			}
 		}
-		if ( $filtro_plataforma && has_category( $filtro_plataforma, $post ) ) {
+		// Plataformas viraram tags na reestruturação de taxonomia (2026-09-23);
+		// has_category sozinho parou de pontuar qualquer plataforma.
+		if ( $filtro_plataforma && ( has_tag( $filtro_plataforma, $post ) || has_category( $filtro_plataforma, $post ) ) ) {
 			$score += DSI_SCORE_PESO_PLATAFORMA * $fator_plataforma;
 		}
 		if ( $temas_pessoa ) {
