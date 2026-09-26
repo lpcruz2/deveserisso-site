@@ -80,6 +80,11 @@ function dsi_jfix_end(): void {
 		}
 	}
 
+	// ── 1b. Trailer de YouTube/Vimeo: o SASWP publica como VideoObject da página
+	// (nome/data/transcript do post), o que descreve errado o conteúdo. Vira
+	// Movie/TVSeries.trailer quando há ficha; senão, sai.
+	$all_nodes = dsi_jfix_move_trailers( $all_nodes );
+
 	// ── 2. Pré-scan: detectar tipos presentes ────────────────────────────
 	$has_news_article = false;
 	$has_real_faq     = false;
@@ -201,6 +206,46 @@ function dsi_jfix_clean_nulls( $data ) {
 		$out[ $k ] = is_array( $v ) ? dsi_jfix_clean_nulls( $v ) : $v;
 	}
 	return $out;
+}
+
+/** VideoObject de embed de terceiro (YouTube/Vimeo) -- trailer, não vídeo produzido pelo site. */
+function dsi_jfix_is_third_party_video( array $node ): bool {
+	$embed = (string) ( $node['embedUrl'] ?? '' );
+	return (bool) preg_match( '@(youtube\.com|youtube-nocookie\.com|youtu\.be|vimeo\.com)/@i', $embed );
+}
+
+/** Reduz o VideoObject ao que é verdade sobre o trailer (sem data/autor/transcript do post). */
+function dsi_jfix_trailer_from_video( array $video, string $titulo ): array {
+	$trailer = [
+		'@type'    => 'VideoObject',
+		'name'     => $titulo !== '' ? 'Trailer: ' . $titulo : 'Trailer',
+		'embedUrl' => $video['embedUrl'],
+	];
+	if ( ! empty( $video['thumbnailUrl'] ) ) {
+		$trailer['thumbnailUrl'] = $video['thumbnailUrl'];
+	}
+	return $trailer;
+}
+
+/** Tira o trailer do nível de página; aninha em Movie/TVSeries.trailer quando existe e ainda não tem. */
+function dsi_jfix_move_trailers( array $all_nodes ): array {
+	$movie_idx = null;
+	foreach ( $all_nodes as $i => $node ) {
+		if ( in_array( $node['@type'] ?? '', [ 'Movie', 'TVSeries' ], true ) ) {
+			$movie_idx = $i;
+			break;
+		}
+	}
+	foreach ( $all_nodes as $i => $node ) {
+		if ( ( $node['@type'] ?? '' ) !== 'VideoObject' || ! dsi_jfix_is_third_party_video( $node ) ) {
+			continue;
+		}
+		if ( $movie_idx !== null && empty( $all_nodes[ $movie_idx ]['trailer'] ) ) {
+			$all_nodes[ $movie_idx ]['trailer'] = dsi_jfix_trailer_from_video( $node, (string) ( $all_nodes[ $movie_idx ]['name'] ?? '' ) );
+		}
+		unset( $all_nodes[ $i ] );
+	}
+	return array_values( $all_nodes );
 }
 
 /** VideoObject: remove headline inválido, corrige embedUrl, remove contentUrl de watch */
