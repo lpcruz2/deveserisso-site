@@ -5079,3 +5079,57 @@ add_action( 'wp_footer', function (): void {
 	<?php
 }, 5 );
 
+
+// =============================================================================
+// 37. PAINEL — uso do servidor MCP /mcp (2026-09-26)
+// =============================================================================
+// O servidor MCP de demonstração (arquivo solto /mcp-filmografia.php, projeto
+// WebMCP-deveserisso) conta chamadas de tool na opção `dsi_mcp_uso`
+// ([dia][tool|cliente] => n, sem IP/e-mail/argumentos). Este widget só lê e
+// mostra os últimos 30 dias no Painel do wp-admin, pra administrador.
+add_action( 'wp_dashboard_setup', function (): void {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+	wp_add_dashboard_widget( 'dsi_mcp_uso', 'Servidor MCP (/mcp): chamadas por dia', 'dsi_mcp_uso_widget' );
+} );
+
+function dsi_mcp_uso_widget(): void {
+	$uso = get_option( 'dsi_mcp_uso', [] );
+	$uso = is_array( $uso ) ? array_slice( $uso, -30, null, true ) : [];
+	if ( ! $uso ) {
+		echo '<p>Nenhuma chamada registrada ainda.</p>';
+		return;
+	}
+	krsort( $uso );
+	$total = [ 'claude' => 0, 'chatgpt' => 0, 'outro' => 0 ];
+	echo '<table class="widefat striped"><thead><tr><th>Dia</th><th>Ferramenta</th><th>Claude</th><th>ChatGPT</th><th>Outro</th></tr></thead><tbody>';
+	foreach ( $uso as $dia => $contagens ) {
+		$por_tool = [];
+		foreach ( (array) $contagens as $chave => $n ) {
+			[ $tool, $cliente ] = array_pad( explode( '|', (string) $chave, 2 ), 2, 'outro' );
+			$cliente = isset( $total[ $cliente ] ) ? $cliente : 'outro';
+			$por_tool[ $tool ][ $cliente ] = ( $por_tool[ $tool ][ $cliente ] ?? 0 ) + (int) $n;
+			$total[ $cliente ] += (int) $n;
+		}
+		ksort( $por_tool );
+		foreach ( $por_tool as $tool => $c ) {
+			printf(
+				'<tr><td>%s</td><td><code>%s</code></td><td>%d</td><td>%d</td><td>%d</td></tr>',
+				esc_html( (string) $dia ),
+				esc_html( (string) $tool ),
+				(int) ( $c['claude'] ?? 0 ),
+				(int) ( $c['chatgpt'] ?? 0 ),
+				(int) ( $c['outro'] ?? 0 )
+			);
+		}
+	}
+	echo '</tbody></table>';
+	printf(
+		'<p><strong>Total no período:</strong> Claude %d · ChatGPT %d · Outro %d</p>',
+		(int) $total['claude'],
+		(int) $total['chatgpt'],
+		(int) $total['outro']
+	);
+	echo '<p class="description">"Outro" inclui testes feitos por script e navegador. O Claude conta cada clique nos botões da tela como uma chamada.</p>';
+}
