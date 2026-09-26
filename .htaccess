@@ -242,6 +242,15 @@ Header append Vary Accept env=webp
 </IfModule>
 # END WebP Serve
 
+# Servidor MCP (arquivo solto na raiz, projeto WebMCP-deveserisso): endereço
+# publico /mcp sem expor o .php. Reescrita interna (sem redirect), pra POST
+# de cliente MCP nao virar GET. Antes do bloco do WordPress, que mandaria
+# /mcp pro index.php (404).
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^mcp/?$ /mcp-filmografia.php [L]
+</IfModule>
+
 # AVIF sem MIME no servidor saia como text/plain; com o nosniff abaixo, o
 # navegador bloqueia a imagem quando ela e carregada de fora do site (ORB),
 # ex.: poster de John Wick 4 em branco no MCP App (2026-09-26).
