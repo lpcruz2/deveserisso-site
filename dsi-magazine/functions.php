@@ -1128,8 +1128,10 @@ add_action( 'save_post', function ( int $post_id ): void {
 } );
 
 // Remove acentos e caixa pra casar "Direção"/"direcao"/"DIREÇÃO" com a mesma chave.
+// O trim() do PHP não remove espaço não separável (U+00A0), que vem colado em
+// nomes copiados de outros sites ("\xa0Keanu Reeves" não casava com "Keanu Reeves").
 function dsi_dt_normalize_key( string $label ): string {
-	return trim( strtolower( remove_accents( $label ) ) );
+	return trim( strtolower( remove_accents( str_replace( "\xC2\xA0", ' ', $label ) ) ) );
 }
 
 // "[Terror](https://...)" -> "Terror" (schema.org e comparações não podem carregar markdown).
@@ -1177,6 +1179,10 @@ function dsi_dt_parse_duration_iso8601( string $raw ): string {
 // Campos com rótulo reconhecido alimentam o schema; rótulos novos/inesperados
 // ainda aparecem no box visual (via 'fields'), só não entram no JSON-LD.
 function dsi_parse_dados_tecnicos( string $raw ): array {
+	// Espaço não separável colado em valores (ex: "Elenco: \xa0Keanu Reeves")
+	// passava pelo trim() e quebrava comparação e exibição. Vira espaço comum
+	// antes de qualquer parse.
+	$raw   = str_replace( "\xC2\xA0", ' ', $raw );
 	$lines = array_filter( array_map( 'trim', explode( "\n", $raw ) ) );
 	$fields = [];
 	foreach ( $lines as $line ) {
