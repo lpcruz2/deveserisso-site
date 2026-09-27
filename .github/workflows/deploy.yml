@@ -227,6 +227,7 @@ jobs:
 
           # Rodada audit Ora (score 49): /index.md, ?mode=agent, api-catalog "item"
           check "index.md e markdown" 'curl -sI https://deveserisso.com.br/index.md' "text/markdown"
+          check "meta is-agentic-site-type=content na home" 'curl -s https://deveserisso.com.br/' 'name="is-agentic-site-type" content="content"'
           check "index.md tem conteudo do llms.txt" 'curl -s https://deveserisso.com.br/index.md' "Deveserisso"
 
           # Links do llms.txt nao podem dar 404 (check llms-txt-links-resolve do

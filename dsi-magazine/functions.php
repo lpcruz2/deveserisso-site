@@ -5133,3 +5133,13 @@ function dsi_mcp_uso_widget(): void {
 	);
 	echo '<p class="description">"Outro" inclui testes feitos por script e navegador. O Claude conta cada clique nos botões da tela como uma chamada.</p>';
 }
+
+// =============================================================================
+// 38. IS AGENTIC — tipo do site (2026-09-27)
+// =============================================================================
+// Declara o site como editorial pro relatório do Is Agentic (is-agentic.com/docs).
+// Não muda a nota: só faz o relatório abrir na visão de site de conteúdo, em vez
+// da visão de SaaS (CLI, OAuth, pagamentos). Exatamente uma tag, valor "content".
+add_action( 'wp_head', function (): void {
+	echo '<meta name="is-agentic-site-type" content="content">' . "\n";
+}, 1 );
