@@ -228,6 +228,18 @@ jobs:
           # Rodada audit Ora (score 49): /index.md, ?mode=agent, api-catalog "item"
           check "index.md e markdown" 'curl -sI https://deveserisso.com.br/index.md' "text/markdown"
           check "index.md tem conteudo do llms.txt" 'curl -s https://deveserisso.com.br/index.md' "Deveserisso"
+
+          # Links do llms.txt nao podem dar 404 (check llms-txt-links-resolve do
+          # Ora, 2026-09-27: 18 posts removidos/renomeados e categorias antigas
+          # continuavam listados). So 404/410 falha; 429 do WAF nao.
+          quebrados=""
+          for u in $(grep -oE '\(https://deveserisso\.com\.br/[^)]*\)' llms.txt | tr -d '()'); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$u")
+            case "$code" in 404|410) quebrados="$quebrados $u";; esac
+            sleep 0.5
+          done
+          if [ -n "$quebrados" ]; then echo "FALHOU: links quebrados no llms.txt:$quebrados"; exit 1; fi
+          echo "OK: nenhum link do llms.txt com 404/410"
           check "mode=agent retorna JSON" 'curl -sI "https://deveserisso.com.br/?mode=agent"' "application/json"
           check "mode=agent tem campo api" 'curl -s "https://deveserisso.com.br/?mode=agent"' '"api"'
           check "api-catalog tem item" 'curl -s https://deveserisso.com.br/.well-known/api-catalog' '"item"'
