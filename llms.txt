@@ -6,8 +6,8 @@ Site: https://deveserisso.com.br
 Idioma: Português do Brasil (pt-BR)
 Sitemap: https://deveserisso.com.br/sitemap_index.xml
 Markdown: os links de post/página abaixo já apontam para a versão em Markdown. Para qualquer outra URL de post ou página do site, adicione `.md` ao final (ex: /algum-post.md). Não se aplica a páginas de categoria/arquivo.
-MCP: https://deveserisso.com.br/wp-json/webmcp/v1/ — servidor MCP com ferramentas de busca, listagem de categorias, posts recentes e consulta de posts. Detalhes em https://deveserisso.com.br/desenvolvedores/.
-API: especificação OpenAPI 3.0 da API acima em https://deveserisso.com.br/openapi.json. Catálogo completo (WebMCP + WordPress REST API nativa) em https://deveserisso.com.br/.well-known/api-catalog.
+MCP: https://deveserisso.com.br/mcp — servidor MCP (Streamable HTTP, sem autenticação) com as ferramentas mostrar_filmografia, recomendar_para_hoje e assinar_newsletter. Manifesto em https://deveserisso.com.br/.well-known/mcp.json. Detalhes em https://deveserisso.com.br/desenvolvedores/.
+API: https://deveserisso.com.br/wp-json/webmcp/v1/ — API REST de leitura (busca, artigos, categorias, posts recentes), sem autenticação, versão na URL. Especificação OpenAPI 3.0 em https://deveserisso.com.br/openapi.json. Catálogo completo (API REST + WordPress REST API nativa) em https://deveserisso.com.br/.well-known/api-catalog.
 
 ## Quando usar este site
 

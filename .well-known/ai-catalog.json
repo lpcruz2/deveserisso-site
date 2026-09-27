@@ -6,22 +6,21 @@
   "entries": [
     {
       "identifier": "urn:air:deveserisso.com.br:mcp:webmcp",
-      "displayName": "Deveserisso WebMCP — busca e conteúdo do site",
-      "description": "Servidor MCP público, somente leitura e sem custo: busca de artigos, categorias, posts recentes e cadastro de newsletter.",
+      "displayName": "Deveserisso MCP — filmografia e recomendações",
+      "description": "Servidor MCP público em https://deveserisso.com.br/mcp (Streamable HTTP, sem autenticação e sem custo): filmografia por ator ou atriz, recomendação do que assistir hoje e formulário da newsletter.",
       "type": "application/mcp-server-card+json",
       "url": "https://deveserisso.com.br/.well-known/mcp.json",
       "tags": ["mcp", "filmes", "séries", "cultura-pop"],
       "representativeQueries": [
-        "buscar artigos sobre filmes de terror na Netflix",
-        "quais as categorias de conteúdo do Deveserisso",
-        "pegar os posts mais recentes do Deveserisso",
+        "quais filmes do Keanu Reeves têm crítica no Deveserisso",
+        "um filme de terror pra assistir hoje na Netflix",
         "assinar a newsletter do Deveserisso"
       ]
     },
     {
       "identifier": "urn:air:deveserisso.com.br:api:webmcp-openapi",
       "displayName": "OpenAPI 3.0 — Deveserisso WebMCP API",
-      "description": "Descrição OpenAPI da mesma API WebMCP, para agentes que consomem REST diretamente em vez de MCP.",
+      "description": "Descrição OpenAPI da API REST de leitura em https://deveserisso.com.br/wp-json/webmcp/v1/ (busca, artigos, categorias, posts recentes), para agentes que consomem REST.",
       "type": "application/vnd.oai.openapi+json;version=3.0",
       "url": "https://deveserisso.com.br/openapi.json",
       "tags": ["openapi", "rest"],
