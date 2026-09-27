@@ -206,6 +206,8 @@ jobs:
           check "/sobre/ 200" 'curl -sI https://deveserisso.com.br/sobre/' "200"
           check "/contato/ 200" 'curl -sI https://deveserisso.com.br/contato/' "200"
           check "/desenvolvedores/ 200" 'curl -sI https://deveserisso.com.br/desenvolvedores/' "200"
+          check "/developers -> /desenvolvedores/" 'curl -sI https://deveserisso.com.br/developers' "location: https://deveserisso.com.br/desenvolvedores/"
+          check "/docs -> /desenvolvedores/" 'curl -sI https://deveserisso.com.br/docs' "location: https://deveserisso.com.br/desenvolvedores/"
           check "/quem-somos/ redirect 301" 'curl -sI https://deveserisso.com.br/quem-somos/' "301"
 
           # Content Signals no robots.txt, Link header (RFC 8288) e API Catalog (RFC 9727)
