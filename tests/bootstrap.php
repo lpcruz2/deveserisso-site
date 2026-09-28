@@ -25,3 +25,4 @@ require_once __DIR__ . '/../dsi-magazine/inc/bilheteiro-logica.php';
 // Perfil de gosto (2026-09-28): PHP puro por premissa (site pode sair do WP),
 // nao precisa de nenhuma funcao do WordPress.
 require_once __DIR__ . '/../dsi-magazine/inc/perfil/repositorio.php';
+require_once __DIR__ . '/../dsi-magazine/inc/perfil/auth.php';

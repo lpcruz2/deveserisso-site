@@ -414,6 +414,44 @@ final class DSI_Perfil_Repositorio {
 		), 'post_id' ) );
 	}
 
+	/** @return array<int,array{tmdb_id:int,tipo:string}> post_id => titulo */
+	public function titulosDosPosts( array $post_ids ): array {
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $post_ids ) ) ) );
+		if ( ! $ids ) {
+			return [];
+		}
+		$saida = [];
+		foreach ( array_chunk( $ids, 200 ) as $lote ) {
+			$marcas = implode( ',', array_fill( 0, count( $lote ), '?' ) );
+			foreach ( $this->todos( "SELECT post_id, tmdb_id, tipo FROM {$this->p}titulo_post WHERE post_id IN ({$marcas})", $lote ) as $l ) {
+				$saida[ (int) $l['post_id'] ] = [ 'tmdb_id' => (int) $l['tmdb_id'], 'tipo' => $l['tipo'] ];
+			}
+		}
+		ksort( $saida );
+		return $saida;
+	}
+
+	/**
+	 * Estado das marcacoes da conta pra uma lista de titulos (cards na tela).
+	 *
+	 * @param array<array{tmdb_id:int,tipo:string}> $titulos
+	 * @return array<string,array{visto:?string,avaliacao:?string}> chave "tipo:tmdb_id"
+	 */
+	public function marcacoesDosTitulos( int $conta_id, array $titulos ): array {
+		$saida = [];
+		foreach ( $this->marcacoes( $conta_id ) as $m ) {
+			$saida[ $m['tipo'] . ':' . $m['tmdb_id'] ] = [ 'visto' => $m['visto'], 'avaliacao' => $m['avaliacao'] ];
+		}
+		$pedidas = [];
+		foreach ( $titulos as $t ) {
+			$chave = ( $t['tipo'] ?? '' ) . ':' . (int) ( $t['tmdb_id'] ?? 0 );
+			if ( isset( $saida[ $chave ] ) ) {
+				$pedidas[ $chave ] = $saida[ $chave ];
+			}
+		}
+		return $pedidas;
+	}
+
 	public function criticaExiste( int $tmdb_id, string $tipo ): bool {
 		return (bool) $this->um( "SELECT post_id FROM {$this->p}titulo_post WHERE tmdb_id = ? AND tipo = ? LIMIT 1", [ $tmdb_id, $tipo ] );
 	}

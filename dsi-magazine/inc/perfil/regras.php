@@ -11,7 +11,7 @@
 const DSI_PERFIL_TIPOS       = [ 'filme', 'serie' ];
 const DSI_PERFIL_VISTO       = [ 'quero_ver', 'ja_vi' ];
 const DSI_PERFIL_AVALIACAO   = [ 'curti', 'nao_curti' ];
-const DSI_PERFIL_CANAIS      = [ 'site', 'curador', 'mcp_claude', 'mcp_chatgpt' ];
+const DSI_PERFIL_CANAIS      = [ 'site', 'curador', 'mcp_claude', 'mcp_chatgpt', 'mcp_outro' ];
 const DSI_PERFIL_PLATAFORMAS = [ 'netflix', 'amazon-prime', 'globoplay', 'disney', 'telecine', 'appletv' ];
 const DSI_PERFIL_MOTIVOS     = [ 'spoiler', 'ofensa', 'fora_do_tema', 'spam' ];
 const DSI_PERFIL_TEXTO_MIN   = 100;

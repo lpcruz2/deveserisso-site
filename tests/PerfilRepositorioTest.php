@@ -212,6 +212,24 @@ final class PerfilRepositorioTest extends TestCase {
 		$this->assertFalse( $this->repo->criticaExiste( 603, 'filme' ) );
 	}
 
+	public function test_titulos_dos_posts_e_marcacoes_dos_titulos(): void {
+		$this->repo->vincularTituloPost( 10, 603, 'filme', 'teste' );
+		$this->repo->vincularTituloPost( 11, 1399, 'serie', 'teste' );
+		$this->assertSame(
+			[ 10 => [ 'tmdb_id' => 603, 'tipo' => 'filme' ], 11 => [ 'tmdb_id' => 1399, 'tipo' => 'serie' ] ],
+			$this->repo->titulosDosPosts( [ 11, 10, 999, 10 ] )
+		);
+		$this->assertSame( [], $this->repo->titulosDosPosts( [] ) );
+
+		$id = $this->novaConta();
+		$this->repo->marcar( $id, 603, 'filme', 'ja_vi', 'curti' );
+		$this->repo->marcar( $id, 700, 'filme', 'quero_ver', null );
+		$this->assertSame(
+			[ 'filme:603' => [ 'visto' => 'ja_vi', 'avaliacao' => 'curti' ] ],
+			$this->repo->marcacoesDosTitulos( $id, [ [ 'tmdb_id' => 603, 'tipo' => 'filme' ], [ 'tmdb_id' => 1399, 'tipo' => 'serie' ] ] )
+		);
+	}
+
 	// -- LGPD ----------------------------------------------------------------
 
 	public function test_exportar_e_apagar_conta_em_cascata(): void {
