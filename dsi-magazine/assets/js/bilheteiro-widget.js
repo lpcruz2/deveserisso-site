@@ -981,8 +981,11 @@
 			// so intercepta se parecer um email de verdade; se a pessoa
 			// ignorar e mandar outra coisa, segue o fluxo normal sem travar.
 			// E-mail digitado no campo principal, sozinho ou no meio da frase
-			// ("sim, é fulano@x.com").
-			var emailNoTexto = aguardandoEmail ? texto.match( /[^\s@,;:<>()]+@[^\s@,;:<>()]+\.[^\s@,;:<>()]+/ ) : null;
+			// ("sim, é fulano@x.com"). Vale mesmo sem o pedido aberto (revisao
+			// de 2026-09-28: "cadastra meu email ..." depois da lista caia na
+			// rota de perguntas e era recusado) -- o chat nao tem outro uso pra
+			// e-mail, e assim ele nem sai do navegador rumo ao modelo.
+			var emailNoTexto = ! emailJaCapturado() ? texto.match( /[^\s@,;:<>()]+@[^\s@,;:<>()]+\.[^\s@,;:<>()]+/ ) : null;
 			if ( emailNoTexto && EMAIL_REGEX.test( emailNoTexto[0].replace( /[.!?]+$/, '' ) ) ) {
 				capturarEmail( emailNoTexto[0].replace( /[.!?]+$/, '' ) );
 				return;

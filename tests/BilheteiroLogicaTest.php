@@ -363,23 +363,57 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertSame( 'livre', dsi_recomendacao_modo_filtro( false, false, false, false, true ) );
 	}
 
-	// -- dsi_curador_papel_aplicado -------------------------------------------
+	// -- dsi_curador_papel_ator ------------------------------------------------
 
-	public function test_papel_aplicado_acima_do_limiar_vale_o_do_jev(): void {
-		$this->assertSame( 'principal', dsi_curador_papel_aplicado( 'principal', 1.0 ) );
-		$this->assertSame( 'evitar', dsi_curador_papel_aplicado( 'evitar', 0.8 ) );
-		$this->assertSame( 'nao_citou', dsi_curador_papel_aplicado( 'nao_citou', 0.95 ) );
+	public function test_papel_ator_so_principal_passa(): void {
+		$this->assertSame( 'principal', dsi_curador_papel_ator( 'principal' ) );
+		$this->assertSame( 'gosto', dsi_curador_papel_ator( 'gosto' ) );
 	}
 
-	public function test_papel_aplicado_na_duvida_vira_gosto(): void {
-		// Caso real 2026-09-28: "não poderia ser diferente quero o Keanu Reeves", Jev 0,74-0,79.
-		$this->assertSame( 'gosto', dsi_curador_papel_aplicado( 'principal', 0.79 ) );
-		$this->assertSame( 'gosto', dsi_curador_papel_aplicado( 'evitar', 0.5 ) );
+	public function test_papel_ator_sem_resposta_ou_invalido_vira_gosto(): void {
+		$this->assertSame( 'gosto', dsi_curador_papel_ator( null ) );
+		$this->assertSame( 'gosto', dsi_curador_papel_ator( 'qualquer' ) );
+		$this->assertSame( 'gosto', dsi_curador_papel_ator( [ 'principal' ] ) );
 	}
 
-	public function test_papel_aplicado_sem_resposta_ou_invalido_vira_gosto(): void {
-		$this->assertSame( 'gosto', dsi_curador_papel_aplicado( null, 0.0 ) );
-		$this->assertSame( 'gosto', dsi_curador_papel_aplicado( 'qualquer', 1.0 ) );
+	// -- dsi_generos_chaves_busca / dsi_genero_bate ----------------------------
+
+	public function test_genero_acao_nao_casa_com_animacao(): void {
+		$chaves = dsi_generos_chaves_busca( 'acao' );
+		$this->assertFalse( dsi_genero_bate( 'animacao', $chaves ) );
+		$this->assertTrue( dsi_genero_bate( 'acao', $chaves ) );
+		$this->assertTrue( dsi_genero_bate( 'action & adventure', $chaves ) );
+	}
+
+	public function test_genero_suspense_e_thriller_sao_o_mesmo(): void {
+		$this->assertTrue( dsi_genero_bate( 'suspense', dsi_generos_chaves_busca( 'thriller' ) ) );
+		$this->assertTrue( dsi_genero_bate( 'thriller', dsi_generos_chaves_busca( 'suspense' ) ) );
+	}
+
+	public function test_genero_ficcao_cientifica_casa_com_nome_da_tmdb(): void {
+		$this->assertTrue( dsi_genero_bate( 'sci-fi & fantasy', dsi_generos_chaves_busca( 'ficcao cientifica' ) ) );
+	}
+
+	public function test_genero_composto_ainda_casa_pela_palavra(): void {
+		$chaves = dsi_generos_chaves_busca( 'comedia' );
+		$this->assertTrue( dsi_genero_bate( 'comedia dramatica', $chaves ) );
+		$this->assertFalse( dsi_genero_bate( 'comedia dramatica', dsi_generos_chaves_busca( 'drama' ) ) );
+		$this->assertTrue( dsi_genero_bate( 'terror psicologico', dsi_generos_chaves_busca( 'terror' ) ) );
+	}
+
+	public function test_mais_de_um_genero_vale_qualquer_um(): void {
+		// Caso real 2026-09-28: "comédia ou documentários".
+		$chaves = dsi_generos_chaves_busca( 'comedia, documentario' );
+		$this->assertTrue( dsi_genero_bate( 'documentario', $chaves ) );
+		$this->assertTrue( dsi_genero_bate( 'comedia', $chaves ) );
+		$this->assertFalse( dsi_genero_bate( 'terror', $chaves ) );
+	}
+
+	// -- dsi_bilheteiro_sem_email ---------------------------------------------
+
+	public function test_sem_email_troca_o_endereco(): void {
+		$this->assertSame( 'cadastra meu email [e-mail removido] por favor', dsi_bilheteiro_sem_email( 'cadastra meu email fulano.teste@gmail.com por favor' ) );
+		$this->assertSame( 'quero comédia', dsi_bilheteiro_sem_email( 'quero comédia' ) );
 	}
 
 	// -- dsi_bilheteiro_lista_nomes ------------------------------------------

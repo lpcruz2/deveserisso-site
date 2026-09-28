@@ -312,7 +312,7 @@ function dsi_bilheteiro_pede_mais_opcoes( string $mensagem ): bool {
 // - ator + genero com titulo em comum: so esses (o caso Ben Stiller segue
 //   sem filme generico pra completar a lista);
 // - sem titulo em comum e ator PRINCIPAL (exigido pela pessoa, ver
-//   dsi_curador_papel_aplicado): o ator manda (aviso sem_genero);
+//   dsi_curador_papel_ator): o ator manda (aviso sem_genero);
 // - sem titulo em comum e ator so de gosto: o genero manda (aviso
 //   genero_sem_ator);
 // - sem ator no catalogo: genero pedido vira filtro quando existe titulo
@@ -338,18 +338,58 @@ function dsi_recomendacao_modo_filtro( bool $ator_no_catalogo, bool $ator_princi
 	return ( $genero_pedido && $existe_genero ) ? 'genero' : 'livre';
 }
 
-// Papel do ator citado, classificado pelo Jev (TypeSafe) com probabilidade
-// por opcao. Abaixo do limiar, fica "gosto": na duvida o ator so soma pontos
-// e o genero manda, que e o lado seguro (erro em "principal" esconde o genero
-// pedido; erro em "gosto" so perde a preferencia forte pelo ator). No teste
-// de 2026-09-28, todo erro do Jev veio com confianca abaixo de 0,8.
-const DSI_JEV_LIMIAR          = 0.8;
-const DSI_CURADOR_PAPEIS_ATOR = [ 'principal', 'gosto', 'evitar', 'nao_citou' ];
-function dsi_curador_papel_aplicado( ?string $escolha, float $confianca ): string {
-	if ( ! in_array( $escolha, DSI_CURADOR_PAPEIS_ATOR, true ) || $confianca < DSI_JEV_LIMIAR ) {
-		return 'gosto';
+// Papel do ator citado, devolvido pela DeepSeek na mesma chamada da extracao
+// (campo papel_atores). Qualquer coisa diferente de "principal" vira "gosto":
+// na duvida o ator so soma pontos e o genero manda, que e o lado seguro
+// (erro em "principal" esconde o genero pedido; erro em "gosto" so perde a
+// preferencia forte pelo ator). Entre 28/09 e 29/09/2026 quem classificava
+// era o Jev (TypeSafe); saiu do chat por decisao do gestor -- acertava o
+// mesmo que a DeepSeek e custava uma chamada e uma empresa a mais.
+function dsi_curador_papel_ator( $papel ): string {
+	return $papel === 'principal' ? 'principal' : 'gosto';
+}
+
+// Genero pedido x genero do titulo (2026-09-28, revisao das conversas):
+// - comparacao por palavra inteira: por trecho, "acao" casava com
+//   "animacao" e o pedido de Ação trazia animacao;
+// - sinonimos: a extracao gravava "Thriller" pra quem pediu suspense, e as
+//   criticas usam "Suspense"; o catalogo externo usa nomes da TMDB
+//   ("Sci-Fi & Fantasy", "Action & Adventure", "War & Politics");
+// - mais de um genero separado por virgula ("Comédia, Documentário") vale
+//   qualquer um deles.
+// Tudo ja normalizado (minusculas, sem acento -- dsi_dt_normalize_key).
+const DSI_GENEROS_EQUIVALENTES = [
+	[ 'suspense', 'thriller' ],
+	[ 'ficcao cientifica', 'sci-fi' ],
+	[ 'acao', 'action' ],
+	[ 'guerra', 'war' ],
+];
+function dsi_generos_chaves_busca( string $genero_normalizado ): array {
+	$chaves = [];
+	foreach ( array_filter( array_map( 'trim', explode( ',', $genero_normalizado ) ), 'strlen' ) as $g ) {
+		$chaves[] = $g;
+		foreach ( DSI_GENEROS_EQUIVALENTES as $grupo ) {
+			if ( in_array( $g, $grupo, true ) ) {
+				$chaves = array_merge( $chaves, $grupo );
+			}
+		}
 	}
-	return $escolha;
+	return array_values( array_unique( $chaves ) );
+}
+function dsi_genero_bate( string $genero_item_normalizado, array $chaves ): bool {
+	foreach ( $chaves as $chave ) {
+		if ( $chave !== '' && preg_match( '/(^|[^a-z0-9])' . preg_quote( $chave, '/' ) . '($|[^a-z0-9])/u', $genero_item_normalizado ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// E-mail nunca entra no log do Curador nem vai pra DeepSeek (regra
+// permanente do log). Achado da revisao de 2026-09-28: "cadastra meu email
+// fulano@..." digitado depois da lista foi gravado inteiro.
+function dsi_bilheteiro_sem_email( string $texto ): string {
+	return (string) preg_replace( '/[^\s@<>()"\',;:]+@[^\s@<>()"\',;:]+\.[^\s@<>()"\',;:]+/u', '[e-mail removido]', $texto );
 }
 
 // "Meryl Streep", "Meryl Streep e Gary Oldman", "Meryl Streep, Gary Oldman
