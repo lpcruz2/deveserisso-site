@@ -1703,6 +1703,10 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// (generos_catalogo/temas_catalogo), nunca um filtro rigido -- mesma
 	// filosofia ja usada pra emocao/genero/plataforma.
 	$q = $req->get_param( 'q' );
+	// Obra exata escolhida no chat quando o titulo era ambiguo (2026-09-28).
+	$q_tmdb = preg_match( '/^(filme|serie):(\d+)$/', (string) $req->get_param( 'q_tmdb' ), $m_q_tmdb ) ? [ 'tipo' => $m_q_tmdb[1], 'id' => (int) $m_q_tmdb[2] ] : null;
+	// Epoca/ambientacao pedida (ver DSI_AMBIENTACOES).
+	$chaves_ambientacao = $req->get_param( 'ambientacao' ) ? dsi_ambientacao_chaves( dsi_dt_normalize_key( (string) $req->get_param( 'ambientacao' ) ) ) : [];
 
 	$query = new WP_Query( $query_args );
 
@@ -1769,14 +1773,14 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		global $wpdb;
 		$tabela_catalogo = dsi_filme_externo_table_name();
 		$chave_q         = dsi_dt_normalize_key( $q );
-		$catalogo        = $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$tabela_catalogo} WHERE titulo_normalizado = %s", $chave_q
-		), ARRAY_A );
+		$catalogo        = $q_tmdb
+			? $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$tabela_catalogo} WHERE tmdb_id = %d AND tipo = %s", $q_tmdb['id'], $q_tmdb['tipo'] ), ARRAY_A )
+			: $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$tabela_catalogo} WHERE titulo_normalizado = %s", $chave_q ), ARRAY_A );
 
 		if ( $catalogo ) {
 			$wpdb->update( $tabela_catalogo, [ 'contagem_mencoes' => $catalogo['contagem_mencoes'] + 1 ], [ 'id' => $catalogo['id'] ], [ '%d' ], [ '%d' ] );
 		} else {
-			$resolvido = dsi_catalogo_tmdb_buscar_titulo( $q );
+			$resolvido = $q_tmdb ? dsi_catalogo_tmdb_por_id( $q_tmdb['id'], $q_tmdb['tipo'] ) : dsi_catalogo_tmdb_buscar_titulo( $q );
 			if ( ! is_wp_error( $resolvido ) ) {
 				// Bug real achado ao vivo (2026-09-22): a checagem acima usa a
 				// chave normalizada do que a PESSOA digitou (com erro de
@@ -1941,7 +1945,16 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			}
 		}
 
-		$candidatos[] = [ 'score' => $score, 'post' => $post, 'dados' => $d, 'tem_ator' => $tem_ator, 'tem_genero' => $tem_genero, 'viola_exclusao' => $viola_exclusao ];
+		$tem_ambientacao = false;
+		if ( $chaves_ambientacao ) {
+			$texto_epoca = dsi_dt_normalize_key( $d['titulo'] . ' ' . implode( ' ', array_map( 'strval', (array) ( $d['temas'] ?? [] ) ) ) . ' ' . mb_substr( wp_strip_all_tags( $post->post_content ), 0, 1500 ) );
+			if ( dsi_genero_bate( $texto_epoca, $chaves_ambientacao ) ) {
+				$tem_ambientacao = true;
+				$score          += DSI_SCORE_PESO_GENERO;
+			}
+		}
+
+		$candidatos[] = [ 'score' => $score, 'post' => $post, 'dados' => $d, 'tem_ator' => $tem_ator, 'tem_genero' => $tem_genero, 'viola_exclusao' => $viola_exclusao, 'tem_ambientacao' => $tem_ambientacao ];
 	}
 
 	global $wpdb;
@@ -2011,6 +2024,14 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 				$score += DSI_SCORE_PESO_ATOR_PEDIDO;
 			}
 		}
+		$tem_ambientacao = false;
+		if ( $chaves_ambientacao ) {
+			$texto_epoca = dsi_dt_normalize_key( $linha['titulo'] . ' ' . implode( ' ', array_map( 'strval', $temas_linha ) ) . ' ' . (string) $linha['sinopse'] );
+			if ( dsi_genero_bate( $texto_epoca, $chaves_ambientacao ) ) {
+				$tem_ambientacao = true;
+				$score          += DSI_SCORE_PESO_GENERO;
+			}
+		}
 		if ( $score <= 0 ) {
 			continue; // mesma honestidade da lista com resenha -- sem sinal, sem entrar
 		}
@@ -2020,6 +2041,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			'tem_ator'       => $tem_ator,
 			'tem_genero'     => $tem_genero,
 			'viola_exclusao' => $viola_exclusao,
+			'tem_ambientacao' => $tem_ambientacao,
 			'nota'           => $linha['nota_tmdb'] !== null ? (float) $linha['nota_tmdb'] : null,
 			'id'             => (int) $linha['id'],
 			'dados'          => [
@@ -2039,7 +2061,16 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// Quem manda na lista quando ator e/ou genero foram pedidos (relatorio
 	// semanal 2026-09-28, regra em dsi_recomendacao_modo_filtro). Olha as
 	// duas listas juntas, antes de cortar no limite.
-	$genero_pedido      = (bool) $req->get_param( 'genero' );
+	// Epoca pedida com titulo dela no catalogo: so esses entram e o genero
+	// passa a so somar pontos ("tema idade média" vira genero Historia na
+	// extracao, e Historia sozinho trazia Vice e Snowden).
+	$ambientacao_existe = $chaves_ambientacao && array_filter( array_merge( $candidatos, $sem_resenha_candidatos ), fn( array $c ): bool => $c['tem_ambientacao'] );
+	if ( $ambientacao_existe ) {
+		$so_epoca               = fn( array $c ): bool => $c['tem_ambientacao'];
+		$candidatos             = array_values( array_filter( $candidatos, $so_epoca ) );
+		$sem_resenha_candidatos = array_values( array_filter( $sem_resenha_candidatos, $so_epoca ) );
+	}
+	$genero_pedido      = (bool) $req->get_param( 'genero' ) && ! $ambientacao_existe;
 	$todos_candidatos   = array_merge( $candidatos, $sem_resenha_candidatos );
 	$existe_ator_genero = (bool) array_filter( $todos_candidatos, fn( array $c ): bool => $c['tem_ator'] && $c['tem_genero'] );
 	$existe_genero      = (bool) array_filter( $todos_candidatos, fn( array $c ): bool => $c['tem_genero'] );
@@ -2192,6 +2223,17 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		}
 	}
 
+	// Aviso de epoca (2026-09-28): sem titulo nenhum dela, ou poucos.
+	$aviso_ambientacao = null;
+	if ( $chaves_ambientacao && ( $resultados || $sem_resenha ) ) {
+		$total_epoca = count( $resultados ) + count( $sem_resenha );
+		if ( ! $ambientacao_existe ) {
+			$aviso_ambientacao = [ 'tipo' => 'sem_titulos', 'ambientacao' => (string) $req->get_param( 'ambientacao' ) ];
+		} elseif ( $total_epoca < $limite ) {
+			$aviso_ambientacao = [ 'tipo' => 'poucos', 'ambientacao' => (string) $req->get_param( 'ambientacao' ), 'quantidade' => $total_epoca ];
+		}
+	}
+
 	// Registra a rodada no mesmo log do bilheteiro (tipo_evento=recomendacao)
 	// pra o feedback (dsi_recomendacao_feedback) poder referenciar por
 	// sessao_id + rodada -- so quando o chamador manda sessao_id (o fluxo de
@@ -2207,7 +2249,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			$sessao_id,
 			(int) $req->get_param( 'rodada' ) ?: 1,
 			$mostrados,
-			$aviso_atores ? wp_json_encode( [ 'aviso_atores' => $aviso_atores ] ) : null
+			( $aviso_atores || $aviso_ambientacao ) ? wp_json_encode( array_filter( [ 'aviso_atores' => $aviso_atores, 'aviso_ambientacao' => $aviso_ambientacao ] ) ) : null
 		);
 	}
 
@@ -2221,6 +2263,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		'sem_resenha'      => array_values( $sem_resenha ),
 		// Aditivo tambem (2026-09-25) -- null quando nao ha o que avisar.
 		'aviso_atores'     => $aviso_atores,
+		'aviso_ambientacao' => $aviso_ambientacao,
 	] );
 }
 
@@ -2287,7 +2330,7 @@ require_once __DIR__ . '/inc/perfil/wp.php';
 // ruidoso demais pra confiar sem mais teste). "atores" e excecao desde
 // 2026-09-21 (decisao do gestor): ator/atriz favorito virou uma das 4
 // perguntas ativas do widget/LP -- ver DSI_BILHETEIRO_INSTRUCAO.
-const DSI_BILHETEIRO_CAMPOS              = [ 'plataforma', 'tipo', 'emocao', 'genero', 'baseado_fatos_reais', 'q' ];
+const DSI_BILHETEIRO_CAMPOS              = [ 'plataforma', 'tipo', 'emocao', 'genero', 'baseado_fatos_reais', 'q', 'ambientacao' ];
 // Subido de 3 pra 6 em 2026-09-22 (pedido do gestor, achado ao vivo): o "3"
 // original (RF3) foi calibrado pro fluxo gamificado antigo, que so tinha 3
 // campos obrigatorios (genero/emocao/plataforma). Desde que "atores" virou
@@ -2416,6 +2459,13 @@ Campos possíveis:
   "Comédia"). Se a pessoa citar mais de um gênero, junte separado por
   vírgula (ex: "comédia ou documentários" -> "Comédia, Documentário").
 - baseado_fatos_reais: true/false, so se o visitante falar disso
+- ambientacao: epoca ou ambientacao pedida, SEMPRE um destes valores exatos
+  ou null: Antiguidade, Idade Média, Séculos XVI a XVIII, Velho Oeste,
+  Século XIX, Primeira Guerra, Segunda Guerra, Guerra Fria, Futuro, Espaço
+  (ex: "filme de cavaleiro", "tema idade média", "vikings" -> "Idade Média";
+  "nazismo" -> "Segunda Guerra"; "anos 80" -> "Guerra Fria"). Continue
+  preenchendo genero com o genero mais proximo quando a pessoa so falar da
+  epoca (ex: "tema idade média" -> genero "História").
 - q: titulo de filme ou serie citado como referencia POSITIVA (quer algo
   parecido). Se citar mais de um, junte separado por virgula (ex: "Matrix,
   Interestelar")
@@ -2473,7 +2523,7 @@ reconhecimento como string vazia "".
 
 Responda SEMPRE em JSON com exatamente este formato (sem markdown, sem texto
 fora do JSON):
-{"parametros": {"plataforma": null, "tipo": null, "emocao": null, "genero": null, "baseado_fatos_reais": null, "q": null}, "atores": [], "papel_atores": {}, "exclusoes": [], "pedido_pular": false, "fora_do_tema": false, "reconhecimento": ""}
+{"parametros": {"plataforma": null, "tipo": null, "emocao": null, "genero": null, "baseado_fatos_reais": null, "q": null, "ambientacao": null}, "atores": [], "papel_atores": {}, "exclusoes": [], "pedido_pular": false, "fora_do_tema": false, "reconhecimento": ""}
 PROMPT;
 
 // RNF3 do PRD: rate limit por IP antes de expor a rota a trafego publico --
@@ -2630,6 +2680,21 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	}
 	$estado['confirmacoes'] = is_array( $estado_recebido['confirmacoes'] ?? null ) ? $estado_recebido['confirmacoes'] : [];
 	$estado['atores_sem_preferencia'] = ! empty( $estado_recebido['atores_sem_preferencia'] );
+	// Titulo de referencia ambiguo (2026-09-28, "O Reino" virou a serie de
+	// terror de 1994 numa conversa sobre Idade Media): opcoes oferecidas a
+	// pessoa e a obra escolhida ("filme:123"/"serie:123", id da TMDB).
+	$estado['q_opcoes'] = [];
+	foreach ( array_slice( (array) ( $estado_recebido['q_opcoes'] ?? [] ), 0, 4 ) as $opcao ) {
+		if ( is_array( $opcao ) && ! empty( $opcao['tmdb_id'] ) ) {
+			$estado['q_opcoes'][] = [
+				'tmdb_id' => (int) $opcao['tmdb_id'],
+				'tipo'    => ( $opcao['tipo'] ?? '' ) === 'serie' ? 'serie' : 'filme',
+				'titulo'  => mb_substr( sanitize_text_field( (string) ( $opcao['titulo'] ?? '' ) ), 0, 120 ),
+				'ano'     => isset( $opcao['ano'] ) ? (int) $opcao['ano'] : null,
+			];
+		}
+	}
+	$estado['q_tmdb'] = preg_match( '/^(filme|serie):\d+$/', (string) ( $estado_recebido['q_tmdb'] ?? '' ) ) ? (string) $estado_recebido['q_tmdb'] : null;
 	// Atores exigidos pela pessoa (papel "principal", 2026-09-28) --
 	// voltam do cliente como o resto do estado; so nomes curtos, poucos.
 	$estado['atores_principais'] = array_slice( array_values( array_filter(
@@ -2700,6 +2765,11 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// dsi_bilheteiro_proxima_pergunta() usou no turno anterior.
 	$campo_perguntado_antes = dsi_bilheteiro_campos_faltando( $estado, $contexto_minigames )[0] ?? null;
 	$pergunta_respondida    = dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames );
+	$escolha_q              = null;
+	if ( $estado['q_opcoes'] ) {
+		$pergunta_respondida = dsi_bilheteiro_pergunta_opcoes_q( $estado['q_opcoes'] );
+		$escolha_q           = dsi_bilheteiro_escolher_opcao( dsi_dt_normalize_key( $mensagem ), $estado['q_opcoes'] );
+	}
 	$extraido = dsi_bilheteiro_extrair(
 		$mensagem,
 		$api_key,
@@ -2875,6 +2945,33 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	}
 	$estado['atores_principais'] = array_values( array_unique( $estado['atores_principais'] ) );
 
+	// Titulo de referencia: escolha entre as opcoes oferecidas no turno
+	// anterior, ou checagem de ambiguidade quando entrou um titulo novo.
+	if ( $escolha_q !== null ) {
+		if ( $escolha_q >= 0 ) {
+			$opcao_q          = $estado['q_opcoes'][ $escolha_q ];
+			$estado['q']      = $opcao_q['titulo'];
+			$estado['q_tmdb'] = $opcao_q['tipo'] . ':' . $opcao_q['tmdb_id'];
+		} else {
+			// "Nenhum desses": segue sem referencia em vez de usar a obra errada.
+			$estado['q']      = DSI_BILHETEIRO_SEM_PREFERENCIA;
+			$estado['q_tmdb'] = null;
+		}
+		$estado['q_opcoes'] = [];
+	} elseif ( $estado['q_opcoes'] ) {
+		$estado['q_opcoes'] = []; // seguiu a conversa sem escolher
+	}
+	$q_ambigua = false;
+	$q_novo    = $estado['q'] ?? null;
+	if ( $escolha_q === null && is_string( $q_novo ) && $q_novo !== '' && $q_novo !== DSI_BILHETEIRO_SEM_PREFERENCIA && $q_novo !== ( $estado_antes['q'] ?? null ) ) {
+		$estado['q_tmdb'] = null; // era de outro titulo
+		$opcoes_q = dsi_catalogo_tmdb_opcoes_titulo( $q_novo );
+		if ( count( $opcoes_q ) >= 2 ) {
+			$estado['q_opcoes'] = $opcoes_q;
+			$q_ambigua          = true;
+		}
+	}
+
 	// Rede de seguranca pra pergunta opcional que ficou sem resposta
 	// aproveitavel (achado 2026-09-25: "não" 3x a "tem algum filme
 	// parecido?", a pergunta voltava igual ate bater o limite). Aceita como
@@ -2926,6 +3023,10 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	$campos_faltando = dsi_bilheteiro_campos_faltando( $estado, $contexto_minigames );
 	$criterio_real   = empty( $campos_faltando );
 	$deve_parar      = $pedido_pular || $criterio_real || $limite_atingido;
+	// Titulo ambiguo: pergunta qual antes de recomendar (senao a lista sai pela obra errada).
+	if ( $q_ambigua && ! $pedido_pular ) {
+		$deve_parar = false;
+	}
 
 	$id_linha_log = dsi_bilheteiro_registrar_interacao( [
 		'sessao_id'        => $sessao_id,
@@ -2938,7 +3039,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		// Campo que dsi_bilheteiro_proxima_pergunta() vai perguntar na
 		// resposta deste turno -- null quando o turno ja fechou (nada mais
 		// pra perguntar, ver $deve_parar acima).
-		'campo_perguntado' => $deve_parar ? null : ( $campos_faltando[0] ?? null ),
+		'campo_perguntado' => $deve_parar ? null : ( $q_ambigua ? 'q' : ( $campos_faltando[0] ?? null ) ),
 		'fora_do_tema'     => ! empty( $extraido['fora_do_tema'] ),
 	] );
 	if ( $papeis_atores ) {
@@ -2958,10 +3059,26 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		}
 		// O widget nao mostra $mensagem_resposta quando pronto -- vai direto
 		// pras recomendacoes (linha tipo_evento=recomendacao da mesma sessao).
-		dsi_bilheteiro_registrar_resposta( $id_linha_log, '[mostrou as recomendações]' );
+		// Conversa ja completa e a mensagem nao mudou nada (2026-09-28, "quero
+		// filmes sobre idade média tipo o Reino já falei" depois do 👎): diz
+		// isso em vez de repetir a busca calado.
+		$aviso = '';
+		$campos_comparados = array_merge( DSI_BILHETEIRO_CAMPOS, [ 'atores', 'exclusoes', 'temas', 'atores_principais' ] );
+		$igual             = true;
+		foreach ( $campos_comparados as $campo_c ) {
+			if ( ( $estado[ $campo_c ] ?? null ) != ( $estado_antes[ $campo_c ] ?? null ) ) {
+				$igual = false;
+				break;
+			}
+		}
+		if ( $igual && ! $pedido_pular && empty( dsi_bilheteiro_campos_faltando( $estado_antes, $contexto_minigames ) ) ) {
+			$aviso = 'Não encontrei nada novo nessa mensagem, então separei outras opções com o que você já me contou. Se quiser mudar, me diga outro gênero, época ou ator.';
+		}
+		dsi_bilheteiro_registrar_resposta( $id_linha_log, $aviso !== '' ? $aviso . ' [mostrou as recomendações]' : '[mostrou as recomendações]' );
 		return new WP_REST_Response( [
 			'estado'                       => $estado,
 			'perguntas_feitas'             => $perguntas_feitas,
+			'aviso'                        => $aviso,
 			'pronto'                       => true,
 			'mensagem'                     => $mensagem_resposta,
 			'campos_obrigatorios_faltando' => [],
@@ -3013,6 +3130,12 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 			$proxima_pergunta = $reconhecimento . ' ' . $proxima_pergunta;
 		}
 	}
+	$opcoes_rapidas = [];
+	if ( $q_ambigua ) {
+		$proxima_pergunta = dsi_bilheteiro_pergunta_opcoes_q( $estado['q_opcoes'] );
+		$opcoes_rapidas   = array_merge( array_map( 'dsi_bilheteiro_rotulo_opcao_q', $estado['q_opcoes'] ), [ 'Nenhum desses' ] );
+		$sugestoes_genero = [];
+	}
 	dsi_bilheteiro_registrar_resposta( $id_linha_log, $proxima_pergunta );
 	return new WP_REST_Response( [
 		'estado'                       => $estado,
@@ -3021,6 +3144,8 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		'mensagem'                     => $proxima_pergunta,
 		'campos_obrigatorios_faltando' => $campos_faltando,
 		'sugestoes_genero'             => $sugestoes_genero,
+		// Botoes de escolha do titulo ambiguo (so a LP mostra, igual sugestoes_genero).
+		'opcoes_rapidas'               => $opcoes_rapidas,
 	] );
 }
 
@@ -3292,7 +3417,7 @@ function dsi_bilheteiro_contexto_conversa( array $estado ): string {
 	if ( ! empty( $estado['atores'] ) ) {
 		$partes[] = 'ator/atriz que quer ver: ' . implode( ', ', array_map( 'strval', $estado['atores'] ) );
 	}
-	$rotulos = [ 'genero' => 'gênero', 'emocao' => 'emoção', 'q' => 'filme/série de referência', 'plataforma' => 'onde assiste' ];
+	$rotulos = [ 'genero' => 'gênero', 'emocao' => 'emoção', 'ambientacao' => 'época/ambientação', 'q' => 'filme/série de referência', 'plataforma' => 'onde assiste' ];
 	foreach ( $rotulos as $campo => $rotulo ) {
 		$valor = $estado[ $campo ] ?? null;
 		if ( is_string( $valor ) && $valor !== '' && $valor !== DSI_BILHETEIRO_SEM_PREFERENCIA ) {
@@ -4540,6 +4665,88 @@ function dsi_catalogo_tmdb_buscar_titulo( string $titulo_mencionado ) {
 	return $processado;
 }
 
+// Obras com o mesmo nome do titulo citado (2026-09-28): so as de titulo
+// igual (pt-BR ou original), ate 3, na ordem da TMDB. Duas ou mais = ambiguo,
+// e o chat pergunta qual (dsi_bilheteiro_chat). Cache de 1 dia.
+function dsi_catalogo_tmdb_opcoes_titulo( string $titulo ): array {
+	$tmdb_key = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
+	$chave    = dsi_dt_normalize_key( $titulo );
+	if ( $tmdb_key === '' || $chave === '' || strpos( $chave, ',' ) !== false ) {
+		return [];
+	}
+	$cache = get_transient( 'dsi_tmdb_opcoes_' . md5( $chave ) );
+	if ( is_array( $cache ) ) {
+		return $cache;
+	}
+	$busca = wp_remote_get( add_query_arg( [
+		'query'    => $titulo,
+		'language' => 'pt-BR',
+		'api_key'  => $tmdb_key,
+	], 'https://api.themoviedb.org/3/search/multi' ), [ 'timeout' => 8 ] );
+	if ( is_wp_error( $busca ) ) {
+		return [];
+	}
+	$opcoes = [];
+	foreach ( json_decode( wp_remote_retrieve_body( $busca ), true )['results'] ?? [] as $r ) {
+		if ( ! in_array( $r['media_type'] ?? '', [ 'movie', 'tv' ], true ) ) {
+			continue;
+		}
+		$nome     = (string) ( $r['title'] ?? $r['name'] ?? '' );
+		$original = (string) ( $r['original_title'] ?? $r['original_name'] ?? '' );
+		if ( dsi_dt_normalize_key( $nome ) !== $chave && dsi_dt_normalize_key( $original ) !== $chave ) {
+			continue;
+		}
+		$data     = (string) ( $r['release_date'] ?? $r['first_air_date'] ?? '' );
+		$opcoes[] = [
+			'tmdb_id' => (int) $r['id'],
+			'tipo'    => $r['media_type'] === 'tv' ? 'serie' : 'filme',
+			'titulo'  => $nome !== '' ? $nome : $original,
+			'ano'     => $data !== '' ? (int) substr( $data, 0, 4 ) : null,
+		];
+		if ( count( $opcoes ) === 3 ) {
+			break;
+		}
+	}
+	set_transient( 'dsi_tmdb_opcoes_' . md5( $chave ), $opcoes, DAY_IN_SECONDS );
+	return $opcoes;
+}
+
+function dsi_bilheteiro_rotulo_opcao_q( array $opcao ): string {
+	$tipo = $opcao['tipo'] === 'serie' ? 'série' : 'filme';
+	return $opcao['titulo'] . ' (' . $tipo . ( $opcao['ano'] ? ', ' . $opcao['ano'] : '' ) . ')';
+}
+
+function dsi_bilheteiro_pergunta_opcoes_q( array $opcoes ): string {
+	$partes = array_map( fn( $o ) => ( $o['tipo'] === 'serie' ? 'a série' : 'o filme' ) . ( $o['ano'] ? ' de ' . $o['ano'] : '' ), $opcoes );
+	$ultima = array_pop( $partes );
+	$lista  = $partes ? implode( ', ', $partes ) . ' ou ' . $ultima : $ultima;
+	return 'Encontrei mais de um título com o nome "' . $opcoes[0]['titulo'] . '": ' . $lista . '. Qual deles você quis dizer? Se for outro, me diga o ano ou o nome original.';
+}
+
+// Obra escolhida pela pessoa entre as opcoes (id exato da TMDB), no mesmo
+// formato de dsi_catalogo_tmdb_buscar_titulo.
+function dsi_catalogo_tmdb_por_id( int $tmdb_id, string $tipo ) {
+	$tmdb_key = defined( 'FILMBOX_TMDB_KEY' ) ? FILMBOX_TMDB_KEY : '';
+	if ( empty( $tmdb_key ) ) {
+		return new WP_Error( 'dsi_tmdb_sem_chave', 'TMDB nao configurado.' );
+	}
+	$endpoint = $tipo === 'serie' ? 'tv' : 'movie';
+	$resposta = wp_remote_get( "https://api.themoviedb.org/3/{$endpoint}/{$tmdb_id}?language=pt-BR&api_key={$tmdb_key}", [ 'timeout' => 15 ] );
+	if ( is_wp_error( $resposta ) ) {
+		return $resposta;
+	}
+	$item = json_decode( wp_remote_retrieve_body( $resposta ), true );
+	if ( empty( $item['id'] ) ) {
+		return new WP_Error( 'dsi_tmdb_nao_encontrado', 'Titulo nao encontrado na TMDB.' );
+	}
+	$item['genre_ids'] = array_column( (array) ( $item['genres'] ?? [] ), 'id' );
+	$processado        = dsi_catalogo_tmdb_processar_item( $item, $tipo );
+	if ( $processado === null ) {
+		return new WP_Error( 'dsi_tmdb_sem_titulo_pt', 'Titulo sem traducao em portugues na TMDB.' );
+	}
+	return $processado;
+}
+
 function dsi_classificar_filme_externo( string $titulo_mencionado ) {
 	global $wpdb;
 	$tabela = dsi_filme_externo_table_name();
@@ -4921,7 +5128,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.10.3',
+		'1.10.4',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de

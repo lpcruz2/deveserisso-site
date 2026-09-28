@@ -522,4 +522,45 @@ final class BilheteiroLogicaTest extends TestCase {
 			[ 'não sei direito, mas gosto muito de filmes do Christopher Nolan tipo Interestelar' ],
 		];
 	}
+
+	// -- dsi_ambientacao_chaves ------------------------------------------------
+
+	public function test_ambientacao_idade_media_reconhece_sinopse_medieval(): void {
+		$chaves = dsi_ambientacao_chaves( 'idade media' );
+		$this->assertTrue( dsi_genero_bate( 'o ferreiro balian junta-se ao pai nas cruzadas a caminho de jerusalem', $chaves ) );
+		$this->assertTrue( dsi_genero_bate( 'rei arthur: a lenda da espada', $chaves ) );
+		$this->assertFalse( dsi_genero_bate( 'um ex-funcionario da nsa vaza provas de espionagem', $chaves ) );
+	}
+
+	public function test_ambientacao_desconhecida_nao_tem_chaves(): void {
+		$this->assertSame( [], dsi_ambientacao_chaves( 'qualquer' ) );
+	}
+
+	// -- dsi_bilheteiro_escolher_opcao -----------------------------------------
+
+	private function opcoesOReino(): array {
+		return [
+			[ 'titulo' => 'O Reino', 'ano' => 1994, 'tipo' => 'serie' ],
+			[ 'titulo' => 'O Reino', 'ano' => 2012, 'tipo' => 'filme' ],
+			[ 'titulo' => 'O Reino', 'ano' => 2007, 'tipo' => 'filme' ],
+		];
+	}
+
+	public function test_escolher_opcao_pelo_rotulo_do_botao(): void {
+		$this->assertSame( 2, dsi_bilheteiro_escolher_opcao( 'o reino (filme, 2007)', $this->opcoesOReino() ) );
+		$this->assertSame( 0, dsi_bilheteiro_escolher_opcao( 'o reino (serie, 1994)', $this->opcoesOReino() ) );
+	}
+
+	public function test_escolher_opcao_por_numero_ano_ou_tipo(): void {
+		$this->assertSame( 1, dsi_bilheteiro_escolher_opcao( '2', $this->opcoesOReino() ) );
+		$this->assertSame( 1, dsi_bilheteiro_escolher_opcao( 'o de 2012', $this->opcoesOReino() ) );
+		$this->assertSame( 0, dsi_bilheteiro_escolher_opcao( 'a serie', $this->opcoesOReino() ) );
+	}
+
+	public function test_escolher_opcao_nenhum_ou_outra_mensagem(): void {
+		$this->assertSame( -1, dsi_bilheteiro_escolher_opcao( 'nenhum desses', $this->opcoesOReino() ) );
+		$this->assertNull( dsi_bilheteiro_escolher_opcao( 'cruzada', $this->opcoesOReino() ) );
+		// "filme" sozinho nao decide: ha dois filmes
+		$this->assertNull( dsi_bilheteiro_escolher_opcao( 'o filme', $this->opcoesOReino() ) );
+	}
 }

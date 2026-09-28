@@ -729,6 +729,9 @@
 			estado = data.estado || estado;
 			perguntasFeitas = data.perguntas_feitas || perguntasFeitas;
 			if ( data.pronto ) {
+				// Mensagem sem nada novo depois de uma lista (2026-09-28): o
+				// backend avisa, em vez de repetir a busca calado.
+				if ( data.aviso ) addBot( escapeHtml( data.aviso ) );
 				buscarRecomendacoes();
 			} else {
 				// Pedido de email/aviso ANTES da resposta de verdade
@@ -740,9 +743,12 @@
 				// Pergunta de genero pra quem ja disse um ator: botoes so com
 				// os generos em que ele tem titulo (2026-09-25). So na LP --
 				// quebra-gelo e exclusivo dela (decisao do gestor).
+				// opcoes_rapidas (2026-09-28): "O Reino (série, 1994)"... quando o
+				// titulo citado e ambiguo. Botoes tambem so na LP.
+				var botoes = ( data.opcoes_rapidas && data.opcoes_rapidas.length ) ? data.opcoes_rapidas : data.sugestoes_genero;
 				var resposta = {
 					html: escapeHtml( data.mensagem ),
-					sugestoes: ( modoLP && data.sugestoes_genero && data.sugestoes_genero.length ) ? data.sugestoes_genero : null
+					sugestoes: ( modoLP && botoes && botoes.length ) ? botoes : null
 				};
 				if ( talvezPedirEmail( resposta ) ) return;
 				talvezAvisarLimite();
@@ -1347,6 +1353,9 @@
 			if ( valorOuVazio( estado.tipo ) ) params.tipo = estado.tipo;
 			if ( estado.baseado_fatos_reais === true ) params.baseado_fatos_reais = 'sim';
 			if ( valorOuVazio( estado.q ) ) params.q = estado.q;
+			// Obra exata escolhida quando o titulo era ambiguo, e epoca pedida (2026-09-28).
+			if ( estado.q_tmdb ) params.q_tmdb = estado.q_tmdb;
+			if ( valorOuVazio( estado.ambientacao ) ) params.ambientacao = estado.ambientacao;
 			if ( ( estado.temas || [] ).length ) params.temas = estado.temas.join( ',' );
 			if ( ( estado.atores || [] ).length ) params.atores = estado.atores.join( ',' );
 			// Atores exigidos pela pessoa (2026-09-28, classificados pelo Jev no chat).
@@ -1369,6 +1378,12 @@
 						? 'Já te mostrei tudo o que tenho com essas preferências. Me conta outro gênero, ator ou clima que eu busco de novo.'
 						: 'Não achei nada pra essa combinação ainda. Quer tentar outro gênero ou emoção?' );
 					return;
+				}
+				if ( data.aviso_ambientacao ) {
+					var epoca = escapeHtml( data.aviso_ambientacao.ambientacao );
+					addBot( data.aviso_ambientacao.tipo === 'sem_titulos'
+						? 'Ainda não tenho títulos de ' + epoca + ' no catálogo, então separei os que mais combinam com o resto do que você contou.'
+						: 'Tenho poucos títulos de ' + epoca + ' por aqui. Estes são os que encontrei:' );
 				}
 				var avisoAtorEl = data.aviso_atores ? addAvisoAtor( data.aviso_atores, estado.genero ) : null;
 				if ( itens.length ) {

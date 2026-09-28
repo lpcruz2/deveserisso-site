@@ -430,3 +430,58 @@ function dsi_bilheteiro_normalizar_item_pergunta( array $item ): array {
 		'link'           => $link,
 	];
 }
+
+// Ambientacao/epoca pedida (2026-09-28, conversa real: "quero filme com tema
+// idade média" virou genero Historia e a lista trouxe Vice e Snowden). A
+// extracao escolhe um rotulo desta lista fechada; a busca reconhece a epoca
+// do titulo por palavras em titulo, temas e sinopse (por palavra inteira, ver
+// dsi_genero_bate). E aproximacao ate cada titulo ter a epoca classificada.
+// Chaves e palavras ja normalizadas (minusculas, sem acento).
+const DSI_AMBIENTACOES = [
+	'antiguidade'         => [ 'antiguidade', 'roma antiga', 'imperio romano', 'gladiador', 'gladiadores', 'egito antigo', 'farao', 'grecia antiga', 'esparta', 'espartanos', 'troia', 'cleopatra' ],
+	'idade media'         => [ 'idade media', 'medieval', 'medievais', 'cavaleiro', 'cavaleiros', 'cruzada', 'cruzadas', 'castelo', 'feudal', 'viking', 'vikings', 'rei arthur', 'templarios', 'excalibur', 'camelot', 'saxoes', 'anglo-saxao', 'anglo-saxonica', 'peste negra', 'joana d\'arc' ],
+	'seculos xvi a xviii' => [ 'pirata', 'piratas', 'mosqueteiro', 'mosqueteiros', 'seculo xvi', 'seculo xvii', 'seculo xviii', 'renascimento', 'revolucao francesa' ],
+	'velho oeste'         => [ 'velho oeste', 'faroeste', 'cowboy', 'cowboys', 'xerife', 'pistoleiro', 'pistoleiros', 'apache', 'apaches' ],
+	'seculo xix'          => [ 'seculo xix', 'seculo 19', 'era vitoriana', 'vitoriana', 'vitoriano', 'guerra civil americana' ],
+	'primeira guerra'     => [ 'primeira guerra', 'primeira guerra mundial', 'trincheira', 'trincheiras' ],
+	'segunda guerra'      => [ 'segunda guerra', 'segunda guerra mundial', 'nazista', 'nazistas', 'nazismo', 'holocausto', 'hitler', 'auschwitz', 'campo de concentracao' ],
+	'guerra fria'         => [ 'guerra fria', 'vietna', 'guerra do vietna', 'anos 60', 'anos 70', 'anos 80', 'ditadura militar' ],
+	'futuro'              => [ 'futuro', 'futurista', 'distopia', 'distopico', 'pos-apocaliptico', 'apocalipse' ],
+	'espaco'              => [ 'espaco sideral', 'nave espacial', 'planeta', 'galaxia', 'astronauta', 'astronautas', 'estacao espacial' ],
+];
+function dsi_ambientacao_chaves( string $ambientacao_normalizada ): array {
+	return DSI_AMBIENTACOES[ trim( $ambientacao_normalizada ) ] ?? [];
+}
+
+// Resposta a "Qual 'O Reino' você quis dizer?" (2026-09-28). $opcoes vem do
+// estado: [ ['titulo','ano','tipo'], ... ]. Devolve o indice escolhido, -1 pra
+// "nenhum desses" ou null quando a mensagem nao e uma escolha (a pessoa
+// seguiu a conversa ou citou outro titulo). $mensagem ja normalizada.
+function dsi_bilheteiro_escolher_opcao( string $mensagem, array $opcoes ) {
+	$m = trim( $mensagem );
+	if ( $m === '' || ! $opcoes ) {
+		return null;
+	}
+	if ( preg_match( '/^\W*(nenhum|nenhuma|nenhum desses|nenhuma dessas|nao e nenhum|outro|outra)\b/u', $m ) ) {
+		return -1;
+	}
+	if ( preg_match( '/^\W*(\d)\W*$/', $m, $n ) && (int) $n[1] >= 1 && (int) $n[1] <= count( $opcoes ) ) {
+		return (int) $n[1] - 1;
+	}
+	// Rotulo do botao ("o reino (filme, 2007)") ou ano citado.
+	if ( preg_match( '/\b(19|20)\d{2}\b/', $m, $ano ) ) {
+		$com_ano = array_keys( array_filter( $opcoes, fn( $o ) => (string) ( $o['ano'] ?? '' ) === $ano[0] ) );
+		if ( count( $com_ano ) === 1 ) {
+			return $com_ano[0];
+		}
+	}
+	foreach ( [ 'serie' => '/\bseries?\b/u', 'filme' => '/\bfilmes?\b/u' ] as $tipo => $padrao ) {
+		if ( preg_match( $padrao, $m ) ) {
+			$do_tipo = array_keys( array_filter( $opcoes, fn( $o ) => ( $o['tipo'] ?? '' ) === $tipo ) );
+			if ( count( $do_tipo ) === 1 ) {
+				return $do_tipo[0];
+			}
+		}
+	}
+	return null;
+}
