@@ -16,14 +16,15 @@ require_once __DIR__ . '/repositorio.php';
 /**
  * Staging e producao usam o MESMO banco e o mesmo $table_prefix (conferido
  * em 2026-09-28). Sem prefixo proprio por ambiente, conta de teste no
- * staging apareceria na producao.
+ * staging apareceria na producao. O ambiente sai da pasta de instalacao
+ * (/staging/ ou /blog/): home_url() nao serve, porque o wp_options tambem e
+ * compartilhado e devolve o endereco da producao nos dois.
  */
 function dsi_perfil_prefixo(): string {
 	if ( defined( 'DSI_PERFIL_PREFIXO' ) ) {
 		return DSI_PERFIL_PREFIXO;
 	}
-	$host = (string) wp_parse_url( home_url(), PHP_URL_HOST );
-	return strpos( $host, 'staging.' ) === 0 ? 'stg_perfil_' : 'perfil_';
+	return strpos( str_replace( '\\', '/', ABSPATH ), '/staging/' ) !== false ? 'stg_perfil_' : 'perfil_';
 }
 
 /** Conecta so quando o perfil e usado (pagina comum nao abre conexao extra). */
