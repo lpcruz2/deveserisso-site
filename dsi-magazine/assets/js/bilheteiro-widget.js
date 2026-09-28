@@ -238,6 +238,10 @@
 			   quebra-gelo (pilula bege tracejada), em grade de largura total. */
 			'.dsi-bh-feedback-botoes{display:grid;grid-template-columns:1fr 1fr;gap:8px;}' +
 			'.dsi-bh-fb--largo{grid-column:1 / -1;}' +
+			'.dsi-bh-email-form{margin-top:10px;display:grid;gap:8px;}' +
+			'.dsi-bh-email-input{width:100%;box-sizing:border-box;font:inherit;font-size:16px;padding:10px 12px;' +
+			'border:1px solid #a89a7d;border-radius:8px;background:#fff;color:#1d1a14;}' +
+			'.dsi-bh-email-erro{margin:0;font-size:13px;color:#a3321f;}' +
 			'.dsi-bh-fb{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;padding:10px 8px;' +
 			'font:inherit;font-size:14px;font-weight:600;color:#1d1a14;cursor:pointer;text-align:center;}' +
 			'.dsi-bh-fb:hover{background:#e3d9c2;}' +
@@ -410,6 +414,12 @@
 		// graca). Aos LIMITE_MENSAGENS_AVISO, avisa uma unica vez e oferece
 		// reiniciar -- nunca reseta sozinho, so oferece o link.
 		var avisoLimiteMostrado = false;
+		// Pedido de email vira passo proprio (2026-09-28, achado do gestor:
+		// "ao fazer a pergunta do e-mail ele ja emenda outra pergunta e nao
+		// faz o fluxo de registrar o e-mail"). A resposta do bot que viria
+		// junto fica guardada aqui e so aparece depois que a pessoa cadastra
+		// ou recusa -- ver liberarRespostaPendente().
+		var respostaPendente = null;
 
 		function salvarEstado() {
 			salvarEstadoFn( {
@@ -425,6 +435,7 @@
 				historico: historico,
 				ultimosItensRecomendados: ultimosItensRecomendados,
 				perguntasEncerradas: perguntasEncerradas,
+				respostaPendente: respostaPendente,
 				salvoEm: Date.now()
 			} );
 		}
@@ -601,6 +612,7 @@
 			pedidoEmailMostrado  = false;
 			aguardandoEmail      = false;
 			avisoLimiteMostrado  = false;
+			respostaPendente     = null;
 			thread.innerHTML = '';
 			painel.classList.remove( 'com-filmes' );
 			if ( modoLP ) iniciarLP(); else iniciar();
@@ -661,6 +673,7 @@
 			pedidoEmailMostrado      = !! dados.pedidoEmailMostrado;
 			aguardandoEmail          = !! dados.aguardandoEmail;
 			avisoLimiteMostrado      = !! dados.avisoLimiteMostrado;
+			respostaPendente         = dados.respostaPendente || null;
 			historico.forEach( function ( item ) {
 				if ( item.tipo === 'bot' ) renderBot( item.html );
 				else if ( item.tipo === 'user' ) renderUser( item.texto );
@@ -669,6 +682,7 @@
 				else if ( item.tipo === 'feedback_pedido' ) renderFeedback();
 				else if ( item.tipo === 'aviso_limite' ) renderAvisoLimite();
 				else if ( item.tipo === 'aviso_ator' ) renderAvisoAtor( item );
+				else if ( item.tipo === 'pedido_email' ) renderPedidoEmail( item );
 			} );
 		}
 
@@ -723,15 +737,16 @@
 				// estranho, com o pedido colado atras da resposta como se
 				// fosse a ultima palavra da conversa). Assim a conversa
 				// sempre termina no conteudo, nao no pedido.
-				talvezPedirEmail();
-				talvezAvisarLimite();
-				addBot( escapeHtml( data.mensagem ) );
 				// Pergunta de genero pra quem ja disse um ator: botoes so com
 				// os generos em que ele tem titulo (2026-09-25). So na LP --
 				// quebra-gelo e exclusivo dela (decisao do gestor).
-				if ( modoLP && data.sugestoes_genero && data.sugestoes_genero.length ) {
-					addQuebraGelo( data.sugestoes_genero );
-				}
+				var resposta = {
+					html: escapeHtml( data.mensagem ),
+					sugestoes: ( modoLP && data.sugestoes_genero && data.sugestoes_genero.length ) ? data.sugestoes_genero : null
+				};
+				if ( talvezPedirEmail( resposta ) ) return;
+				talvezAvisarLimite();
+				mostrarResposta( resposta );
 			}
 		}
 
@@ -820,14 +835,98 @@
 					// Conversao do teste de midia paga (2026-09-25). Nunca o
 					// email em si no evento -- so o fato de ter cadastrado.
 					track( 'widget_email_capturado', { sessao_id: sessaoId } );
+					fecharPedidoEmail();
 					addBot( 'Prontinho, cadastro feito! 🎬 Vamos continuar de onde paramos.' );
+					liberarRespostaPendente();
 				} else {
-					addBot( ( data && data.mensagem ) || 'Não consegui cadastrar agora, mas pode seguir aproveitando as recomendações!' );
+					// Email recusado pelo servidor (invalido): o campo continua
+					// aberto pra corrigir, a conversa segue esperando.
+					aguardandoEmail = true;
+					salvarEstado();
+					addBot( ( data && data.mensagem ) || 'Não consegui cadastrar agora. Confere o e-mail e tenta de novo?' );
 				}
 			} ).catch( function () {
 				carregando.remove();
+				fecharPedidoEmail();
 				addBot( 'Não consegui cadastrar agora, mas pode seguir aproveitando as recomendações!' );
+				liberarRespostaPendente();
 			} );
+		}
+
+		function mostrarResposta( resposta ) {
+			addBot( resposta.html );
+			if ( resposta.sugestoes ) addQuebraGelo( resposta.sugestoes );
+		}
+
+		// Mostra a resposta do bot que ficou guardada enquanto o pedido de
+		// email estava aberto (ver respostaPendente).
+		function liberarRespostaPendente() {
+			var resposta = respostaPendente;
+			respostaPendente = null;
+			salvarEstado();
+			if ( resposta ) {
+				talvezAvisarLimite();
+				mostrarResposta( resposta );
+			}
+		}
+
+		function montarPedidoEmail( item ) {
+			var html = 'Vi que você gosta de falar de filmes. Quer receber novidades e dicas de filmes e séries no seu e-mail?';
+			if ( item.aberto ) {
+				html += '<div class="dsi-bh-email-form">' +
+					'<input type="email" class="dsi-bh-email-input" placeholder="seu@email.com" autocomplete="email" inputmode="email" aria-label="Seu e-mail">' +
+					'<div class="dsi-bh-feedback-botoes">' +
+					'<button type="button" class="dsi-bh-fb" data-email="sim">Quero receber</button>' +
+					'<button type="button" class="dsi-bh-fb" data-email="nao">Agora não</button>' +
+					'</div><p class="dsi-bh-email-erro" hidden></p></div>';
+			}
+			return html;
+		}
+		function renderPedidoEmail( item ) {
+			var el = renderBot( montarPedidoEmail( item ) );
+			el.classList.add( 'dsi-bh-pedido-email' );
+			var campo = el.querySelector( '.dsi-bh-email-input' );
+			if ( ! campo ) return el;
+			var erro = el.querySelector( '.dsi-bh-email-erro' );
+			function enviar() {
+				var email = campo.value.trim();
+				if ( ! EMAIL_REGEX.test( email ) ) {
+					erro.textContent = 'Esse e-mail não parece válido.';
+					erro.hidden = false;
+					return;
+				}
+				erro.hidden = true;
+				capturarEmail( email );
+			}
+			el.querySelector( '[data-email="sim"]' ).addEventListener( 'click', enviar );
+			campo.addEventListener( 'keydown', function ( e ) {
+				if ( e.key === 'Enter' ) { e.preventDefault(); enviar(); }
+			} );
+			el.querySelector( '[data-email="nao"]' ).addEventListener( 'click', recusarEmail );
+			return el;
+		}
+		function addPedidoEmail() {
+			var item = { tipo: 'pedido_email', aberto: true };
+			historico.push( item );
+			var el = renderPedidoEmail( item );
+			salvarEstado();
+			return el;
+		}
+		// Fecha o formulario (na tela e no historico) depois de cadastrar,
+		// recusar ou a pessoa seguir a conversa sem responder.
+		function fecharPedidoEmail() {
+			aguardandoEmail = false;
+			historico.forEach( function ( item ) {
+				if ( item.tipo === 'pedido_email' ) item.aberto = false;
+			} );
+			thread.querySelectorAll( '.dsi-bh-email-form' ).forEach( function ( f ) { f.remove(); } );
+			salvarEstado();
+		}
+		function recusarEmail() {
+			track( 'widget_email_recusado', { sessao_id: sessaoId } );
+			fecharPedidoEmail();
+			addUser( 'Agora não' );
+			liberarRespostaPendente();
 		}
 
 		// So oferece newsletter depois de N mensagens de verdade, uma unica
@@ -835,20 +934,24 @@
 		// nesse navegador (emailJaCapturado(), chave separada e duravel --
 		// ver comentario dela acima). Chamada apos toda resposta do bot
 		// terminar (ver os 3 pontos de chamada abaixo).
-		function talvezPedirEmail() {
-			if ( pedidoEmailMostrado || aguardandoEmail || emailJaCapturado() ) return;
-			if ( mensagensEnviadas < LIMITE_MENSAGENS_PEDIR_EMAIL ) return;
+		// resposta (opcional): o que o bot ia dizer agora. Se o pedido
+		// aparecer, ela fica guardada ate a pessoa cadastrar ou recusar, e a
+		// funcao devolve true pra quem chamou nao mostrar nada por cima.
+		function talvezPedirEmail( resposta ) {
+			if ( pedidoEmailMostrado || aguardandoEmail || emailJaCapturado() ) return false;
+			if ( mensagensEnviadas < LIMITE_MENSAGENS_PEDIR_EMAIL ) return false;
 			pedidoEmailMostrado = true;
 			aguardandoEmail     = true;
+			respostaPendente    = resposta || null;
 			// Solta a ancora no bloco com resenha -- o pedido de email e o
 			// conteudo mais recente/acionavel agora, nao deve competir com
 			// aquele scroll fixo (ver ancoraComResenha/ajustarParaTeclado
 			// acima) quando o teclado do celular abrir pra responder.
 			ancoraComResenha = null;
 			salvarEstado();
-			// Reduzida a uma linha so (2026-09-25, pedido do gestor: mensagem
-			// anterior era longa demais pra um pedido no meio da conversa).
-			addBot( 'Vi que você gosta de falar de filmes — que tal receber novidades direto no seu e-mail?' );
+			track( 'widget_email_pedido', { sessao_id: sessaoId } );
+			addPedidoEmail();
+			return true;
 		}
 
 		// Quem ignora o pedido de email (talvezPedirEmail acima) e segue
@@ -877,9 +980,29 @@
 			// Mensagem seguinte ao pedido de email (ver talvezPedirEmail) --
 			// so intercepta se parecer um email de verdade; se a pessoa
 			// ignorar e mandar outra coisa, segue o fluxo normal sem travar.
-			if ( aguardandoEmail && EMAIL_REGEX.test( texto ) ) {
-				capturarEmail( texto );
+			// E-mail digitado no campo principal, sozinho ou no meio da frase
+			// ("sim, é fulano@x.com").
+			var emailNoTexto = aguardandoEmail ? texto.match( /[^\s@,;:<>()]+@[^\s@,;:<>()]+\.[^\s@,;:<>()]+/ ) : null;
+			if ( emailNoTexto && EMAIL_REGEX.test( emailNoTexto[0].replace( /[.!?]+$/, '' ) ) ) {
+				capturarEmail( emailNoTexto[0].replace( /[.!?]+$/, '' ) );
 				return;
+			}
+			if ( aguardandoEmail && /^\W*(sim|quero|claro|pode|bora|ok|beleza|aceito)\b/i.test( texto ) ) {
+				addBot( 'Ótimo! É só colocar seu e-mail no campo acima e tocar em Quero receber.' );
+				return;
+			}
+			if ( aguardandoEmail && /^\W*(n[aã]o|agora n[aã]o|depois|dispenso|nem)\b/i.test( texto ) ) {
+				track( 'widget_email_recusado', { sessao_id: sessaoId } );
+				fecharPedidoEmail();
+				liberarRespostaPendente();
+				return;
+			}
+			// Seguiu a conversa sem responder o pedido: fecha o formulario e a
+			// mensagem vai pro fluxo normal. A resposta guardada perde o
+			// sentido (a pessoa ja respondeu outra coisa).
+			if ( aguardandoEmail ) {
+				fecharPedidoEmail();
+				respostaPendente = null;
 			}
 			aguardandoEmail = false;
 			// Depois que a recomendacao ja apareceu, a proxima mensagem e
@@ -931,9 +1054,10 @@
 				}
 				// Pedido/aviso ANTES da resposta -- ver mesmo comentario em
 				// processarResposta().
-				talvezPedirEmail();
+				var resposta = { html: linkarCriticas( escapeHtml( data.resposta ) ), sugestoes: null };
+				if ( talvezPedirEmail( resposta ) ) return;
 				talvezAvisarLimite();
-				addBot( linkarCriticas( escapeHtml( data.resposta ) ) );
+				mostrarResposta( resposta );
 			} ).catch( function ( err ) {
 				carregando.remove();
 				addBot( ( err && err.mensagemAmigavel ) || 'Não consegui responder isso agora, pode perguntar de outro jeito?' );
