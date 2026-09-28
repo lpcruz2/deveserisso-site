@@ -523,17 +523,24 @@ final class BilheteiroLogicaTest extends TestCase {
 		];
 	}
 
-	// -- dsi_ambientacao_chaves ------------------------------------------------
+	// -- dsi_ambientacao_acertos -----------------------------------------------
 
-	public function test_ambientacao_idade_media_reconhece_sinopse_medieval(): void {
-		$chaves = dsi_ambientacao_chaves( 'idade media' );
-		$this->assertTrue( dsi_genero_bate( 'o ferreiro balian junta-se ao pai nas cruzadas a caminho de jerusalem', $chaves ) );
-		$this->assertTrue( dsi_genero_bate( 'rei arthur: a lenda da espada', $chaves ) );
-		$this->assertFalse( dsi_genero_bate( 'um ex-funcionario da nsa vaza provas de espionagem', $chaves ) );
+	public function test_ambientacao_palavra_forte_basta(): void {
+		$this->assertGreaterThan( 0, dsi_ambientacao_acertos( 'idade media', 'rei arthur: a lenda da espada', 'o jovem arthur descobre seu destino' ) );
+		$this->assertGreaterThan( 0, dsi_ambientacao_acertos( 'idade media', 'o ultimo rei', 'noruega medieval, 1206' ) );
 	}
 
-	public function test_ambientacao_desconhecida_nao_tem_chaves(): void {
-		$this->assertSame( [], dsi_ambientacao_chaves( 'qualquer' ) );
+	public function test_ambientacao_palavras_fracas_precisam_de_duas_e_nao_valem_no_titulo(): void {
+		// Casos reais do primeiro teste (2026-09-28).
+		$this->assertSame( 0, dsi_ambientacao_acertos( 'idade media', 'historias cruzadas', 'no mississippi dos anos 60, uma jovem escritora' ) );
+		$this->assertSame( 0, dsi_ambientacao_acertos( 'idade media', 'batman: o cavaleiro das trevas', 'batman enfrenta o coringa em gotham' ) );
+		$this->assertGreaterThan( 0, dsi_ambientacao_acertos( 'idade media', 'cruzada', 'balian junta-se ao pai nas cruzadas a caminho de jerusalem' ) );
+	}
+
+	public function test_ambientacao_desconhecida(): void {
+		$this->assertFalse( dsi_ambientacao_existe( 'qualquer' ) );
+		$this->assertTrue( dsi_ambientacao_existe( 'idade media' ) );
+		$this->assertSame( 0, dsi_ambientacao_acertos( 'qualquer', 'x', 'medieval' ) );
 	}
 
 	// -- dsi_bilheteiro_escolher_opcao -----------------------------------------

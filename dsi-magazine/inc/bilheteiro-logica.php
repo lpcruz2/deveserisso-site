@@ -434,23 +434,70 @@ function dsi_bilheteiro_normalizar_item_pergunta( array $item ): array {
 // Ambientacao/epoca pedida (2026-09-28, conversa real: "quero filme com tema
 // idade média" virou genero Historia e a lista trouxe Vice e Snowden). A
 // extracao escolhe um rotulo desta lista fechada; a busca reconhece a epoca
-// do titulo por palavras em titulo, temas e sinopse (por palavra inteira, ver
-// dsi_genero_bate). E aproximacao ate cada titulo ter a epoca classificada.
-// Chaves e palavras ja normalizadas (minusculas, sem acento).
+// do titulo por palavras. Aproximacao ate cada titulo ter a epoca
+// classificada:
+// - "fortes" bastam sozinhas, no titulo ou no texto (medieval, vikings...);
+// - "fracas" so contam no texto (temas e sinopse, nunca no titulo) e so com
+//   duas diferentes. No primeiro teste, palavra solta trouxe "Histórias
+//   Cruzadas" e "Batman: O Cavaleiro das Trevas" pra Idade Media.
+// Tudo normalizado (minusculas, sem acento).
 const DSI_AMBIENTACOES = [
-	'antiguidade'         => [ 'antiguidade', 'roma antiga', 'imperio romano', 'gladiador', 'gladiadores', 'egito antigo', 'farao', 'grecia antiga', 'esparta', 'espartanos', 'troia', 'cleopatra' ],
-	'idade media'         => [ 'idade media', 'medieval', 'medievais', 'cavaleiro', 'cavaleiros', 'cruzada', 'cruzadas', 'castelo', 'feudal', 'viking', 'vikings', 'rei arthur', 'templarios', 'excalibur', 'camelot', 'saxoes', 'anglo-saxao', 'anglo-saxonica', 'peste negra', 'joana d\'arc' ],
-	'seculos xvi a xviii' => [ 'pirata', 'piratas', 'mosqueteiro', 'mosqueteiros', 'seculo xvi', 'seculo xvii', 'seculo xviii', 'renascimento', 'revolucao francesa' ],
-	'velho oeste'         => [ 'velho oeste', 'faroeste', 'cowboy', 'cowboys', 'xerife', 'pistoleiro', 'pistoleiros', 'apache', 'apaches' ],
-	'seculo xix'          => [ 'seculo xix', 'seculo 19', 'era vitoriana', 'vitoriana', 'vitoriano', 'guerra civil americana' ],
-	'primeira guerra'     => [ 'primeira guerra', 'primeira guerra mundial', 'trincheira', 'trincheiras' ],
-	'segunda guerra'      => [ 'segunda guerra', 'segunda guerra mundial', 'nazista', 'nazistas', 'nazismo', 'holocausto', 'hitler', 'auschwitz', 'campo de concentracao' ],
-	'guerra fria'         => [ 'guerra fria', 'vietna', 'guerra do vietna', 'anos 60', 'anos 70', 'anos 80', 'ditadura militar' ],
-	'futuro'              => [ 'futuro', 'futurista', 'distopia', 'distopico', 'pos-apocaliptico', 'apocalipse' ],
-	'espaco'              => [ 'espaco sideral', 'nave espacial', 'planeta', 'galaxia', 'astronauta', 'astronautas', 'estacao espacial' ],
+	'antiguidade'         => [
+		'fortes' => [ 'antiguidade', 'roma antiga', 'imperio romano', 'gladiador', 'gladiadores', 'egito antigo', 'grecia antiga', 'esparta', 'espartanos', 'cleopatra', 'farao' ],
+		'fracas' => [ 'troia', 'legiao', 'cesar', 'coliseu' ],
+	],
+	'idade media'         => [
+		'fortes' => [ 'idade media', 'medieval', 'medievais', 'feudal', 'viking', 'vikings', 'rei arthur', 'templarios', 'excalibur', 'camelot', 'peste negra', 'joana d\'arc' ],
+		'fracas' => [ 'cavaleiro', 'cavaleiros', 'castelo', 'cruzada', 'cruzadas', 'jerusalem', 'espada', 'saxoes', 'anglo-saxao', 'anglo-saxonica', 'feudo', 'escudeiro' ],
+	],
+	'seculos xvi a xviii' => [
+		'fortes' => [ 'seculo xvi', 'seculo xvii', 'seculo xviii', 'mosqueteiro', 'mosqueteiros', 'revolucao francesa' ],
+		'fracas' => [ 'pirata', 'piratas', 'renascimento', 'corte', 'navio' ],
+	],
+	'velho oeste'         => [
+		'fortes' => [ 'velho oeste', 'faroeste', 'cowboy', 'cowboys', 'pistoleiro', 'pistoleiros' ],
+		'fracas' => [ 'xerife', 'apache', 'apaches', 'rancho', 'diligencia' ],
+	],
+	'seculo xix'          => [
+		'fortes' => [ 'seculo xix', 'seculo 19', 'era vitoriana', 'guerra civil americana', 'guerra de secessao' ],
+		'fracas' => [ 'vitoriana', 'vitoriano', 'escravidao', 'abolicionista' ],
+	],
+	'primeira guerra'     => [
+		'fortes' => [ 'primeira guerra', 'primeira guerra mundial' ],
+		'fracas' => [ 'trincheira', 'trincheiras' ],
+	],
+	'segunda guerra'      => [
+		'fortes' => [ 'segunda guerra', 'segunda guerra mundial', 'nazista', 'nazistas', 'nazismo', 'holocausto', 'hitler', 'auschwitz', 'campo de concentracao' ],
+		'fracas' => [ 'resistencia francesa', 'dia d' ],
+	],
+	'guerra fria'         => [
+		'fortes' => [ 'guerra fria', 'guerra do vietna', 'anos 60', 'anos 70', 'anos 80', 'ditadura militar' ],
+		'fracas' => [ 'vietna', 'sovietico', 'kgb' ],
+	],
+	'futuro'              => [
+		'fortes' => [ 'futurista', 'distopia', 'distopico', 'pos-apocaliptico', 'futuro distante' ],
+		'fracas' => [ 'futuro', 'apocalipse', 'androide', 'robos' ],
+	],
+	'espaco'              => [
+		'fortes' => [ 'nave espacial', 'estacao espacial', 'astronauta', 'astronautas', 'espaco sideral', 'galaxia' ],
+		'fracas' => [ 'planeta', 'planetas', 'alienigena', 'alienigenas', 'marte' ],
+	],
 ];
-function dsi_ambientacao_chaves( string $ambientacao_normalizada ): array {
-	return DSI_AMBIENTACOES[ trim( $ambientacao_normalizada ) ] ?? [];
+function dsi_ambientacao_existe( string $ambientacao_normalizada ): bool {
+	return isset( DSI_AMBIENTACOES[ trim( $ambientacao_normalizada ) ] );
+}
+// Quantas palavras da epoca o titulo tem (0 = nao e da epoca).
+function dsi_ambientacao_acertos( string $ambientacao_normalizada, string $titulo_normalizado, string $texto_normalizado ): int {
+	$regras = DSI_AMBIENTACOES[ trim( $ambientacao_normalizada ) ] ?? null;
+	if ( ! $regras ) {
+		return 0;
+	}
+	$fortes = count( array_filter( $regras['fortes'], fn( $p ) => dsi_genero_bate( $titulo_normalizado . ' | ' . $texto_normalizado, [ $p ] ) ) );
+	$fracas = count( array_filter( $regras['fracas'], fn( $p ) => dsi_genero_bate( $texto_normalizado, [ $p ] ) ) );
+	if ( $fortes === 0 && $fracas < 2 ) {
+		return 0;
+	}
+	return $fortes + $fracas;
 }
 
 // Resposta a "Qual 'O Reino' você quis dizer?" (2026-09-28). $opcoes vem do

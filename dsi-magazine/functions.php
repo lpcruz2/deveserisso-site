@@ -1706,7 +1706,8 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// Obra exata escolhida no chat quando o titulo era ambiguo (2026-09-28).
 	$q_tmdb = preg_match( '/^(filme|serie):(\d+)$/', (string) $req->get_param( 'q_tmdb' ), $m_q_tmdb ) ? [ 'tipo' => $m_q_tmdb[1], 'id' => (int) $m_q_tmdb[2] ] : null;
 	// Epoca/ambientacao pedida (ver DSI_AMBIENTACOES).
-	$chaves_ambientacao = $req->get_param( 'ambientacao' ) ? dsi_ambientacao_chaves( dsi_dt_normalize_key( (string) $req->get_param( 'ambientacao' ) ) ) : [];
+	$ambientacao_pedida = $req->get_param( 'ambientacao' ) ? dsi_dt_normalize_key( (string) $req->get_param( 'ambientacao' ) ) : '';
+	$chaves_ambientacao = dsi_ambientacao_existe( $ambientacao_pedida );
 
 	$query = new WP_Query( $query_args );
 
@@ -1947,10 +1948,14 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 
 		$tem_ambientacao = false;
 		if ( $chaves_ambientacao ) {
-			$texto_epoca = dsi_dt_normalize_key( $d['titulo'] . ' ' . implode( ' ', array_map( 'strval', (array) ( $d['temas'] ?? [] ) ) ) . ' ' . mb_substr( wp_strip_all_tags( $post->post_content ), 0, 1500 ) );
-			if ( dsi_genero_bate( $texto_epoca, $chaves_ambientacao ) ) {
+			$acertos_epoca = dsi_ambientacao_acertos(
+				$ambientacao_pedida,
+				dsi_dt_normalize_key( (string) $d['titulo'] ),
+				dsi_dt_normalize_key( implode( ' ', array_map( 'strval', (array) ( $d['temas'] ?? [] ) ) ) . ' ' . mb_substr( wp_strip_all_tags( $post->post_content ), 0, 1500 ) )
+			);
+			if ( $acertos_epoca > 0 ) {
 				$tem_ambientacao = true;
-				$score          += DSI_SCORE_PESO_GENERO;
+				$score          += DSI_SCORE_PESO_GENERO + 5 * min( $acertos_epoca, 4 );
 			}
 		}
 
@@ -2026,10 +2031,14 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		}
 		$tem_ambientacao = false;
 		if ( $chaves_ambientacao ) {
-			$texto_epoca = dsi_dt_normalize_key( $linha['titulo'] . ' ' . implode( ' ', array_map( 'strval', $temas_linha ) ) . ' ' . (string) $linha['sinopse'] );
-			if ( dsi_genero_bate( $texto_epoca, $chaves_ambientacao ) ) {
+			$acertos_epoca = dsi_ambientacao_acertos(
+				$ambientacao_pedida,
+				dsi_dt_normalize_key( (string) $linha['titulo'] ),
+				dsi_dt_normalize_key( implode( ' ', array_map( 'strval', $temas_linha ) ) . ' ' . (string) $linha['sinopse'] )
+			);
+			if ( $acertos_epoca > 0 ) {
 				$tem_ambientacao = true;
-				$score          += DSI_SCORE_PESO_GENERO;
+				$score          += DSI_SCORE_PESO_GENERO + 5 * min( $acertos_epoca, 4 );
 			}
 		}
 		if ( $score <= 0 ) {
