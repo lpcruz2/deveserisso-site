@@ -340,26 +340,46 @@ final class BilheteiroLogicaTest extends TestCase {
 
 	public function test_modo_ator_e_genero_com_titulo_em_comum(): void {
 		// "comédia com Ben Stiller": so comedias com ele, sem filme generico.
-		$this->assertSame( 'ator_genero', dsi_recomendacao_modo_filtro( true, 1, true, true, true ) );
+		$this->assertSame( 'ator_genero', dsi_recomendacao_modo_filtro( true, true, true, true, true ) );
+		$this->assertSame( 'ator_genero', dsi_recomendacao_modo_filtro( true, false, true, true, true ) );
 	}
 
-	public function test_modo_um_ator_sem_titulo_no_genero_ator_manda(): void {
-		$this->assertSame( 'ator', dsi_recomendacao_modo_filtro( true, 1, true, false, true ) );
+	public function test_modo_ator_principal_sem_titulo_no_genero_ator_manda(): void {
+		$this->assertSame( 'ator', dsi_recomendacao_modo_filtro( true, true, true, false, true ) );
 	}
 
-	public function test_modo_varios_atores_sem_titulo_no_genero_genero_manda(): void {
-		// Sessao real 2026-09-28: comedia + 5 atores de drama.
-		$this->assertSame( 'genero', dsi_recomendacao_modo_filtro( true, 5, true, false, true ) );
+	public function test_modo_ator_de_gosto_sem_titulo_no_genero_genero_manda(): void {
+		// Sessao real 2026-09-28: comedia + 5 atores de drama citados como gosto.
+		$this->assertSame( 'genero', dsi_recomendacao_modo_filtro( true, false, true, false, true ) );
 	}
 
 	public function test_modo_ator_sem_genero_pedido(): void {
-		$this->assertSame( 'ator', dsi_recomendacao_modo_filtro( true, 1, false, false, true ) );
+		$this->assertSame( 'ator', dsi_recomendacao_modo_filtro( true, false, false, false, true ) );
 	}
 
 	public function test_modo_sem_ator_no_catalogo_genero_filtra(): void {
-		$this->assertSame( 'genero', dsi_recomendacao_modo_filtro( false, 1, true, false, true ) );
-		$this->assertSame( 'livre', dsi_recomendacao_modo_filtro( false, 0, true, false, false ) );
-		$this->assertSame( 'livre', dsi_recomendacao_modo_filtro( false, 0, false, false, true ) );
+		$this->assertSame( 'genero', dsi_recomendacao_modo_filtro( false, false, true, false, true ) );
+		$this->assertSame( 'livre', dsi_recomendacao_modo_filtro( false, false, true, false, false ) );
+		$this->assertSame( 'livre', dsi_recomendacao_modo_filtro( false, false, false, false, true ) );
+	}
+
+	// -- dsi_curador_papel_aplicado -------------------------------------------
+
+	public function test_papel_aplicado_acima_do_limiar_vale_o_do_jev(): void {
+		$this->assertSame( 'principal', dsi_curador_papel_aplicado( 'principal', 1.0 ) );
+		$this->assertSame( 'evitar', dsi_curador_papel_aplicado( 'evitar', 0.8 ) );
+		$this->assertSame( 'nao_citou', dsi_curador_papel_aplicado( 'nao_citou', 0.95 ) );
+	}
+
+	public function test_papel_aplicado_na_duvida_vira_gosto(): void {
+		// Caso real 2026-09-28: "não poderia ser diferente quero o Keanu Reeves", Jev 0,74-0,79.
+		$this->assertSame( 'gosto', dsi_curador_papel_aplicado( 'principal', 0.79 ) );
+		$this->assertSame( 'gosto', dsi_curador_papel_aplicado( 'evitar', 0.5 ) );
+	}
+
+	public function test_papel_aplicado_sem_resposta_ou_invalido_vira_gosto(): void {
+		$this->assertSame( 'gosto', dsi_curador_papel_aplicado( null, 0.0 ) );
+		$this->assertSame( 'gosto', dsi_curador_papel_aplicado( 'qualquer', 1.0 ) );
 	}
 
 	// -- dsi_bilheteiro_lista_nomes ------------------------------------------

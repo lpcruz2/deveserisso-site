@@ -1702,6 +1702,11 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// ganha bonus proprio e o aviso de "nao achei com esse ator" (2026-09-25).
 	$atores_pedidos      = $atores_pessoa;
 	$atores_pedidos_norm = array_map( 'dsi_dt_normalize_key', $atores_pedidos );
+	// Atores exigidos pela pessoa (papel "principal", classificado no chat
+	// pelo Jev, 2026-09-28). Quem chama sem esse parametro (CineQuiz, PoC,
+	// MCP) fica sem ator principal: o ator soma pontos e o genero manda.
+	$atores_principais_norm = array_map( 'dsi_dt_normalize_key', dsi_score_csv_para_array( $req->get_param( 'atores_principais' ) ) );
+	$ator_principal         = (bool) array_intersect( $atores_pedidos_norm, $atores_principais_norm );
 	// Ator pedido que existe no catalogo pode virar filtro das duas listas
 	// (decisao do gestor 2026-09-25: "não faz sentido mostrar filmes
 	// genericos so para mostrar algo com resenha"). Desde 2026-09-28 o
@@ -2012,7 +2017,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	$todos_candidatos   = array_merge( $candidatos, $sem_resenha_candidatos );
 	$existe_ator_genero = (bool) array_filter( $todos_candidatos, fn( array $c ): bool => $c['tem_ator'] && $c['tem_genero'] );
 	$existe_genero      = (bool) array_filter( $todos_candidatos, fn( array $c ): bool => $c['tem_genero'] );
-	$modo_filtro        = dsi_recomendacao_modo_filtro( $filtro_ator_ativo, count( $atores_pedidos ), $genero_pedido, $existe_ator_genero, $existe_genero );
+	$modo_filtro        = dsi_recomendacao_modo_filtro( $filtro_ator_ativo, $ator_principal, $genero_pedido, $existe_ator_genero, $existe_genero );
 	$passa_modo         = function ( array $c ) use ( $modo_filtro ): bool {
 		switch ( $modo_filtro ) {
 			case 'ator_genero':
@@ -2140,10 +2145,10 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// dito pelo widget antes da lista:
 	// - sem_ator: o ator nao tem nenhum titulo no catalogo, entao a lista
 	//   saiu so pelo resto das respostas.
-	// - sem_genero: um ator so, sem titulo dele no genero pedido -- a lista
+	// - sem_genero: ator principal, sem titulo dele no genero pedido -- a lista
 	//   saiu com os titulos dele (modo 'ator') e oferece os generos em que
 	//   ele tem titulo.
-	// - genero_sem_ator (2026-09-28): varios atores, nenhum no genero
+	// - genero_sem_ator (2026-09-28): atores de gosto, nenhum no genero
 	//   pedido -- a lista saiu pelo genero (modo 'genero').
 	$aviso_atores = null;
 	if ( $atores_pedidos && ( $resultados || $sem_resenha ) ) {
@@ -2518,6 +2523,108 @@ function dsi_bilheteiro_resposta_bloqueio( string $rota, string $limite, string 
 	return new WP_REST_Response( [ 'erro' => $texto ], 429 );
 }
 
+// Papel de cada ator citado (2026-09-28): exigencia, gosto, evitar ou nao
+// citou. Classificado pelo Jev (TypeSafe), que devolve probabilidade por
+// opcao -- regra do limiar em dsi_curador_papel_aplicado(); teste que
+// escolheu o Jev em CineQuiz-deveserisso/experimentos/jev-vs-deepseek/
+// RESULTADO.md. Uma chamada por mensagem, uma pergunta por ator. Sem chave,
+// com erro ou demora acima de 5 s devolve WP_Error e o ator fica como gosto
+// (lado seguro). Chave: DSI_JEV_KEY no wp-config.php.
+const DSI_JEV_URL                  = 'https://api.typesafe.ai/v1/systemone';
+const DSI_JEV_CRITERIOS_PAPEL_ATOR = [
+	'principal' => 'the visitor requires titles with this person; the person is a condition of the request',
+	'gosto'     => 'the visitor mentions this person as a favorite or taste reference, not as a condition',
+	'evitar'    => 'the visitor wants to avoid titles with this person',
+	'nao_citou' => 'the visitor does not mention this person, directly or indirectly',
+];
+function dsi_curador_jev_papel_atores( string $pergunta, string $mensagem, array $atores ) {
+	$chave = defined( 'DSI_JEV_KEY' ) ? DSI_JEV_KEY : '';
+	if ( $chave === '' ) {
+		return new WP_Error( 'dsi_jev_sem_chave', 'DSI_JEV_KEY ausente', [ 'ms' => 0 ] );
+	}
+	$atores    = array_values( array_slice( array_map( 'strval', $atores ), 0, 8 ) );
+	$perguntas = [];
+	foreach ( $atores as $i => $ator ) {
+		$perguntas[ 'a' . $i ] = [
+			'type'         => 'choice',
+			'criteria'     => DSI_JEV_CRITERIOS_PAPEL_ATOR,
+			'instructions' => "In Portuguese, a movie assistant asked a question and the visitor replied. What role does '" . str_replace( "'", '', $ator ) . "' play in the visitor's reply?",
+		];
+	}
+	$estado_texto = 'Pergunta do assistente: ' . $pergunta . "\nResposta do visitante: " . $mensagem . "\nPessoas extraídas da resposta: " . implode( ', ', $atores );
+	$inicio       = microtime( true );
+	$resposta     = wp_remote_post( DSI_JEV_URL, [
+		'headers' => [ 'Authorization' => 'Bearer ' . $chave, 'Content-Type' => 'application/json' ],
+		'body'    => wp_json_encode( [ 'model' => 'jev-latest', 'state' => $estado_texto, 'questions' => $perguntas ] ),
+		'timeout' => 5,
+	] );
+	$ms = (int) round( ( microtime( true ) - $inicio ) * 1000 );
+	if ( is_wp_error( $resposta ) ) {
+		return new WP_Error( 'dsi_jev_rede', $resposta->get_error_message(), [ 'ms' => $ms ] );
+	}
+	$codigo = (int) wp_remote_retrieve_response_code( $resposta );
+	if ( $codigo !== 200 ) {
+		return new WP_Error( 'dsi_jev_http', 'HTTP ' . $codigo, [ 'ms' => $ms ] );
+	}
+	$corpo     = json_decode( wp_remote_retrieve_body( $resposta ), true );
+	$resultado = [];
+	foreach ( $atores as $i => $ator ) {
+		$bruto     = (array) ( $corpo['answers'][ 'a' . $i ] ?? [] );
+		$probs     = array_map( 'floatval', (array) ( $bruto['probabilities'] ?? [] ) );
+		$escolha   = isset( $bruto['choice'] ) ? (string) $bruto['choice'] : null;
+		$confianca = ( $escolha !== null && isset( $probs[ $escolha ] ) ) ? $probs[ $escolha ] : ( $probs ? max( $probs ) : 0.0 );
+		$resultado[ $ator ] = [
+			'escolha'        => $escolha,
+			'confianca'      => round( $confianca, 3 ),
+			'probabilidades' => array_map( fn( $v ) => round( $v, 3 ), $probs ),
+			'aplicado'       => dsi_curador_papel_aplicado( $escolha, $confianca ),
+		];
+	}
+	return [ 'ms' => $ms, 'atores' => $resultado ];
+}
+
+// tipo_evento=classificacao_ator (2026-09-28): uma linha por ator
+// classificado, pra auditar acertos e erros do Jev. mensagem = ator,
+// resposta = papel aplicado; motivo (JSON) = id da linha da mensagem do
+// visitante, pergunta do bot, escolha do Jev, confianca, probabilidades,
+// limiar, tempo e erro. Consulta:
+//   SELECT c.criado_em, m.mensagem AS texto_do_visitante, c.mensagem AS ator,
+//          c.resposta AS papel_aplicado, c.motivo
+//   FROM {prefixo}dsi_bilheteiro_log c
+//   JOIN {prefixo}dsi_bilheteiro_log m
+//     ON m.id = JSON_UNQUOTE(JSON_EXTRACT(c.motivo, '$.id_mensagem'))
+//   WHERE c.tipo_evento = 'classificacao_ator' ORDER BY c.id DESC;
+function dsi_bilheteiro_registrar_classificacao( string $sessao_id, int $id_mensagem, string $pergunta, $resultado, array $atores ): void {
+	global $wpdb;
+	$erro = is_wp_error( $resultado ) ? $resultado->get_error_code() . ': ' . $resultado->get_error_message() : null;
+	$ms   = is_wp_error( $resultado ) ? (int) ( ( (array) $resultado->get_error_data() )['ms'] ?? 0 ) : (int) $resultado['ms'];
+	foreach ( $atores as $ator ) {
+		$c = is_wp_error( $resultado ) ? null : ( $resultado['atores'][ $ator ] ?? null );
+		$wpdb->insert(
+			dsi_bilheteiro_log_table_name(),
+			[
+				'criado_em'   => current_time( 'mysql' ),
+				'sessao_id'   => mb_substr( $sessao_id, 0, 64 ),
+				'tipo_evento' => 'classificacao_ator',
+				'mensagem'    => (string) $ator,
+				'resposta'    => $c ? $c['aplicado'] : 'gosto',
+				'motivo'      => wp_json_encode( [
+					'classificador'   => 'jev',
+					'id_mensagem'     => $id_mensagem,
+					'pergunta_do_bot' => $pergunta,
+					'escolha'         => $c['escolha'] ?? null,
+					'confianca'       => $c['confianca'] ?? null,
+					'probabilidades'  => $c['probabilidades'] ?? null,
+					'limiar'          => DSI_JEV_LIMIAR,
+					'ms'              => $ms,
+					'erro'            => $erro,
+				], JSON_UNESCAPED_UNICODE ),
+			],
+			[ '%s', '%s', '%s', '%s', '%s', '%s' ]
+		);
+	}
+}
+
 function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	header( 'Access-Control-Allow-Origin: *' );
 
@@ -2545,6 +2652,12 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	}
 	$estado['confirmacoes'] = is_array( $estado_recebido['confirmacoes'] ?? null ) ? $estado_recebido['confirmacoes'] : [];
 	$estado['atores_sem_preferencia'] = ! empty( $estado_recebido['atores_sem_preferencia'] );
+	// Atores exigidos pela pessoa (papel "principal" do Jev, 2026-09-28) --
+	// voltam do cliente como o resto do estado; so nomes curtos, poucos.
+	$estado['atores_principais'] = array_slice( array_values( array_filter(
+		array_map( 'strval', (array) ( $estado_recebido['atores_principais'] ?? [] ) ),
+		fn( $a ) => $a !== '' && mb_strlen( $a ) <= 80
+	) ), 0, 10 );
 	// Quantas vezes cada pergunta opcional ja ficou sem resposta
 	// aproveitavel (ver rede de seguranca depois da extracao) -- volta do
 	// cliente a cada turno como o resto do estado, entao so aceita os
@@ -2608,10 +2721,11 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// A pergunta que esta mensagem responde -- mesma ordem que
 	// dsi_bilheteiro_proxima_pergunta() usou no turno anterior.
 	$campo_perguntado_antes = dsi_bilheteiro_campos_faltando( $estado, $contexto_minigames )[0] ?? null;
+	$pergunta_respondida    = dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames );
 	$extraido = dsi_bilheteiro_extrair(
 		$mensagem,
 		$api_key,
-		dsi_bilheteiro_proxima_pergunta( $estado, $contexto_minigames ),
+		$pergunta_respondida,
 		dsi_bilheteiro_contexto_conversa( $estado )
 	);
 	if ( is_wp_error( $extraido ) ) {
@@ -2758,6 +2872,39 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 			}
 		}
 	}
+	// Papel dos atores que entraram nesta mensagem (2026-09-28, ver
+	// dsi_curador_jev_papel_atores). "principal" vai pra atores_principais,
+	// que /recomendar-filme usa pra decidir quem manda quando ator e genero
+	// nao tem titulo em comum. "evitar" e "nao_citou" saem da lista de atores:
+	// sem isso, "nada com Adam Sandler" virava filtro POR Adam Sandler.
+	$chaves_atores_antes = array_map( 'dsi_dt_normalize_key', array_map( 'strval', $estado_antes['atores'] ) );
+	$atores_adicionados  = array_values( array_filter(
+		$estado['atores'],
+		fn( $a ) => ! in_array( dsi_dt_normalize_key( (string) $a ), $chaves_atores_antes, true )
+	) );
+	$classificacao_atores = null;
+	if ( $atores_adicionados ) {
+		$classificacao_atores = dsi_curador_jev_papel_atores( $pergunta_respondida, $mensagem, $atores_adicionados );
+		if ( ! is_wp_error( $classificacao_atores ) ) {
+			foreach ( $classificacao_atores['atores'] as $ator => $c ) {
+				if ( $c['aplicado'] === 'principal' ) {
+					$estado['atores_principais'][] = $ator;
+				} elseif ( in_array( $c['aplicado'], [ 'evitar', 'nao_citou' ], true ) ) {
+					$chave_ator       = dsi_dt_normalize_key( (string) $ator );
+					$estado['atores'] = array_values( array_filter(
+						$estado['atores'],
+						fn( $a ) => dsi_dt_normalize_key( (string) $a ) !== $chave_ator
+					) );
+				}
+			}
+			$estado['atores_principais'] = array_values( array_unique( $estado['atores_principais'] ) );
+			// A pessoa falou de atores, mas nenhum pra buscar: nao pergunta de novo.
+			if ( ! $estado['atores'] ) {
+				$estado['atores_sem_preferencia'] = true;
+			}
+		}
+	}
+
 	// Rede de seguranca pra pergunta opcional que ficou sem resposta
 	// aproveitavel (achado 2026-09-25: "não" 3x a "tem algum filme
 	// parecido?", a pergunta voltava igual ate bater o limite). Aceita como
@@ -2824,6 +2971,9 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		'campo_perguntado' => $deve_parar ? null : ( $campos_faltando[0] ?? null ),
 		'fora_do_tema'     => ! empty( $extraido['fora_do_tema'] ),
 	] );
+	if ( $atores_adicionados ) {
+		dsi_bilheteiro_registrar_classificacao( $sessao_id, (int) $id_linha_log, $pergunta_respondida, $classificacao_atores, $atores_adicionados );
+	}
 
 	if ( $deve_parar ) {
 		// Ordem importa: se o criterio "de verdade" ja foi atingido, usa a
@@ -4801,7 +4951,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.10.1',
+		'1.10.2',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de

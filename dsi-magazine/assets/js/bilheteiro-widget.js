@@ -1346,6 +1346,8 @@
 			if ( valorOuVazio( estado.q ) ) params.q = estado.q;
 			if ( ( estado.temas || [] ).length ) params.temas = estado.temas.join( ',' );
 			if ( ( estado.atores || [] ).length ) params.atores = estado.atores.join( ',' );
+			// Atores exigidos pela pessoa (2026-09-28, classificados pelo Jev no chat).
+			if ( ( estado.atores_principais || [] ).length ) params.atores_principais = estado.atores_principais.join( ',' );
 			if ( ( estado.exclusoes || [] ).length ) params.exclusoes = estado.exclusoes.join( ',' );
 			if ( estado.confirmacoes ) params.confirmacoes = JSON.stringify( estado.confirmacoes );
 			if ( excluirFilmes.length ) params.excluir_filmes = JSON.stringify( excluirFilmes );

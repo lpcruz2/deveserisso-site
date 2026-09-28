@@ -311,14 +311,18 @@ function dsi_bilheteiro_pede_mais_opcoes( string $mensagem ): bool {
 // Chefão II. Regra nova:
 // - ator + genero com titulo em comum: so esses (o caso Ben Stiller segue
 //   sem filme generico pra completar a lista);
-// - sem titulo em comum e UM ator so: o ator e o pedido principal, ele manda
-//   (aviso sem_genero, igual antes);
-// - sem titulo em comum e VARIOS atores: sao gosto, o genero manda (aviso
+// - sem titulo em comum e ator PRINCIPAL (exigido pela pessoa, ver
+//   dsi_curador_papel_aplicado): o ator manda (aviso sem_genero);
+// - sem titulo em comum e ator so de gosto: o genero manda (aviso
 //   genero_sem_ator);
 // - sem ator no catalogo: genero pedido vira filtro quando existe titulo
 //   dele, senao a lista sai so por pontuacao.
+// "Principal" era "um ator so" ate o teste de 2026-09-28 com conversas reais
+// (experimentos/jev-vs-deepseek no CineQuiz): essa aproximacao acertou 7 de
+// 18, porque quem responde um nome a "tem algum ator que você gosta?" esta
+// dando gosto, nao exigindo.
 // Retorna 'ator_genero' | 'ator' | 'genero' | 'livre'.
-function dsi_recomendacao_modo_filtro( bool $ator_no_catalogo, int $qtd_atores_pedidos, bool $genero_pedido, bool $existe_ator_e_genero, bool $existe_genero ): string {
+function dsi_recomendacao_modo_filtro( bool $ator_no_catalogo, bool $ator_principal, bool $genero_pedido, bool $existe_ator_e_genero, bool $existe_genero ): string {
 	if ( $ator_no_catalogo ) {
 		if ( ! $genero_pedido ) {
 			return 'ator';
@@ -326,12 +330,26 @@ function dsi_recomendacao_modo_filtro( bool $ator_no_catalogo, int $qtd_atores_p
 		if ( $existe_ator_e_genero ) {
 			return 'ator_genero';
 		}
-		if ( $qtd_atores_pedidos === 1 || ! $existe_genero ) {
+		if ( $ator_principal || ! $existe_genero ) {
 			return 'ator';
 		}
 		return 'genero';
 	}
 	return ( $genero_pedido && $existe_genero ) ? 'genero' : 'livre';
+}
+
+// Papel do ator citado, classificado pelo Jev (TypeSafe) com probabilidade
+// por opcao. Abaixo do limiar, fica "gosto": na duvida o ator so soma pontos
+// e o genero manda, que e o lado seguro (erro em "principal" esconde o genero
+// pedido; erro em "gosto" so perde a preferencia forte pelo ator). No teste
+// de 2026-09-28, todo erro do Jev veio com confianca abaixo de 0,8.
+const DSI_JEV_LIMIAR          = 0.8;
+const DSI_CURADOR_PAPEIS_ATOR = [ 'principal', 'gosto', 'evitar', 'nao_citou' ];
+function dsi_curador_papel_aplicado( ?string $escolha, float $confianca ): string {
+	if ( ! in_array( $escolha, DSI_CURADOR_PAPEIS_ATOR, true ) || $confianca < DSI_JEV_LIMIAR ) {
+		return 'gosto';
+	}
+	return $escolha;
 }
 
 // "Meryl Streep", "Meryl Streep e Gary Oldman", "Meryl Streep, Gary Oldman
