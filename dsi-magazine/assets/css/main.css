@@ -533,3 +533,5 @@ html body .dsi-prose .wp-block-details summary{background:#f4eee2!important;back
 }
 /* Botao do Curador no menu (2026-09-28) */
 .dsi-masthead__cta{display:inline-flex;align-items:center;padding:9px 16px;border-radius:999px;background:#9c3f14;color:#fff;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap;transition:background .15s ease}.dsi-masthead__cta:hover{background:#1d1a14;color:#fff}.dsi-masthead__cta:focus-visible,.dsi-mobile-nav__cta:focus-visible{outline:2px solid #1d1a14;outline-offset:2px}.dsi-mobile-nav__cta{display:block;margin:20px 20px 0;padding:14px 16px;border-radius:999px;background:#9c3f14;color:#fff;text-align:center;font-family:"Manrope",system-ui,sans-serif;font-size:16px;font-weight:600}
+/* Com o botao do Curador, 1024px quebrava o menu em 2 linhas (2026-09-28) */
+@media(min-width:769px) and (max-width:1199px){.dsi-masthead__nav{gap:20px;padding-inline:32px}.dsi-masthead__nav-list{gap:20px}}
