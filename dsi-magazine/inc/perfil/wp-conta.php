@@ -270,7 +270,9 @@ add_filter( 'the_content', function ( $conteudo ) {
 	if ( trim( (string) get_post_meta( $pid, '_dsi_dados_tecnicos_raw', true ) ) === '' ) {
 		return $conteudo;
 	}
-	$api = esc_url( rest_url( 'dsi/v1/resenhas' ) );
+	// Relativo de proposito: rest_url() le o endereco do wp_options, que e o da
+	// producao tambem no staging (banco compartilhado).
+	$api = '/wp-json/dsi/v1/resenhas';
 	return $conteudo . '<section class="dsi-leitores" data-post="' . $pid . '" data-api="' . $api . '" hidden aria-labelledby="dsi-leitores-titulo"></section>' . dsi_perfil_bloco_script();
 }, 30 );
 
