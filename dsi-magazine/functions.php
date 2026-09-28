@@ -2254,12 +2254,6 @@ add_action( 'rest_api_init', function (): void {
 // o cabecalho daquele arquivo antes de mexer nela.
 require_once __DIR__ . '/inc/bilheteiro-logica.php';
 
-// Perfil de gosto (2026-09-28): conta, marcacoes, resenhas de leitor. Regras,
-// esquema e repositorio em inc/perfil/ sao PHP puro (o site pode sair do WP);
-// so inc/perfil/wp.php fala com o WordPress. Especificacao no projeto
-// WebMCP-deveserisso: docs/prd-perfil-de-gosto.md e docs/erd-perfil-de-gosto.md.
-require_once __DIR__ . '/inc/perfil/wp.php';
-
 // Campos extraidos por turno via LLM (escalares). temas/subtemas NAO entram
 // aqui de proposito -- via de regra so chegam do Corredor de Posteres
 // (estado inicial vindo do cliente), nunca por extracao de texto livre
