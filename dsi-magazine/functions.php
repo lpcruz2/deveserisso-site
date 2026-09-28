@@ -1904,7 +1904,9 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			}
 		}
 		if ( $exclusoes_pessoa ) {
-			$alvo = array_merge( $d['genero'] ?? [], $d['temas'] ?? [], [ $d['titulo'] ] );
+			// Elenco entra desde 2026-09-28: "nada com Adam Sandler" vai pra
+			// exclusoes e nao tirava os filmes dele.
+			$alvo = array_merge( $d['genero'] ?? [], $d['temas'] ?? [], (array) ( $d['elenco'] ?? [] ), [ $d['titulo'] ] );
 			$alvo_norm = array_map( 'dsi_dt_normalize_key', array_map( 'strval', $alvo ) );
 			foreach ( $exclusoes_pessoa as $exc ) {
 				if ( in_array( dsi_dt_normalize_key( $exc ), $alvo_norm, true ) ) {
@@ -1962,7 +1964,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		}
 		// Exclusao ("sem drama") so existia na lista com resenha ate 2026-09-28.
 		if ( $exclusoes_pessoa ) {
-			$alvo_norm = array_map( 'dsi_dt_normalize_key', array_map( 'strval', array_merge( $generos_linha, $temas_linha, [ (string) $linha['titulo'] ] ) ) );
+			$alvo_norm = array_map( 'dsi_dt_normalize_key', array_map( 'strval', array_merge( $generos_linha, $temas_linha, $atores_linha, [ (string) $linha['titulo'] ] ) ) );
 			foreach ( $exclusoes_pessoa as $exc ) {
 				if ( in_array( dsi_dt_normalize_key( $exc ), $alvo_norm, true ) ) {
 					$score -= DSI_SCORE_PESO_EXCLUSAO;
