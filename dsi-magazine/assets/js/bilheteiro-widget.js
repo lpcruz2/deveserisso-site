@@ -47,6 +47,14 @@
 		return d.innerHTML;
 	}
 
+	// Resposta de "é bom?" traz o link da critica (2026-09-28). Roda sobre
+	// texto ja escapado e so vira link endereco do proprio site.
+	function linkarCriticas( htmlEscapado ) {
+		return htmlEscapado.replace( /https:\/\/deveserisso\.com\.br\/[A-Za-z0-9\/_%.-]*[A-Za-z0-9\/_%-]/g, function ( url ) {
+			return '<a href="' + url + '" target="_blank" rel="noopener">Ler a crítica</a>';
+		} );
+	}
+
 	// Persistencia em localStorage (decisao do gestor 2026-09-21: "queria
 	// salvar no local storage para a pessoa sempre ter as recomendacoes").
 	// So client-side, nenhuma mudanca no backend -- guarda so preferencia de
@@ -229,6 +237,7 @@
 			/* 2026-09-25 (pedido do gestor): botoes no mesmo visual dos
 			   quebra-gelo (pilula bege tracejada), em grade de largura total. */
 			'.dsi-bh-feedback-botoes{display:grid;grid-template-columns:1fr 1fr;gap:8px;}' +
+			'.dsi-bh-fb--largo{grid-column:1 / -1;}' +
 			'.dsi-bh-fb{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;padding:10px 8px;' +
 			'font:inherit;font-size:14px;font-weight:600;color:#1d1a14;cursor:pointer;text-align:center;}' +
 			'.dsi-bh-fb:hover{background:#e3d9c2;}' +
@@ -915,11 +924,16 @@
 					enviarParaExtracaoDePreferencia( texto );
 					return;
 				}
+				// "tem outros?" -- a mensagem ja esta na tela (addUser no submit).
+				if ( data.mais_opcoes ) {
+					pedirMaisOpcoes( '' );
+					return;
+				}
 				// Pedido/aviso ANTES da resposta -- ver mesmo comentario em
 				// processarResposta().
 				talvezPedirEmail();
 				talvezAvisarLimite();
-				addBot( escapeHtml( data.resposta ) );
+				addBot( linkarCriticas( escapeHtml( data.resposta ) ) );
 			} ).catch( function ( err ) {
 				carregando.remove();
 				addBot( ( err && err.mensagemAmigavel ) || 'Não consegui responder isso agora, pode perguntar de outro jeito?' );
@@ -1024,7 +1038,12 @@
 				'<span class="dsi-bh-feedback-titulo">Gostou das indicações?</span>' +
 				'<div class="dsi-bh-feedback-botoes">' +
 				'<button type="button" class="dsi-bh-fb" data-v="positivo">👍 Gostei</button>' +
-				'<button type="button" class="dsi-bh-fb" data-v="negativo">👎 Quero outras</button>' +
+				'<button type="button" class="dsi-bh-fb" data-v="negativo">👎 Não curti</button>' +
+				// 2026-09-28 (relatorio semanal): "Quero outras" era o unico
+				// jeito de ver mais titulos, entao pedido de mais opcoes virava
+				// voto negativo. Agora e botao proprio, com as mesmas
+				// preferencias, e nao entra na taxa de aprovacao.
+				'<button type="button" class="dsi-bh-fb dsi-bh-fb--largo" data-v="mais_opcoes">🔄 Quero mais opções</button>' +
 				'</div></div>';
 		}
 		function renderFeedback() {
@@ -1081,6 +1100,12 @@
 				// Ator sem nenhum titulo no catalogo -- lista saiu pelo resto.
 				html = 'Ainda não temos títulos com ' + ator + ' no nosso catálogo, então separei os ' +
 					( genero ? 'de ' + genero + ' ' : '' ) + 'que mais combinam com o que você contou.';
+			} else if ( aviso.tipo === 'genero_sem_ator' ) {
+				// Varios atores citados, nenhum no genero pedido (2026-09-28):
+				// o genero mandou na lista.
+				html = 'Não achei ' + ( genero || 'títulos desse gênero' ) + ' com ' + ator +
+					' no nosso catálogo, então separei os ' + ( genero ? 'de ' + genero + ' ' : '' ) +
+					'que mais combinam com o que você contou.';
 			} else if ( aviso.tipo === 'sem_genero' ) {
 				// Lista so com o ator, mas nenhuma resenha dele no genero pedido.
 				html = 'Não temos resenha de ' + ( genero || 'esse gênero' ) + ' com ' + ator +
@@ -1139,12 +1164,18 @@
 					// botoes) pra ocupar a largura toda, parentNode so pegaria a
 					// linha dos botoes e deixaria o titulo "Gostou..." pendurado.
 					var linha = btn.closest( '.dsi-bh-feedback' );
-					linha.innerHTML = veredito === 'positivo' ? 'Boa escolha! 🍿' : 'Poxa, vamos tentar de novo.';
-					fetch( FEEDBACK_ENDPOINT, {
+					var enviado = fetch( FEEDBACK_ENDPOINT, {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify( { sessao_id: sessaoId, rodada: rodadaAtual, veredito: veredito } )
-					} ).then( function ( r ) { return r.json(); } ).then( function ( resp ) {
+					} );
+					if ( veredito === 'mais_opcoes' ) {
+						linha.innerHTML = 'Separando mais opções pra você...';
+						pedirMaisOpcoes( 'Quero mais opções' );
+						return;
+					}
+					linha.innerHTML = veredito === 'positivo' ? 'Boa escolha! 🍿' : 'Poxa, vamos tentar de novo.';
+					enviado.then( function ( r ) { return r.json(); } ).then( function ( resp ) {
 						if ( veredito === 'positivo' ) return;
 						rodadaAtual++;
 						// "Quero outras": a proxima mensagem do usuario e NOVA
@@ -1163,6 +1194,20 @@
 					} );
 				} );
 			} );
+		}
+
+		// Mesmas preferencias, sem os titulos ja mostrados (excluirFilmes ja
+		// acumula tudo que apareceu). Vem do botao "Quero mais opções" ou de
+		// frase tipo "tem outros?" (backend responde mais_opcoes).
+		function pedirMaisOpcoes( textoUsuario ) {
+			track( 'widget_mais_opcoes', { sessao_id: sessaoId, rodada: rodadaAtual } );
+			if ( textoUsuario ) {
+				addUser( textoUsuario );
+				mensagensEnviadas++;
+			}
+			rodadaAtual++;
+			salvarEstado();
+			buscarRecomendacoes();
 		}
 
 		function buscarRecomendacoes() {
@@ -1187,7 +1232,13 @@
 				var itens = ( data && data.itemListElement ) || [];
 				var semResenha = ( data && data.sem_resenha ) || [];
 				if ( ! itens.length && ! semResenha.length ) {
-					addBot( 'Não achei nada pra essa combinação ainda. Quer tentar outro gênero ou emoção?' );
+					// Proxima mensagem volta a ser preferencia nova, nao pergunta
+					// sobre a lista anterior (2026-09-28, junto do "mais opções").
+					perguntasEncerradas = false;
+					salvarEstado();
+					addBot( excluirFilmes.length
+						? 'Já te mostrei tudo o que tenho com essas preferências. Me conta outro gênero, ator ou clima que eu busco de novo.'
+						: 'Não achei nada pra essa combinação ainda. Quer tentar outro gênero ou emoção?' );
 					return;
 				}
 				var avisoAtorEl = data.aviso_atores ? addAvisoAtor( data.aviso_atores, estado.genero ) : null;
@@ -1210,9 +1261,9 @@
 				// ignorar" -- ficava espremido entre a lista com resenha e a
 				// lista externa). So pergunta quando houve algo com resenha
 				// pra avaliar, mesmo comportamento de antes.
-				if ( itens.length ) {
-					addFeedback();
-				}
+				// Desde 2026-09-28 tambem com so a lista externa: o botao
+				// "Quero mais opções" mora aqui.
+				addFeedback();
 				if ( ancoraComResenha ) {
 					// Achado ao vivo 2026-09-22 (pedido do gestor): renderBot
 					// sempre rola pro fim -- com os dois blocos, a tela parava
@@ -1234,7 +1285,9 @@
 						titulo: f.titulo, sinopse: f.sinopse,
 						ano: f.ano, ano_lancamento: f.ano_lancamento,
 						genero: f.genero, generos: f.generos,
-						direcao: f.direcao, atores: f.atores, elenco: f.elenco
+						direcao: f.direcao, atores: f.atores, elenco: f.elenco,
+						// "é bom?" (2026-09-28): nota TMDB e link da critica.
+						nota: f.nota, fonte: f.fonte, link: f.link
 					};
 				} );
 				perguntasEncerradas = true;

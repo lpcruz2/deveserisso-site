@@ -259,7 +259,116 @@ final class BilheteiroLogicaTest extends TestCase {
 			'diretor'        => 'As Wachowski',
 			'atores'         => [ 'Keanu Reeves' ],
 			'sinopse'        => 'Um hacker...',
+			'nota'           => null,
+			'tem_critica'    => false,
+			'link'           => '',
 		], $normalizado );
+	}
+
+	public function test_normaliza_item_com_critica_guarda_nota_e_link(): void {
+		$normalizado = dsi_bilheteiro_normalizar_item_pergunta( [
+			'titulo' => 'O Máskara',
+			'fonte'  => 'catalogo',
+			'nota'   => 6.94,
+			'link'   => 'https://deveserisso.com.br/blog/o-maskara-critica/',
+		] );
+		$this->assertSame( 6.9, $normalizado['nota'] );
+		$this->assertTrue( $normalizado['tem_critica'] );
+		$this->assertSame( 'https://deveserisso.com.br/blog/o-maskara-critica/', $normalizado['link'] );
+	}
+
+	public function test_normaliza_item_descarta_link_de_fora_do_site(): void {
+		$normalizado = dsi_bilheteiro_normalizar_item_pergunta( [
+			'titulo' => 'Qualquer',
+			'fonte'  => 'catalogo',
+			'link'   => 'https://exemplo.com/phishing',
+		] );
+		$this->assertSame( '', $normalizado['link'] );
+		$this->assertFalse( $normalizado['tem_critica'] );
+	}
+
+	public function test_contexto_filmes_inclui_nota_e_critica(): void {
+		$contexto = dsi_bilheteiro_montar_contexto_filmes( [ [
+			'titulo'      => 'O Máskara',
+			'nota'        => 6.9,
+			'tem_critica' => true,
+			'link'        => 'https://deveserisso.com.br/blog/o-maskara-critica/',
+		] ] );
+		$this->assertStringContainsString( 'Nota: 6,9 de 10', $contexto );
+		$this->assertStringContainsString( 'Crítica no site: sim, publicada no Deveserisso: https://deveserisso.com.br/blog/o-maskara-critica/', $contexto );
+	}
+
+	// -- dsi_bilheteiro_pede_mais_opcoes -------------------------------------
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'pedidosMaisOpcoes' )]
+	public function test_pede_mais_opcoes_reconhece( string $mensagem ): void {
+		$this->assertTrue( dsi_bilheteiro_pede_mais_opcoes( $mensagem ), $mensagem );
+	}
+
+	public static function pedidosMaisOpcoes(): array {
+		return [
+			// frases do relatorio semanal 2026-09-28
+			[ 'queria mais' ],
+			[ 'tem outros?' ],
+			// variacoes
+			[ 'mais' ],
+			[ 'Quero mais opções' ],
+			[ 'tem outras sugestões?' ],
+			[ 'mostra mais filmes' ],
+			[ 'legal, tem mais outros?' ],
+			[ 'mais opções por favor' ],
+			[ 'quero outros filmes' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'naoPedidosMaisOpcoes' )]
+	public function test_pede_mais_opcoes_ignora( string $mensagem ): void {
+		$this->assertFalse( dsi_bilheteiro_pede_mais_opcoes( $mensagem ), $mensagem );
+	}
+
+	public static function naoPedidosMaisOpcoes(): array {
+		return [
+			[ 'quero mais detalhes do segundo' ],
+			[ 'tem mais cenas de ação?' ],
+			[ 'qual é mais engraçado?' ],
+			[ 'esses filmes tem o Ben Stiller?' ],
+			[ 'o maskara é bom?' ],
+		];
+	}
+
+	// -- dsi_recomendacao_modo_filtro ----------------------------------------
+
+	public function test_modo_ator_e_genero_com_titulo_em_comum(): void {
+		// "comédia com Ben Stiller": so comedias com ele, sem filme generico.
+		$this->assertSame( 'ator_genero', dsi_recomendacao_modo_filtro( true, 1, true, true, true ) );
+	}
+
+	public function test_modo_um_ator_sem_titulo_no_genero_ator_manda(): void {
+		$this->assertSame( 'ator', dsi_recomendacao_modo_filtro( true, 1, true, false, true ) );
+	}
+
+	public function test_modo_varios_atores_sem_titulo_no_genero_genero_manda(): void {
+		// Sessao real 2026-09-28: comedia + 5 atores de drama.
+		$this->assertSame( 'genero', dsi_recomendacao_modo_filtro( true, 5, true, false, true ) );
+	}
+
+	public function test_modo_ator_sem_genero_pedido(): void {
+		$this->assertSame( 'ator', dsi_recomendacao_modo_filtro( true, 1, false, false, true ) );
+	}
+
+	public function test_modo_sem_ator_no_catalogo_genero_filtra(): void {
+		$this->assertSame( 'genero', dsi_recomendacao_modo_filtro( false, 1, true, false, true ) );
+		$this->assertSame( 'livre', dsi_recomendacao_modo_filtro( false, 0, true, false, false ) );
+		$this->assertSame( 'livre', dsi_recomendacao_modo_filtro( false, 0, false, false, true ) );
+	}
+
+	// -- dsi_bilheteiro_lista_nomes ------------------------------------------
+
+	public function test_lista_nomes(): void {
+		$this->assertSame( '', dsi_bilheteiro_lista_nomes( [] ) );
+		$this->assertSame( 'Meryl Streep', dsi_bilheteiro_lista_nomes( [ 'Meryl Streep' ] ) );
+		$this->assertSame( 'Meryl Streep e Gary Oldman', dsi_bilheteiro_lista_nomes( [ 'Meryl Streep', 'Gary Oldman' ] ) );
+		$this->assertSame( 'Meryl Streep, Gary Oldman e mais 3', dsi_bilheteiro_lista_nomes( [ 'Meryl Streep', 'Gary Oldman', 'Keanu Reeves', 'Robert De Niro', 'Al Pacino' ] ) );
 	}
 
 	public function test_normaliza_item_sem_resenha_generos_atores_ano_lancamento(): void {

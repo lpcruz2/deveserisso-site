@@ -191,11 +191,17 @@ function dsi_bilheteiro_montar_contexto_filmes( array $filmes ): string {
 		$diretor = ! empty( $filme['diretor'] ) ? (string) $filme['diretor'] : 'não informado';
 		$atores  = ! empty( $filme['atores'] ) ? implode( ', ', (array) $filme['atores'] ) : 'não informado';
 		$sinopse = ! empty( $filme['sinopse'] ) ? (string) $filme['sinopse'] : 'não informada';
+		$nota    = isset( $filme['nota'] ) && $filme['nota'] !== null ? str_replace( '.', ',', (string) $filme['nota'] ) . ' de 10 (média do público no TMDB)' : 'não informada';
+		$critica = ! empty( $filme['tem_critica'] ) && ! empty( $filme['link'] )
+			? 'sim, publicada no Deveserisso: ' . $filme['link']
+			: 'ainda não';
 		$blocos[] = ( $i + 1 ) . ') Título: ' . $titulo . ( $ano ? ' (' . $ano . ')' : '' ) . "\n" .
 			'Gênero: ' . $generos . "\n" .
 			'Diretor: ' . $diretor . "\n" .
 			'Elenco conhecido: ' . $atores . "\n" .
-			'Sinopse: ' . $sinopse;
+			'Sinopse: ' . $sinopse . "\n" .
+			'Nota: ' . $nota . "\n" .
+			'Crítica no site: ' . $critica;
 	}
 	return implode( "\n\n", $blocos );
 }
@@ -276,7 +282,84 @@ function dsi_bilheteiro_eh_negativa( string $mensagem ): bool {
 	return false;
 }
 
+// Pedido de MAIS titulos depois da recomendacao (relatorio semanal
+// 2026-09-28, sessao real: "tem outros?" caiu na rota de pergunta, o Curador
+// respondeu "Não tenho outros títulos além dos já listados" e a pessoa deu
+// 👎 logo depois). Diferente de dsi_bilheteiro_pede_nova_recomendacao: aqui
+// as preferencias continuam as mesmas e so os titulos ja mostrados saem
+// (excluir_filmes, que o widget ja acumula). Ancorado no fim da frase pra
+// nao pegar "quero mais detalhes do segundo" nem "tem mais cenas de ação?".
+const DSI_BILHETEIRO_PEDIDOS_MAIS_OPCOES_REGEX = [
+	'/^\W*(mais|outr[oa]s)\W*$/iu',
+	'/\b(quero|queria|gostaria de ver|mostra|mostre|manda|me d[aá]|d[aá]) (mais|outr[oa]s)( (op[cç][oõ]es|filmes|s[eé]ries|t[ií]tulos|sugest[oõ]es|indica[cç][oõ]es|recomenda[cç][oõ]es))?( (por favor|pf|pfv))?\W*$/iu',
+	'/\b(tem|teria|h[aá]|existem?) (mais )?outr[oa]s( (op[cç][oõ]es|filmes|s[eé]ries|t[ií]tulos|sugest[oõ]es|indica[cç][oõ]es|recomenda[cç][oõ]es))?( (por favor|pf|pfv))?\W*$/iu',
+	'/\b(mais|outr[oa]s) (op[cç][oõ]es|sugest[oõ]es|indica[cç][oõ]es|recomenda[cç][oõ]es)( (por favor|pf|pfv))?\W*$/iu',
+];
+function dsi_bilheteiro_pede_mais_opcoes( string $mensagem ): bool {
+	foreach ( DSI_BILHETEIRO_PEDIDOS_MAIS_OPCOES_REGEX as $padrao ) {
+		if ( preg_match( $padrao, $mensagem ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// Qual pedido manda na lista quando ator e genero foram pedidos
+// (relatorio semanal 2026-09-28). A regra de 2026-09-25 (ator no catalogo
+// vira filtro e o genero so ordena) fez "comédia sem drama" + 5 atores de
+// drama citados como gosto pessoal devolver O Advogado do Diabo e O Poderoso
+// Chefão II. Regra nova:
+// - ator + genero com titulo em comum: so esses (o caso Ben Stiller segue
+//   sem filme generico pra completar a lista);
+// - sem titulo em comum e UM ator so: o ator e o pedido principal, ele manda
+//   (aviso sem_genero, igual antes);
+// - sem titulo em comum e VARIOS atores: sao gosto, o genero manda (aviso
+//   genero_sem_ator);
+// - sem ator no catalogo: genero pedido vira filtro quando existe titulo
+//   dele, senao a lista sai so por pontuacao.
+// Retorna 'ator_genero' | 'ator' | 'genero' | 'livre'.
+function dsi_recomendacao_modo_filtro( bool $ator_no_catalogo, int $qtd_atores_pedidos, bool $genero_pedido, bool $existe_ator_e_genero, bool $existe_genero ): string {
+	if ( $ator_no_catalogo ) {
+		if ( ! $genero_pedido ) {
+			return 'ator';
+		}
+		if ( $existe_ator_e_genero ) {
+			return 'ator_genero';
+		}
+		if ( $qtd_atores_pedidos === 1 || ! $existe_genero ) {
+			return 'ator';
+		}
+		return 'genero';
+	}
+	return ( $genero_pedido && $existe_genero ) ? 'genero' : 'livre';
+}
+
+// "Meryl Streep", "Meryl Streep e Gary Oldman", "Meryl Streep, Gary Oldman
+// e mais 3" -- nome dos atores no aviso do widget.
+function dsi_bilheteiro_lista_nomes( array $nomes, int $max = 2 ): string {
+	$nomes = array_values( array_filter( array_map( 'trim', array_map( 'strval', $nomes ) ), 'strlen' ) );
+	$total = count( $nomes );
+	if ( $total === 0 ) {
+		return '';
+	}
+	if ( $total === 1 ) {
+		return $nomes[0];
+	}
+	if ( $total <= $max ) {
+		return implode( ', ', array_slice( $nomes, 0, -1 ) ) . ' e ' . $nomes[ $total - 1 ];
+	}
+	return implode( ', ', array_slice( $nomes, 0, $max ) ) . ' e mais ' . ( $total - $max );
+}
+
+// nota/tem_critica/link (2026-09-28, relatorio semanal): "o maskara é bom?"
+// era respondido com "Não tenho uma avaliação de qualidade". Link so do
+// proprio site -- o item vem do cliente e o link vai pra resposta.
 function dsi_bilheteiro_normalizar_item_pergunta( array $item ): array {
+	$link = (string) ( $item['link'] ?? '' );
+	if ( ! preg_match( '#^https://deveserisso\.com\.br/[A-Za-z0-9/_%.-]*$#', $link ) ) {
+		$link = '';
+	}
+	$nota = $item['nota'] ?? null;
 	return [
 		'titulo'         => (string) ( $item['titulo'] ?? '' ),
 		'ano_lancamento' => $item['ano_lancamento'] ?? ( $item['ano'] ?? null ),
@@ -284,5 +367,8 @@ function dsi_bilheteiro_normalizar_item_pergunta( array $item ): array {
 		'diretor'        => is_array( $item['direcao'] ?? null ) ? implode( ', ', $item['direcao'] ) : ( $item['diretor'] ?? $item['direcao'] ?? null ),
 		'atores'         => (array) ( $item['atores'] ?? ( $item['elenco'] ?? [] ) ),
 		'sinopse'        => (string) ( $item['sinopse'] ?? '' ),
+		'nota'           => is_numeric( $nota ) ? round( (float) $nota, 1 ) : null,
+		'tem_critica'    => ( $item['fonte'] ?? '' ) === 'catalogo' && $link !== '',
+		'link'           => $link,
 	];
 }
