@@ -228,6 +228,19 @@ function dsi_perfil_limpar_cache_resenhas( int $tmdb_id, string $tipo ): void {
 	}
 }
 
+/**
+ * Apaga a conta e tira as resenhas do ar na hora (sem esperar o cache do
+ * bloco). Usar SEMPRE esta, nao o repositorio direto: MCP, retencao, testes.
+ */
+function dsi_perfil_apagar_conta( int $conta_id ): void {
+	$repo = dsi_perfil_repo();
+	$das  = $repo->resenhasDaConta( $conta_id );
+	$repo->apagarConta( $conta_id );
+	foreach ( $das as $r ) {
+		dsi_perfil_limpar_cache_resenhas( (int) $r['tmdb_id'], $r['tipo'] );
+	}
+}
+
 add_action( 'rest_api_init', function (): void {
 	register_rest_route( 'dsi/v1', '/resenhas', [
 		'methods'             => 'GET',
@@ -285,7 +298,7 @@ function dsi_perfil_bloco_script(): string {
 	ob_start();
 	?>
 <style>
-.dsi-leitores{margin:2.5rem 0 1rem;padding-top:1.25rem;border-top:1px solid currentColor}
+.dsi-leitores{margin:2rem 0 1rem}
 .dsi-leitores h2{font-size:1.25rem;margin:0 0 .25rem}
 .dsi-leitores .dsi-leitores-sub{opacity:.7;font-size:.9rem;margin:0 0 1rem}
 .dsi-leitores article{padding:1rem 0;border-bottom:1px solid rgba(127,127,127,.35)}
