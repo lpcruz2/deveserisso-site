@@ -537,6 +537,26 @@ function dsi_nav_menu_args( string $menu_class ): ?array {
 }
 
 // =============================================================================
+// 17b. BOTÃO DO CURADOR NO MENU (2026-09-28, pedido do gestor)
+// =============================================================================
+// Leva pra LP do chat (/filme-serie-bom-assistir-hoje/). Fica fora do menu
+// cadastrado no WP Admin de proposito: e botao, nao item comum, e precisa
+// estar igual nas duas versoes do masthead (masthead.php e
+// masthead-search.php), no desktop e no menu do celular. Clique vira evento
+// GA4 menu_curador_clicado (dataLayer), no mesmo padrao dos eventos do widget.
+function dsi_masthead_cta( string $onde ): string {
+	$url    = home_url( '/filme-serie-bom-assistir-hoje/' );
+	$classe = $onde === 'mobile' ? 'dsi-mobile-nav__cta' : 'dsi-masthead__cta';
+	$html   = '<a href="' . esc_url( $url ) . '" class="' . $classe . '" data-dsi-cta="' . esc_attr( $onde ) . '">O que assistir hoje?</a>';
+	static $script_impresso = false;
+	if ( ! $script_impresso ) {
+		$script_impresso = true;
+		$html .= "<script>document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('[data-dsi-cta]');if(!a)return;window.dataLayer=window.dataLayer||[];window.dataLayer.push({event:'menu_curador_clicado',posicao:a.getAttribute('data-dsi-cta')});});</script>";
+	}
+	return $html;
+}
+
+// =============================================================================
 // 18. CALLBACK DE COMENTÁRIOS
 // =============================================================================
 /**

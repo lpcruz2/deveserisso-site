@@ -54,6 +54,7 @@ $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" vi
                 </button>
             </form>
         </div>
+        <?php echo dsi_masthead_cta( 'desktop' ); // phpcs:ignore WordPress.Security.EscapeOutput -- HTML montado e escapado na funcao ?>
     </nav>
 
     <!-- Mobile hamburger -->
@@ -61,6 +62,7 @@ $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" vi
         <span></span><span></span><span></span>
     </button>
     <div class="dsi-mobile-nav" id="dsi-mobile-nav-search" hidden>
+        <?php echo dsi_masthead_cta( 'mobile' ); // phpcs:ignore WordPress.Security.EscapeOutput -- HTML montado e escapado na funcao ?>
         <?php
         $dsi_mob_args = dsi_nav_menu_args( 'dsi-mobile-nav__list' );
         if ( $dsi_mob_args ) {
