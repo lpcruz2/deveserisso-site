@@ -60,6 +60,7 @@ $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" vi
             echo '</ul>';
         }
         ?>
+        <?php echo dsi_masthead_cta( 'desktop' ); // phpcs:ignore WordPress.Security.EscapeOutput -- HTML montado e escapado na funcao ?>
         <!-- Busca expansível desktop -->
         <div class="dsi-masthead__search-wrap">
             <button type="button" class="dsi-masthead__search-toggle" aria-label="Buscar" aria-expanded="false">
@@ -75,7 +76,6 @@ $svg_search = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" vi
                 </button>
             </form>
         </div>
-        <?php echo dsi_masthead_cta( 'desktop' ); // phpcs:ignore WordPress.Security.EscapeOutput -- HTML montado e escapado na funcao ?>
     </nav>
 
     <!-- Mobile hamburger -->
