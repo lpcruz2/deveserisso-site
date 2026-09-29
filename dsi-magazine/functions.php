@@ -4388,7 +4388,9 @@ vingança, redenção, amizade, sobrevivência, sátira social), não frases.
 Diga tambem a epoca/ambientacao da historia, SEMPRE um destes valores:
 antiguidade, idade media, seculos xvi a xviii, velho oeste, seculo xix,
 primeira guerra, segunda guerra, guerra fria, futuro, espaco, ou nenhuma
-(historia atual ou sem epoca marcada).
+(historia atual, sem epoca marcada, ou mundo de fantasia e conto de fadas).
+"idade media" so para a Idade Media de verdade ou lendas que se passam nela
+(cavaleiros, cruzadas, vikings, Rei Arthur, Robin Hood).
 
 Responda SEMPRE em JSON, sem markdown, sem texto fora do JSON, neste
 formato exato:
@@ -4402,7 +4404,7 @@ PROMPT;
 const DSI_EPOCA_INSTRUCAO = <<<PROMPT
 Você classifica a época/ambientação de um filme ou série a partir do título e do texto de uma crítica ou sinopse. Escolha UMA opção desta lista:
 antiguidade = Roma, Grécia ou Egito antigos, gladiadores, China antiga;
-idade media = cavaleiros, castelos, cruzadas, vikings, reinos feudais, fantasia de inspiração medieval;
+idade media = a Idade Média de verdade ou lendas que se passam nela: cavaleiros, cruzadas, vikings, reinos feudais, Rei Arthur, Robin Hood. Mundos de fantasia, contos de fadas e animações com castelos NÃO contam (Harry Potter, Frozen, Shrek, Aladdin, Cinderela ficam em nenhuma);
 seculos xvi a xviii = piratas, mosqueteiros, cortes reais, período colonial, Revolução Francesa;
 velho oeste = cowboys, pistoleiros, fronteira americana, guerras contra povos indígenas no século 19;
 seculo xix = século 19 fora do Velho Oeste, era vitoriana, Guerra Civil Americana, escravidão;
