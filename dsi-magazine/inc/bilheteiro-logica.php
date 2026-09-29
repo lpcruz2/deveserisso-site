@@ -428,6 +428,7 @@ function dsi_bilheteiro_normalizar_item_pergunta( array $item ): array {
 		'nota'           => is_numeric( $nota ) ? round( (float) $nota, 1 ) : null,
 		'tem_critica'    => ( $item['fonte'] ?? '' ) === 'catalogo' && $link !== '',
 		'link'           => $link,
+		'poster'         => is_string( $item['poster'] ?? null ) ? mb_substr( $item['poster'], 0, 500 ) : '',
 	];
 }
 
@@ -545,4 +546,150 @@ function dsi_epoca_valida( $valor ): ?string {
 		return $chave;
 	}
 	return null;
+}
+
+// =============================================================================
+// A2UI no Curador -- fase 1: cartao de avaliacao (2026-09-29)
+// =============================================================================
+// Especificacao: CineQuiz-deveserisso/docs/prd-curador-a2ui-fase1.md e
+// erd-curador-a2ui-fase1.md. O servidor descreve o cartao em JSON (protocolo
+// A2UI v0.9, catalogo proprio do Curador, so componentes do catalogo basico:
+// Card, Column, Row, Image, Text, Button) e o widget desenha. O modelo nunca
+// escreve o JSON da tela: so diz a intencao e o titulo; tudo que vai no
+// cartao vem dos dados do item ou da frase do modelo.
+const DSI_A2UI_CATALOGO      = 'https://deveserisso.com.br/a2ui/curador/v1';
+const DSI_A2UI_VERSAO        = 'v0.9';
+const DSI_A2UI_HOSTS_IMAGEM  = [ 'deveserisso.com.br', 'image.tmdb.org' ];
+const DSI_A2UI_HOSTS_LINK    = [ 'deveserisso.com.br' ];
+const DSI_A2UI_ACOES         = [ 'mais_parecidos' ];
+const DSI_A2UI_INTENCOES     = [ 'avaliar_titulo', 'outra' ];
+
+// O widget declara o catalogo que sabe desenhar (a2uiClientCapabilities da
+// especificacao). Sem declaracao, nada de cartao: widget antigo em cache
+// continua recebendo so o texto.
+function dsi_a2ui_cliente_suporta( $capacidades ): bool {
+	if ( ! is_array( $capacidades ) ) {
+		return false;
+	}
+	return in_array( DSI_A2UI_CATALOGO, (array) ( $capacidades['supportedCatalogIds'] ?? [] ), true );
+}
+
+// https, host exatamente na lista (ou subdominio dele), sem usuario/senha.
+function dsi_a2ui_url_permitida( $url, array $hosts ): bool {
+	if ( ! is_string( $url ) || $url === '' || strlen( $url ) > 500 ) {
+		return false;
+	}
+	$partes = parse_url( $url );
+	if ( ! is_array( $partes ) || ( $partes['scheme'] ?? '' ) !== 'https' || isset( $partes['user'] ) || isset( $partes['pass'] ) ) {
+		return false;
+	}
+	$host = strtolower( (string) ( $partes['host'] ?? '' ) );
+	foreach ( $hosts as $permitido ) {
+		if ( $host === $permitido || substr( $host, -strlen( $permitido ) - 1 ) === '.' . $permitido ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// Resposta do modelo na rota de perguntas: {"resposta","intencao","titulo"}.
+// $n_itens = quantos titulos foram enviados (o "titulo" e o numero da lista,
+// a partir de 1). Qualquer coisa fora do combinado vira intencao "outra": a
+// pessoa recebe o texto, como antes do A2UI.
+function dsi_a2ui_interpretar_resposta( string $conteudo, int $n_itens ): array {
+	$conteudo = trim( $conteudo );
+	$json     = json_decode( $conteudo, true );
+	if ( ! is_array( $json ) || ! isset( $json['resposta'] ) || ! is_string( $json['resposta'] ) || trim( $json['resposta'] ) === '' ) {
+		// Nao veio JSON: usa o texto puro, sem cartao.
+		return [ 'resposta' => mb_substr( $conteudo, 0, 600 ), 'intencao' => 'outra', 'titulo' => null ];
+	}
+	$intencao = in_array( $json['intencao'] ?? null, DSI_A2UI_INTENCOES, true ) ? $json['intencao'] : 'outra';
+	$numero   = isset( $json['titulo'] ) && is_numeric( $json['titulo'] ) ? (int) $json['titulo'] : 0;
+	if ( $numero < 1 || $numero > $n_itens ) {
+		$intencao = 'outra';
+		$numero   = null;
+	}
+	return [ 'resposta' => mb_substr( trim( $json['resposta'] ), 0, 600 ), 'intencao' => $intencao, 'titulo' => $numero ?: null ];
+}
+
+// Superficie do cartao de avaliacao: as 3 mensagens A2UI (criar, componentes,
+// dados). $item = item normalizado (dsi_bilheteiro_normalizar_item_pergunta).
+function dsi_a2ui_cartao_avaliacao( array $item, string $frase, string $surface_id ): array {
+	$titulo = trim( (string) ( $item['titulo'] ?? '' ) );
+	$ano    = $item['ano_lancamento'] ?? null;
+	$nota   = ( isset( $item['nota'] ) && is_numeric( $item['nota'] ) ) ? str_replace( '.', ',', (string) round( (float) $item['nota'], 1 ) ) . ' · média do público no TMDB' : '';
+	$poster = ( isset( $item['poster'] ) && dsi_a2ui_url_permitida( $item['poster'], DSI_A2UI_HOSTS_IMAGEM ) ) ? $item['poster'] : '';
+	$link   = ( ! empty( $item['tem_critica'] ) && dsi_a2ui_url_permitida( $item['link'] ?? '', DSI_A2UI_HOSTS_LINK ) ) ? $item['link'] : '';
+
+	$componentes = [];
+	$topo        = [];
+	if ( $poster !== '' ) {
+		$componentes[] = [ 'id' => 'poster', 'component' => 'Image', 'url' => [ 'path' => '/poster' ], 'fit' => 'cover', 'variant' => 'smallFeature' ];
+		$topo[]        = 'poster';
+	}
+	$textos        = [ 'titulo' ];
+	$componentes[] = [ 'id' => 'titulo', 'component' => 'Text', 'text' => [ 'path' => '/titulo' ], 'variant' => 'h3' ];
+	if ( $nota !== '' ) {
+		$componentes[] = [ 'id' => 'nota', 'component' => 'Text', 'text' => [ 'path' => '/nota' ], 'variant' => 'caption' ];
+		$textos[]      = 'nota';
+	}
+	$componentes[] = [ 'id' => 'frase', 'component' => 'Text', 'text' => [ 'path' => '/frase' ] ];
+	$textos[]      = 'frase';
+	$componentes[] = [ 'id' => 'textos', 'component' => 'Column', 'children' => $textos ];
+	$topo[]        = 'textos';
+	$componentes[] = [ 'id' => 'topo', 'component' => 'Row', 'children' => $topo ];
+
+	$botoes = [];
+	if ( $link !== '' ) {
+		$componentes[] = [ 'id' => 'ler_critica', 'component' => 'Button', 'child' => 'ler_critica_txt', 'variant' => 'primary',
+			'action' => [ 'functionCall' => [ 'call' => 'openUrl', 'args' => [ 'url' => $link ] ] ] ];
+		$componentes[] = [ 'id' => 'ler_critica_txt', 'component' => 'Text', 'text' => 'Ler a crítica' ];
+		$botoes[]      = 'ler_critica';
+	}
+	$componentes[] = [ 'id' => 'parecidos', 'component' => 'Button', 'child' => 'parecidos_txt',
+		'action' => [ 'event' => [ 'name' => 'mais_parecidos', 'context' => [ 'titulo' => mb_substr( $titulo, 0, 120 ) ] ] ] ];
+	$componentes[] = [ 'id' => 'parecidos_txt', 'component' => 'Text', 'text' => 'Ver parecidos' ];
+	$botoes[]      = 'parecidos';
+	$componentes[] = [ 'id' => 'botoes', 'component' => 'Row', 'children' => $botoes ];
+	$componentes[] = [ 'id' => 'corpo', 'component' => 'Column', 'children' => [ 'topo', 'botoes' ] ];
+	$componentes[] = [ 'id' => 'root', 'component' => 'Card', 'child' => 'corpo' ];
+
+	return [
+		[ 'version' => DSI_A2UI_VERSAO, 'createSurface' => [ 'surfaceId' => $surface_id, 'catalogId' => DSI_A2UI_CATALOGO ] ],
+		[ 'version' => DSI_A2UI_VERSAO, 'updateComponents' => [ 'surfaceId' => $surface_id, 'components' => $componentes ] ],
+		[ 'version' => DSI_A2UI_VERSAO, 'updateDataModel' => [ 'surfaceId' => $surface_id, 'path' => '/', 'value' => [
+			'titulo' => $titulo . ( $ano ? ' (' . (int) $ano . ')' : '' ),
+			'nota'   => $nota,
+			'frase'  => $frase,
+			'poster' => $poster,
+		] ] ],
+	];
+}
+
+// Acao vinda do cartao (mensagem "action" da especificacao). Devolve
+// [ nome, titulo ] validados ou null.
+function dsi_a2ui_validar_acao( $acao ): ?array {
+	if ( ! is_array( $acao ) ) {
+		return null;
+	}
+	$nome = (string) ( $acao['name'] ?? '' );
+	if ( ! in_array( $nome, DSI_A2UI_ACOES, true ) ) {
+		return null;
+	}
+	$titulo = trim( (string) ( ( (array) ( $acao['context'] ?? [] ) )['titulo'] ?? '' ) );
+	if ( $titulo === '' || mb_strlen( $titulo ) > 120 ) {
+		return null;
+	}
+	return [ $nome, $titulo ];
+}
+
+// A resposta em texto leva o link da critica; no cartao quem leva o leitor a
+// ela e o botao, entao a frase sai sem endereco (e sem o "no link ..." que
+// ficaria pendurado).
+function dsi_a2ui_frase_sem_links( string $frase ): string {
+	$sem = preg_replace( '#https?://\S+#u', '', $frase );
+	$sem = preg_replace( '/\s+([,.;:!?])/u', '$1', (string) $sem );
+	$sem = preg_replace( '/\s{2,}/u', ' ', (string) $sem );
+	$sem = trim( (string) $sem, " \t\n\r—–-:," );
+	return $sem === '' ? trim( $frase ) : $sem;
 }

@@ -262,6 +262,7 @@ final class BilheteiroLogicaTest extends TestCase {
 			'nota'           => null,
 			'tem_critica'    => false,
 			'link'           => '',
+			'poster'         => '',
 		], $normalizado );
 	}
 
@@ -584,5 +585,147 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertNull( dsi_epoca_valida( 'anos 90' ) );
 		$this->assertNull( dsi_epoca_valida( null ) );
 		$this->assertNull( dsi_epoca_valida( [ 'idade media' ] ) );
+	}
+
+	// -- A2UI: cliente, urls, resposta do modelo, cartao, acao ------------------
+
+	public function test_a2ui_cliente_so_suporta_se_declarar_o_catalogo(): void {
+		$this->assertTrue( dsi_a2ui_cliente_suporta( [ 'supportedCatalogIds' => [ DSI_A2UI_CATALOGO ] ] ) );
+		$this->assertFalse( dsi_a2ui_cliente_suporta( [ 'supportedCatalogIds' => [ 'https://outro/catalogo' ] ] ) );
+		$this->assertFalse( dsi_a2ui_cliente_suporta( [] ) );
+		$this->assertFalse( dsi_a2ui_cliente_suporta( null ) );
+		$this->assertFalse( dsi_a2ui_cliente_suporta( 'texto' ) );
+	}
+
+	public function test_a2ui_url_permitida(): void {
+		$img = DSI_A2UI_HOSTS_IMAGEM;
+		$this->assertTrue( dsi_a2ui_url_permitida( 'https://image.tmdb.org/t/p/w500/x.jpg', $img ) );
+		$this->assertTrue( dsi_a2ui_url_permitida( 'https://www.deveserisso.com.br/a/b.webp', $img ) );
+		$this->assertFalse( dsi_a2ui_url_permitida( 'http://image.tmdb.org/x.jpg', $img ) );
+		$this->assertFalse( dsi_a2ui_url_permitida( 'https://deveserisso.com.br.evil.com/x', $img ) );
+		$this->assertFalse( dsi_a2ui_url_permitida( 'https://evil.com/deveserisso.com.br', $img ) );
+		$this->assertFalse( dsi_a2ui_url_permitida( 'https://user:senha@deveserisso.com.br/x', $img ) );
+		$this->assertFalse( dsi_a2ui_url_permitida( 'javascript:alert(1)', $img ) );
+		$this->assertFalse( dsi_a2ui_url_permitida( '', $img ) );
+		$this->assertFalse( dsi_a2ui_url_permitida( null, $img ) );
+		$this->assertFalse( dsi_a2ui_url_permitida( 'https://image.tmdb.org/x.jpg', DSI_A2UI_HOSTS_LINK ) );
+	}
+
+	public function test_a2ui_interpreta_resposta_valida(): void {
+		$r = dsi_a2ui_interpretar_resposta( '{"resposta":"Tem crítica no site.","intencao":"avaliar_titulo","titulo":2}', 5 );
+		$this->assertSame( [ 'resposta' => 'Tem crítica no site.', 'intencao' => 'avaliar_titulo', 'titulo' => 2 ], $r );
+	}
+
+	public function test_a2ui_titulo_fora_da_lista_vira_outra(): void {
+		foreach ( [ 0, 6, -1, 'x' ] as $numero ) {
+			$r = dsi_a2ui_interpretar_resposta( json_encode( [ 'resposta' => 'ok', 'intencao' => 'avaliar_titulo', 'titulo' => $numero ] ), 5 );
+			$this->assertSame( 'outra', $r['intencao'], (string) $numero );
+			$this->assertNull( $r['titulo'] );
+			$this->assertSame( 'ok', $r['resposta'] );
+		}
+	}
+
+	public function test_a2ui_intencao_desconhecida_vira_outra(): void {
+		$r = dsi_a2ui_interpretar_resposta( '{"resposta":"ok","intencao":"comprar","titulo":1}', 5 );
+		$this->assertSame( 'outra', $r['intencao'] );
+	}
+
+	public function test_a2ui_sem_json_usa_o_texto_puro(): void {
+		$r = dsi_a2ui_interpretar_resposta( "  O Zoolander tem crítica no site.  ", 5 );
+		$this->assertSame( [ 'resposta' => 'O Zoolander tem crítica no site.', 'intencao' => 'outra', 'titulo' => null ], $r );
+		$this->assertSame( 'outra', dsi_a2ui_interpretar_resposta( '{"resposta":"","intencao":"avaliar_titulo","titulo":1}', 5 )['intencao'] );
+	}
+
+	private function itemCartao(): array {
+		return [
+			'titulo' => 'Zoolander', 'ano_lancamento' => 2001, 'nota' => 6.2, 'tem_critica' => true,
+			'link' => 'https://deveserisso.com.br/zoolander-critica/', 'poster' => 'https://image.tmdb.org/t/p/w500/z.jpg',
+		];
+	}
+
+	private function componentesDe( array $mensagens ): array {
+		$por_id = [];
+		foreach ( $mensagens[1]['updateComponents']['components'] as $c ) {
+			$por_id[ $c['id'] ] = $c;
+		}
+		return $por_id;
+	}
+
+	public function test_a2ui_cartao_tem_tres_mensagens_no_formato_da_especificacao(): void {
+		$m = dsi_a2ui_cartao_avaliacao( $this->itemCartao(), 'Tem crítica publicada.', 'avaliacao-1-zoolander-abc123' );
+		$this->assertCount( 3, $m );
+		$this->assertSame( 'v0.9', $m[0]['version'] );
+		$this->assertSame( DSI_A2UI_CATALOGO, $m[0]['createSurface']['catalogId'] );
+		$this->assertSame( 'avaliacao-1-zoolander-abc123', $m[1]['updateComponents']['surfaceId'] );
+		$this->assertSame( '/', $m[2]['updateDataModel']['path'] );
+		$this->assertSame( 'Zoolander (2001)', $m[2]['updateDataModel']['value']['titulo'] );
+		$this->assertSame( '6,2 · média do público no TMDB', $m[2]['updateDataModel']['value']['nota'] );
+		$this->assertSame( 'Tem crítica publicada.', $m[2]['updateDataModel']['value']['frase'] );
+	}
+
+	public function test_a2ui_cartao_so_usa_componentes_do_catalogo_e_arvore_valida(): void {
+		$permitidos = [ 'Card', 'Column', 'Row', 'Image', 'Text', 'Button' ];
+		$c          = $this->componentesDe( dsi_a2ui_cartao_avaliacao( $this->itemCartao(), 'x', 's1' ) );
+		$this->assertArrayHasKey( 'root', $c );
+		foreach ( $c as $comp ) {
+			$this->assertContains( $comp['component'], $permitidos );
+			foreach ( array_merge( (array) ( $comp['children'] ?? [] ), isset( $comp['child'] ) ? [ $comp['child'] ] : [] ) as $filho ) {
+				$this->assertArrayHasKey( $filho, $c, 'filho inexistente: ' . $filho );
+			}
+		}
+	}
+
+	public function test_a2ui_cartao_botoes(): void {
+		$c = $this->componentesDe( dsi_a2ui_cartao_avaliacao( $this->itemCartao(), 'x', 's1' ) );
+		$this->assertSame( 'openUrl', $c['ler_critica']['action']['functionCall']['call'] );
+		$this->assertSame( 'https://deveserisso.com.br/zoolander-critica/', $c['ler_critica']['action']['functionCall']['args']['url'] );
+		$this->assertSame( 'mais_parecidos', $c['parecidos']['action']['event']['name'] );
+		$this->assertSame( 'Zoolander', $c['parecidos']['action']['event']['context']['titulo'] );
+	}
+
+	public function test_a2ui_cartao_sem_critica_nao_tem_botao_de_critica(): void {
+		$item = $this->itemCartao();
+		$item['tem_critica'] = false;
+		$c = $this->componentesDe( dsi_a2ui_cartao_avaliacao( $item, 'x', 's1' ) );
+		$this->assertArrayNotHasKey( 'ler_critica', $c );
+		$this->assertArrayHasKey( 'parecidos', $c );
+		$this->assertSame( [ 'parecidos' ], $c['botoes']['children'] );
+	}
+
+	public function test_a2ui_cartao_link_de_fora_do_site_nao_vira_botao(): void {
+		$item = $this->itemCartao();
+		$item['link'] = 'https://exemplo.com/phishing';
+		$c = $this->componentesDe( dsi_a2ui_cartao_avaliacao( $item, 'x', 's1' ) );
+		$this->assertArrayNotHasKey( 'ler_critica', $c );
+	}
+
+	public function test_a2ui_cartao_sem_nota_e_sem_poster_sai_enxuto(): void {
+		$item = [ 'titulo' => 'Filme Qualquer', 'poster' => 'https://exemplo.com/p.jpg' ];
+		$m    = dsi_a2ui_cartao_avaliacao( $item, 'Sem dados.', 's1' );
+		$c    = $this->componentesDe( $m );
+		$this->assertArrayNotHasKey( 'poster', $c );
+		$this->assertArrayNotHasKey( 'nota', $c );
+		$this->assertSame( 'Filme Qualquer', $m[2]['updateDataModel']['value']['titulo'] );
+		$this->assertSame( '', $m[2]['updateDataModel']['value']['poster'] );
+		$this->assertSame( [ 'textos' ], $c['topo']['children'] );
+	}
+
+	public function test_a2ui_validar_acao(): void {
+		$this->assertSame( [ 'mais_parecidos', 'Zoolander' ], dsi_a2ui_validar_acao( [ 'name' => 'mais_parecidos', 'context' => [ 'titulo' => ' Zoolander ' ] ] ) );
+		$this->assertNull( dsi_a2ui_validar_acao( [ 'name' => 'apagar_tudo', 'context' => [ 'titulo' => 'x' ] ] ) );
+		$this->assertNull( dsi_a2ui_validar_acao( [ 'name' => 'mais_parecidos', 'context' => [] ] ) );
+		$this->assertNull( dsi_a2ui_validar_acao( [ 'name' => 'mais_parecidos', 'context' => [ 'titulo' => str_repeat( 'a', 121 ) ] ] ) );
+		$this->assertNull( dsi_a2ui_validar_acao( 'texto' ) );
+	}
+
+	public function test_a2ui_frase_sem_links(): void {
+		$this->assertSame(
+			'Zoolander tem crítica publicada no Deveserisso e nota 6,2 de 10.',
+			dsi_a2ui_frase_sem_links( 'Zoolander tem crítica publicada no Deveserisso: https://deveserisso.com.br/zoolander/ e nota 6,2 de 10.' )
+		);
+		$this->assertSame( 'Vale conferir a crítica.', dsi_a2ui_frase_sem_links( 'Vale conferir a crítica. https://deveserisso.com.br/x/' ) );
+		$this->assertSame( 'Sem endereço nenhum.', dsi_a2ui_frase_sem_links( 'Sem endereço nenhum.' ) );
+		// so link: nao devolve string vazia
+		$this->assertSame( 'https://deveserisso.com.br/x/', dsi_a2ui_frase_sem_links( 'https://deveserisso.com.br/x/' ) );
 	}
 }

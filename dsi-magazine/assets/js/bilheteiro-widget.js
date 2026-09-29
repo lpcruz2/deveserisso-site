@@ -14,6 +14,13 @@
 	var CINEQUIZ_ENDPOINT        = 'https://deveserisso.com.br/wp-json/dsi/v1/recomendar-filme';
 	var FEEDBACK_ENDPOINT        = 'https://deveserisso.com.br/wp-json/dsi/v1/recomendacao-feedback';
 	var PERGUNTAR_ENDPOINT       = 'https://deveserisso.com.br/wp-json/dsi/v1/bilheteiro-perguntar';
+	// A2UI fase 1 (2026-09-29): cartao de avaliacao. O servidor descreve a
+	// tela em JSON (protocolo A2UI v0.9) e este widget desenha so o catalogo
+	// abaixo: Card, Column, Row, Image, Text, Button e a funcao openUrl.
+	var CURADOR_ACAO_ENDPOINT    = 'https://deveserisso.com.br/wp-json/dsi/v1/curador-acao';
+	var A2UI_CATALOGO            = 'https://deveserisso.com.br/a2ui/curador/v1';
+	var A2UI_HOSTS_IMAGEM        = [ 'deveserisso.com.br', 'image.tmdb.org' ];
+	var A2UI_HOSTS_LINK          = [ 'deveserisso.com.br' ];
 	var NEWSLETTER_ENDPOINT      = 'https://deveserisso.com.br/wp-json/dsi/v1/bilheteiro-newsletter';
 	// A partir de quantas mensagens do usuario (qualquer tipo, preferencia
 	// ou pergunta) o bot oferece cadastro na newsletter (2026-09-24, pedido
@@ -45,6 +52,16 @@
 		var d = document.createElement( 'div' );
 		d.textContent = s || '';
 		return d.innerHTML;
+	}
+
+	// https e host na lista (ou subdominio) -- mesma regra do servidor
+	// (dsi_a2ui_url_permitida). Imagem e link do cartao passam por aqui.
+	function urlPermitida( url, hosts ) {
+		if ( typeof url !== 'string' || url === '' || url.length > 500 ) return false;
+		var u;
+		try { u = new URL( url ); } catch ( e ) { return false; }
+		if ( u.protocol !== 'https:' || u.username || u.password ) return false;
+		return hosts.some( function ( h ) { return u.hostname === h || u.hostname.slice( -h.length - 1 ) === '.' + h; } );
 	}
 
 	// Resposta de "é bom?" traz o link da critica (2026-09-28). Roda sobre
@@ -238,6 +255,20 @@
 			   quebra-gelo (pilula bege tracejada), em grade de largura total. */
 			'.dsi-bh-feedback-botoes{display:grid;grid-template-columns:1fr 1fr;gap:8px;}' +
 			'.dsi-bh-fb--largo{grid-column:1 / -1;}' +
+			/* Cartao A2UI (2026-09-29): botoes no visual dos quebra-gelo/avaliacao. */
+			'.dsi-bh-a2ui-card{background:#fff;border-radius:8px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.12);}' +
+			'.dsi-bh-a2ui-col{display:flex;flex-direction:column;gap:8px;min-width:0;}' +
+			'.dsi-bh-a2ui-row{display:flex;gap:10px;align-items:flex-start;min-width:0;}' +
+			'.dsi-bh-a2ui-img{width:72px;flex:0 0 72px;aspect-ratio:2/3;object-fit:cover;border-radius:4px;background:#ebe3d2;}' +
+			'.dsi-bh-a2ui-h3{font-size:15px;font-weight:700;line-height:1.25;}' +
+			'.dsi-bh-a2ui-caption{font-size:12px;color:#6a5f4d;}' +
+			'.dsi-bh-a2ui-body{font-size:14px;line-height:1.4;}' +
+			'.dsi-bh-a2ui-btn{flex:1 1 0;min-width:0;background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;padding:10px 8px;' +
+			'font:inherit;font-size:14px;font-weight:600;color:#1d1a14;cursor:pointer;text-align:center;}' +
+			'.dsi-bh-a2ui-btn:hover{background:#e3d9c2;}' +
+			'.dsi-bh-a2ui-btn--primary{background:#9c3f14;border:1px solid #9c3f14;color:#fff;}' +
+			'.dsi-bh-a2ui-btn--primary:hover{background:#1d1a14;}' +
+			'.dsi-bh-a2ui-btn[disabled]{opacity:.6;cursor:default;}' +
 			'.dsi-bh-email-form{margin-top:10px;display:grid;gap:8px;}' +
 			'.dsi-bh-email-input{width:100%;box-sizing:border-box;font:inherit;font-size:16px;padding:10px 12px;' +
 			'border:1px solid #a89a7d;border-radius:8px;background:#fff;color:#1d1a14;}' +
@@ -683,6 +714,10 @@
 				else if ( item.tipo === 'aviso_limite' ) renderAvisoLimite();
 				else if ( item.tipo === 'aviso_ator' ) renderAvisoAtor( item );
 				else if ( item.tipo === 'pedido_email' ) renderPedidoEmail( item );
+				else if ( item.tipo === 'a2ui' ) {
+					// Mesmas mensagens de antes, redesenhadas; se falhar, o texto.
+					try { renderA2ui( item.mensagens ); } catch ( err ) { renderBot( item.html ); }
+				}
 			} );
 		}
 
@@ -860,6 +895,8 @@
 		}
 
 		function mostrarResposta( resposta ) {
+			// Cartao A2UI quando veio e desenhou; senao o texto de sempre.
+			if ( resposta.a2ui && mostrarA2ui( resposta.a2ui, resposta.html ) ) return;
 			addBot( resposta.html );
 			if ( resposta.sugestoes ) addQuebraGelo( resposta.sugestoes );
 		}
@@ -1031,7 +1068,11 @@
 			fetch( PERGUNTAR_ENDPOINT, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify( { pergunta: texto, itens: ultimosItensRecomendados, sessao_id: sessaoId } )
+				body: JSON.stringify( {
+					pergunta: texto, itens: ultimosItensRecomendados, sessao_id: sessaoId, rodada: rodadaAtual,
+					// A2UI fase 1: diz ao servidor que este widget sabe desenhar o catalogo do Curador.
+					a2ui_capacidades: { supportedCatalogIds: [ A2UI_CATALOGO ] }
+				} )
 			} ).then( function ( r ) {
 				return r.json().then( function ( body ) {
 					if ( ! r.ok ) {
@@ -1063,7 +1104,7 @@
 				}
 				// Pedido/aviso ANTES da resposta -- ver mesmo comentario em
 				// processarResposta().
-				var resposta = { html: linkarCriticas( escapeHtml( data.resposta ) ), sugestoes: null };
+				var resposta = { html: linkarCriticas( escapeHtml( data.resposta ) ), sugestoes: null, a2ui: data.a2ui || null };
 				if ( talvezPedirEmail( resposta ) ) return;
 				talvezAvisarLimite();
 				mostrarResposta( resposta );
@@ -1343,6 +1384,193 @@
 			buscarRecomendacoes();
 		}
 
+		// ---- A2UI fase 1: desenhador do catalogo do Curador ----------------------
+		// Componentes aceitos: Card, Column, Row, Image, Text, Button; funcao
+		// openUrl; evento mais_parecidos. Qualquer outra coisa (catalogo
+		// diferente, componente desconhecido, filho inexistente, sem root,
+		// imagem ou link fora da lista) descarta a superficie inteira e o
+		// chamador mostra o texto. Todo texto entra por textContent.
+		function erroA2ui( codigo, caminho, mensagem ) {
+			var e = new Error( mensagem );
+			e.a2uiCodigo = codigo;
+			e.a2uiCaminho = caminho;
+			return e;
+		}
+
+		function valorA2ui( v, dados ) {
+			if ( typeof v === 'string' ) return v;
+			if ( v && typeof v === 'object' && typeof v.path === 'string' ) {
+				var atual = dados;
+				v.path.split( '/' ).filter( Boolean ).forEach( function ( parte ) {
+					atual = ( atual !== null && typeof atual === 'object' ) ? atual[ parte ] : undefined;
+				} );
+				return typeof atual === 'string' ? atual : '';
+			}
+			return '';
+		}
+
+		function desenharA2ui( mensagens ) {
+			var criar = null, atualizar = null, dados = {};
+			if ( ! Array.isArray( mensagens ) || ! mensagens.length ) throw erroA2ui( 'SEM_MENSAGENS', '/', 'Nenhuma mensagem' );
+			mensagens.forEach( function ( m, i ) {
+				if ( ! m || m.version !== 'v0.9' ) throw erroA2ui( 'VERSAO_DESCONHECIDA', '/' + i, 'Versão do protocolo não suportada' );
+				if ( m.createSurface ) criar = m.createSurface;
+				else if ( m.updateComponents ) atualizar = m.updateComponents;
+				else if ( m.updateDataModel ) {
+					if ( m.updateDataModel.path === '/' && m.updateDataModel.value && typeof m.updateDataModel.value === 'object' ) dados = m.updateDataModel.value;
+					else throw erroA2ui( 'DADOS_NAO_SUPORTADOS', '/' + i, 'Só a raiz do modelo de dados é aceita' );
+				} else throw erroA2ui( 'MENSAGEM_DESCONHECIDA', '/' + i, 'Mensagem fora do protocolo' );
+			} );
+			if ( ! criar || criar.catalogId !== A2UI_CATALOGO ) throw erroA2ui( 'CATALOGO_DIFERENTE', '/createSurface', 'Catálogo fora do que o Curador desenha' );
+			if ( ! atualizar || atualizar.surfaceId !== criar.surfaceId || ! Array.isArray( atualizar.components ) ) throw erroA2ui( 'SEM_COMPONENTES', '/updateComponents', 'Componentes ausentes' );
+
+			var surfaceId = String( criar.surfaceId || '' ).slice( 0, 120 );
+			var porId = {};
+			atualizar.components.forEach( function ( c, i ) {
+				if ( ! c || typeof c.id !== 'string' || typeof c.component !== 'string' ) throw erroA2ui( 'COMPONENTE_INVALIDO', '/components/' + i, 'Componente sem id ou tipo' );
+				porId[ c.id ] = c;
+			} );
+			if ( ! porId.root ) throw erroA2ui( 'SEM_ROOT', '/components', 'Falta o componente root' );
+
+			var usados = {};
+			function filhoDe( id, caminho, profundidade ) {
+				if ( profundidade > 8 ) throw erroA2ui( 'PROFUNDIDADE', caminho, 'Árvore funda demais' );
+				var c = porId[ id ];
+				if ( ! c ) throw erroA2ui( 'FILHO_INEXISTENTE', caminho, 'Filho inexistente: ' + String( id ).slice( 0, 40 ) );
+				if ( usados[ id ] ) throw erroA2ui( 'CICLO_OU_REUSO', caminho, 'Componente usado mais de uma vez' );
+				usados[ id ] = true;
+				return construir( c, '/components/' + id, profundidade );
+			}
+			function construir( c, caminho, profundidade ) {
+				var el, tipo = c.component;
+				if ( tipo === 'Card' ) {
+					el = document.createElement( 'div' );
+					el.className = 'dsi-bh-a2ui-card';
+					var f1 = filhoDe( c.child, caminho, profundidade + 1 );
+					if ( f1 ) el.appendChild( f1 );
+				} else if ( tipo === 'Column' || tipo === 'Row' ) {
+					el = document.createElement( 'div' );
+					el.className = tipo === 'Column' ? 'dsi-bh-a2ui-col' : 'dsi-bh-a2ui-row';
+					( Array.isArray( c.children ) ? c.children : [] ).forEach( function ( id ) {
+						var f = filhoDe( id, caminho, profundidade + 1 );
+						if ( f ) el.appendChild( f );
+					} );
+				} else if ( tipo === 'Image' ) {
+					var url = valorA2ui( c.url, dados );
+					if ( url === '' ) return null;
+					if ( ! urlPermitida( url, A2UI_HOSTS_IMAGEM ) ) throw erroA2ui( 'IMAGEM_NAO_PERMITIDA', caminho, 'Imagem fora dos domínios permitidos' );
+					el = document.createElement( 'img' );
+					el.className = 'dsi-bh-a2ui-img';
+					el.alt = '';
+					el.loading = 'lazy';
+					el.src = url;
+				} else if ( tipo === 'Text' ) {
+					var variante = [ 'h1', 'h2', 'h3', 'h4', 'h5', 'caption', 'body' ].indexOf( c.variant ) >= 0 ? c.variant : 'body';
+					el = document.createElement( 'div' );
+					el.className = variante === 'caption' ? 'dsi-bh-a2ui-caption' : ( variante === 'body' ? 'dsi-bh-a2ui-body' : 'dsi-bh-a2ui-h3' );
+					el.textContent = valorA2ui( c.text, dados );
+				} else if ( tipo === 'Button' ) {
+					el = document.createElement( 'button' );
+					el.type = 'button';
+					el.className = 'dsi-bh-a2ui-btn' + ( c.variant === 'primary' ? ' dsi-bh-a2ui-btn--primary' : '' );
+					var rotulo = filhoDe( c.child, caminho, profundidade + 1 );
+					if ( rotulo ) el.textContent = rotulo.textContent;
+					var acao = c.action || {};
+					if ( acao.functionCall && acao.functionCall.call === 'openUrl' ) {
+						var destino = acao.functionCall.args && acao.functionCall.args.url;
+						if ( ! urlPermitida( destino, A2UI_HOSTS_LINK ) ) throw erroA2ui( 'LINK_NAO_PERMITIDO', caminho, 'Link fora do site' );
+						el.addEventListener( 'click', function () {
+							track( 'widget_a2ui_acao', { acao: 'openUrl', componente: c.id, sessao_id: sessaoId } );
+							window.open( destino, '_blank', 'noopener' );
+						} );
+					} else if ( acao.event && typeof acao.event.name === 'string' ) {
+						var evento = { name: acao.event.name, context: acao.event.context || {} };
+						el.addEventListener( 'click', function () {
+							enviarAcaoA2ui( surfaceId, c.id, evento, el );
+						} );
+					} else {
+						throw erroA2ui( 'ACAO_DESCONHECIDA', caminho, 'Botão sem ação conhecida' );
+					}
+				} else {
+					throw erroA2ui( 'COMPONENTE_DESCONHECIDO', caminho, 'Tipo fora do catálogo do Curador' );
+				}
+				return el;
+			}
+			usados.root = true;
+			return construir( porId.root, '/components/root', 0 );
+		}
+
+		// Desenha e so entao pendura na conversa: se falhar antes, nada fica pela metade.
+		function renderA2ui( mensagens ) {
+			var cartao = desenharA2ui( mensagens );
+			var el = renderBot( '' );
+			el.classList.add( 'dsi-bh-msg--filmes' );
+			el.appendChild( cartao );
+			return el;
+		}
+
+		function reportarErroA2ui( err, mensagens ) {
+			var codigo = ( err && err.a2uiCodigo ) || 'ERRO_DE_DESENHO';
+			var superficie = '';
+			try { superficie = String( mensagens[ 0 ].createSurface.surfaceId || '' ); } catch ( e ) { /* sem superficie */ }
+			track( 'widget_a2ui_erro', { codigo: codigo, sessao_id: sessaoId } );
+			fetch( CURADOR_ACAO_ENDPOINT, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( { sessao_id: sessaoId, version: 'v0.9', error: {
+					code: codigo, surfaceId: superficie, path: ( err && err.a2uiCaminho ) || '', message: String( ( err && err.message ) || '' ).slice( 0, 200 )
+				} } )
+			} ).catch( function () { /* so telemetria */ } );
+		}
+
+		// true se desenhou (e gravou no historico); false = chamador mostra o texto.
+		function mostrarA2ui( mensagens, htmlTexto ) {
+			try {
+				renderA2ui( mensagens );
+			} catch ( err ) {
+				reportarErroA2ui( err, mensagens );
+				return false;
+			}
+			historico.push( { tipo: 'a2ui', mensagens: mensagens, html: htmlTexto } );
+			salvarEstado();
+			return true;
+		}
+
+		// Clique num botao com evento: vai ao servidor no formato "action" da
+		// especificacao e executa o proximo passo que ele devolver.
+		function enviarAcaoA2ui( surfaceId, componenteId, evento, botao ) {
+			if ( botao ) botao.disabled = true;
+			track( 'widget_a2ui_acao', { acao: evento.name, componente: componenteId, sessao_id: sessaoId } );
+			fetch( CURADOR_ACAO_ENDPOINT, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( { sessao_id: sessaoId, version: 'v0.9', action: {
+					name: evento.name, surfaceId: surfaceId, sourceComponentId: componenteId,
+					timestamp: new Date().toISOString(), context: evento.context
+				} } )
+			} ).then( function ( r ) {
+				return r.json().then( function ( corpo ) {
+					if ( r.status === 429 ) trackBloqueio( 'acao' );
+					if ( ! r.ok ) throw new Error( ( corpo && corpo.erro ) || ( 'http ' + r.status ) );
+					return corpo;
+				} );
+			} ).then( function ( corpo ) {
+				if ( corpo.proximo && corpo.proximo.tipo === 'nova_rodada' && corpo.proximo.q ) {
+					// "Ver parecidos": mesmas preferencias, com o titulo como referencia.
+					addUser( 'Ver parecidos com ' + corpo.proximo.q );
+					mensagensEnviadas++;
+					estado.q = corpo.proximo.q;
+					estado.q_tmdb = null;
+					rodadaAtual++;
+					salvarEstado();
+					buscarRecomendacoes();
+				}
+			} ).catch( function ( err ) {
+				if ( botao ) botao.disabled = false;
+				addBot( escapeHtml( ( err && err.message && err.message.indexOf( 'http' ) !== 0 ) ? err.message : 'Não consegui fazer isso agora, tenta de novo em instantes.' ) );
+			} );
+		}
+
 		function buscarRecomendacoes() {
 			var carregando = renderBot( 'Só um instante, escolhendo uns filmes pra você...' );
 			var url = new URL( CINEQUIZ_ENDPOINT );
@@ -1431,7 +1659,9 @@
 						genero: f.genero, generos: f.generos,
 						direcao: f.direcao, atores: f.atores, elenco: f.elenco,
 						// "é bom?" (2026-09-28): nota TMDB e link da critica.
-						nota: f.nota, fonte: f.fonte, link: f.link
+						nota: f.nota, fonte: f.fonte, link: f.link,
+						// poster do cartao A2UI (com resenha: poster; sem resenha: poster_url)
+						poster: f.poster || f.poster_url
 					};
 				} );
 				perguntasEncerradas = true;
