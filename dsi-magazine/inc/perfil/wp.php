@@ -159,6 +159,9 @@ add_action( 'before_delete_post', function ( int $post_id ): void {
 // Login (token do WorkOS), resenhas na pagina da critica e fila do gestor.
 require_once __DIR__ . '/wp-conta.php';
 
+// Painel de acompanhamento de uso (wp-admin > Resenhas > Uso do perfil).
+require_once __DIR__ . '/wp-painel.php';
+
 // Aviso no editor quando a critica nao achou titulo no TMDB.
 add_action( 'admin_notices', function (): void {
 	$tela = function_exists( 'get_current_screen' ) ? get_current_screen() : null;

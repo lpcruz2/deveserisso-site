@@ -456,6 +456,61 @@ final class DSI_Perfil_Repositorio {
 		return (bool) $this->um( "SELECT post_id FROM {$this->p}titulo_post WHERE tmdb_id = ? AND tipo = ? LIMIT 1", [ $tmdb_id, $tipo ] );
 	}
 
+	// ------------------------------------------------------------- metricas
+
+	/** Agregados pro painel do gestor (sem dados de pessoas). Datas em UTC. */
+	public function metricas( int $dias = 30 ): array {
+		$agora = strtotime( $this->agora() . ' UTC' );
+		$desde = gmdate( 'Y-m-d H:i:s', $agora - $dias * 86400 );
+		$d7    = gmdate( 'Y-m-d H:i:s', $agora - 7 * 86400 );
+		$mapa  = function ( string $sql, array $args = [] ): array {
+			$saida = [];
+			foreach ( $this->todos( $sql, $args ) as $l ) {
+				$saida[ (string) $l['k'] ] = (int) $l['n'];
+			}
+			return $saida;
+		};
+		$n = fn( string $sql, array $args = [] ): int => (int) ( $this->um( $sql, $args )['n'] ?? 0 );
+		$p = $this->p;
+
+		$tempos = [];
+		foreach ( $this->todos( "SELECT enviada_em, decidida_em FROM {$p}resenha_versao WHERE status IN ('aprovada','recusada') AND decidida_em IS NOT NULL ORDER BY id DESC LIMIT 500" ) as $l ) {
+			$t = strtotime( $l['decidida_em'] . ' UTC' ) - strtotime( $l['enviada_em'] . ' UTC' );
+			if ( $t >= 0 ) {
+				$tempos[] = $t;
+			}
+		}
+		$contas = $n( "SELECT COUNT(*) AS n FROM {$p}conta" );
+
+		return [
+			'contas_total'        => $contas,
+			'contas_por_dia'      => $mapa( "SELECT SUBSTR(criado_em, 1, 10) AS k, COUNT(*) AS n FROM {$p}conta WHERE criado_em >= ? GROUP BY SUBSTR(criado_em, 1, 10)", [ $desde ] ),
+			'contas_por_origem'   => $mapa( "SELECT origem_cadastro AS k, COUNT(*) AS n FROM {$p}conta GROUP BY origem_cadastro" ),
+			'ativas_7'            => $n( "SELECT COUNT(*) AS n FROM {$p}conta WHERE ultimo_acesso_em >= ?", [ $d7 ] ),
+			'ativas_30'           => $n( "SELECT COUNT(*) AS n FROM {$p}conta WHERE ultimo_acesso_em >= ?", [ $desde ] ),
+			'marcacoes_total'     => $n( "SELECT COUNT(*) AS n FROM {$p}marcacao" ),
+			'marcacoes_por_dia'   => $mapa( "SELECT SUBSTR(atualizado_em, 1, 10) AS k, COUNT(*) AS n FROM {$p}marcacao WHERE atualizado_em >= ? GROUP BY SUBSTR(atualizado_em, 1, 10)", [ $desde ] ),
+			'marcacoes_por_canal' => $mapa( "SELECT canal AS k, COUNT(*) AS n FROM {$p}marcacao GROUP BY canal" ),
+			'marcacoes_por_tipo'  => [
+				'quero_ver' => $n( "SELECT COUNT(*) AS n FROM {$p}marcacao WHERE visto = 'quero_ver'" ),
+				'ja_vi'     => $n( "SELECT COUNT(*) AS n FROM {$p}marcacao WHERE visto = 'ja_vi'" ),
+				'curti'     => $n( "SELECT COUNT(*) AS n FROM {$p}marcacao WHERE avaliacao = 'curti'" ),
+				'nao_curti' => $n( "SELECT COUNT(*) AS n FROM {$p}marcacao WHERE avaliacao = 'nao_curti'" ),
+			],
+			'funil'               => [
+				'contas'        => $contas,
+				'com_1'         => $n( "SELECT COUNT(DISTINCT conta_id) AS n FROM {$p}marcacao" ),
+				'com_5'         => $n( "SELECT COUNT(*) AS n FROM (SELECT conta_id FROM {$p}marcacao GROUP BY conta_id HAVING COUNT(*) >= 5) x" ),
+				'com_avaliacao' => $n( "SELECT COUNT(DISTINCT conta_id) AS n FROM {$p}marcacao WHERE avaliacao IS NOT NULL" ),
+				'com_resenha'   => $n( "SELECT COUNT(DISTINCT conta_id) AS n FROM {$p}resenha" ),
+			],
+			'resenhas_total'      => $n( "SELECT COUNT(*) AS n FROM {$p}resenha" ),
+			'resenhas_por_status' => $mapa( "SELECT status AS k, COUNT(*) AS n FROM {$p}resenha_versao GROUP BY status" ),
+			'fila_pendentes'      => $n( "SELECT COUNT(*) AS n FROM {$p}resenha_versao WHERE status = 'pendente'" ),
+			'tempo_fila_horas'    => $tempos ? round( array_sum( $tempos ) / count( $tempos ) / 3600, 1 ) : null,
+		];
+	}
+
 	// ------------------------------------------------- LGPD e retencao
 
 	/** Tudo da pessoa, no formato da exportacao (R6, R9). */
