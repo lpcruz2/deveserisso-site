@@ -334,6 +334,19 @@
 			'@media(max-width:480px){.dsi-bh-widget--lp .dsi-bh-painel.aberto{position:static!important;' +
 			'inset:auto!important;width:100%!important;height:auto!important;max-width:100%!important;' +
 			'max-height:none!important;border-radius:14px!important;}}' +
+			/* Altura pela tela (2026-09-29, pedido do gestor: "o chat fica
+			   pequeno demais e nao consigo ver a tela inteira para digitar").
+			   Antes o painel tinha altura fixa (~500px): em tela baixa o campo
+			   de digitar ficava cortado e em tela alta sobrava espaco. Agora o
+			   painel ocupa a janela (cabecalho + conversa + campo, tudo de uma
+			   vez) e so a conversa rola. Celular: quase a tela toda; desktop:
+			   a janela menos o cabecalho do site. Espelhado no CSS pre-carga
+			   do template da LP. */
+			'.dsi-bh-widget--lp .dsi-bh-painel:not(.expandido){height:max(520px,calc(100vh - 32px))!important;' +
+			'height:max(520px,calc(100dvh - 32px))!important;}' +
+			'.dsi-bh-widget--lp .dsi-bh-painel:not(.expandido) .dsi-bh-thread{min-height:0;max-height:none;}' +
+			'@media(min-width:900px){.dsi-bh-widget--lp .dsi-bh-painel:not(.expandido){' +
+			'height:max(480px,calc(100vh - 150px))!important;height:max(480px,calc(100dvh - 150px))!important;}}' +
 			/* Expandir na LP (2026-09-25, pedido do gestor): no desktop so
 			   aumenta o chat na propria pagina (a pagina tira a coluna do
 			   texto, ver body.dsi-bh-lp-expandido no template); abaixo de

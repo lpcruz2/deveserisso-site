@@ -43,7 +43,8 @@ $dsi_top_atores = dsi_lp_top_atores();
 .dsi-bh-pre-carga .dsi-bh-painel{background:#f4eee2;color:#1d1a14;border-radius:14px;box-shadow:0 16px 40px rgba(29,26,20,.18);display:flex;flex-direction:column;overflow:hidden;font-family:Manrope,system-ui,sans-serif;font-size:15px}
 .dsi-bh-pre-carga .dsi-bh-cabecalho{background:#1d1a14;color:#e8a83c;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;font-weight:600;font-size:16px}
 .dsi-bh-pre-carga .dsi-bh-reiniciar,.dsi-bh-pre-carga .dsi-bh-expandir{background:none;border:none;color:#e8a83c;font-size:20px;cursor:pointer;line-height:1;margin-right:8px}
-.dsi-bh-pre-carga .dsi-bh-thread{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;min-height:300px;max-height:420px}
+.dsi-bh-pre-carga .dsi-bh-thread{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;min-height:0;max-height:none}
+.dsi-bh-pre-carga .dsi-bh-painel{height:max(520px,calc(100vh - 32px));height:max(520px,calc(100dvh - 32px))}
 .dsi-bh-pre-carga .dsi-bh-msg{max-width:85%;padding:10px 14px;border-radius:10px;line-height:1.45}
 .dsi-bh-pre-carga .dsi-bh-msg--bot{background:#ebe3d2;align-self:flex-start;border-bottom-left-radius:2px}
 .dsi-bh-pre-carga .dsi-bh-quebra-gelo-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
@@ -87,11 +88,12 @@ $dsi_top_atores = dsi_lp_top_atores();
    proporcoes proprias porque o chat precisa de largura fixa, nao 1fr). */
 @media(min-width:900px){
 .dsi-lp__inner{max-width:1120px;padding:0 48px 96px}
-.dsi-lp__hero-grid{display:grid;grid-template-columns:1fr 480px;gap:56px;align-items:start;padding:64px 0 56px}
+.dsi-lp__hero-grid{display:grid;grid-template-columns:1fr 480px;gap:56px;align-items:start;padding:32px 0 56px}
+.dsi-bh-pre-carga .dsi-bh-painel{height:max(480px,calc(100vh - 150px));height:max(480px,calc(100dvh - 150px))}
 .dsi-lp__hero{text-align:left;align-items:flex-start;padding:0;gap:20px}
 .dsi-lp__titulo{font-size:52px}
 .dsi-lp__sub{max-width:440px}
-#dsi-bh-lp-slot{position:sticky;top:24px}
+#dsi-bh-lp-slot{position:sticky;top:12px}
 /* Chat expandido (botao do cabecalho, ver bilheteiro-widget.js): tira a
    coluna do texto e o chat ocupa a largura toda. */
 body.dsi-bh-lp-expandido .dsi-lp__hero-grid{grid-template-columns:1fr}
