@@ -532,3 +532,17 @@ function dsi_bilheteiro_escolher_opcao( string $mensagem, array $opcoes ) {
 	}
 	return null;
 }
+
+// Epoca classificada por titulo (2026-09-28): uma das chaves de
+// DSI_AMBIENTACOES ou "nenhuma" (historia atual ou sem epoca marcada).
+// Qualquer outra resposta do modelo vira null (nao grava, tenta de novo depois).
+function dsi_epoca_valida( $valor ): ?string {
+	if ( ! is_string( $valor ) ) {
+		return null;
+	}
+	$chave = strtolower( trim( strtr( $valor, [ 'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ç' => 'c', 'ã' => 'a', 'ê' => 'e', 'É' => 'e', 'Í' => 'i', 'Á' => 'a' ] ) ) );
+	if ( $chave === 'nenhuma' || isset( DSI_AMBIENTACOES[ $chave ] ) ) {
+		return $chave;
+	}
+	return null;
+}

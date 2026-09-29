@@ -570,4 +570,19 @@ final class BilheteiroLogicaTest extends TestCase {
 		// "filme" sozinho nao decide: ha dois filmes
 		$this->assertNull( dsi_bilheteiro_escolher_opcao( 'o filme', $this->opcoesOReino() ) );
 	}
+
+	// -- dsi_epoca_valida -------------------------------------------------------
+
+	public function test_epoca_valida_aceita_chaves_e_rotulos(): void {
+		$this->assertSame( 'idade media', dsi_epoca_valida( 'idade media' ) );
+		$this->assertSame( 'idade media', dsi_epoca_valida( 'Idade Média' ) );
+		$this->assertSame( 'espaco', dsi_epoca_valida( 'Espaço' ) );
+		$this->assertSame( 'nenhuma', dsi_epoca_valida( 'nenhuma' ) );
+	}
+
+	public function test_epoca_valida_recusa_o_resto(): void {
+		$this->assertNull( dsi_epoca_valida( 'anos 90' ) );
+		$this->assertNull( dsi_epoca_valida( null ) );
+		$this->assertNull( dsi_epoca_valida( [ 'idade media' ] ) );
+	}
 }

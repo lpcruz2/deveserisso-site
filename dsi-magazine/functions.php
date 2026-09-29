@@ -1810,6 +1810,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 						'nota_tmdb'          => $resolvido['nota_tmdb'],
 						'temas'              => wp_json_encode( $resolvido['temas'] ),
 						'subtemas'           => wp_json_encode( $resolvido['subtemas'] ),
+						'epoca'              => $resolvido['epoca'] ?? null,
 						'atores'             => wp_json_encode( $resolvido['atores'] ),
 						'poster_url'         => $resolvido['poster_url'],
 						'sinopse'            => $resolvido['sinopse'],
@@ -1948,11 +1949,16 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 
 		$tem_ambientacao = false;
 		if ( $chaves_ambientacao ) {
-			$acertos_epoca = dsi_ambientacao_acertos(
-				$ambientacao_pedida,
-				dsi_dt_normalize_key( (string) $d['titulo'] ),
-				dsi_dt_normalize_key( implode( ' ', array_map( 'strval', (array) ( $d['temas'] ?? [] ) ) ) . ' ' . mb_substr( wp_strip_all_tags( $post->post_content ), 0, 1500 ) )
-			);
+			// Epoca classificada (meta _dsi_epoca) vale mais que as palavras;
+			// palavras so pra critica ainda sem classificacao.
+			$epoca_salva   = (string) get_post_meta( $post->ID, '_dsi_epoca', true );
+			$acertos_epoca = $epoca_salva !== ''
+				? ( $epoca_salva === $ambientacao_pedida ? 4 : 0 )
+				: dsi_ambientacao_acertos(
+					$ambientacao_pedida,
+					dsi_dt_normalize_key( (string) $d['titulo'] ),
+					dsi_dt_normalize_key( implode( ' ', array_map( 'strval', (array) ( $d['temas'] ?? [] ) ) ) . ' ' . mb_substr( wp_strip_all_tags( $post->post_content ), 0, 1500 ) )
+				);
 			if ( $acertos_epoca > 0 ) {
 				$tem_ambientacao = true;
 				$score          += DSI_SCORE_PESO_GENERO + 5 * min( $acertos_epoca, 4 );
@@ -2031,11 +2037,13 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		}
 		$tem_ambientacao = false;
 		if ( $chaves_ambientacao ) {
-			$acertos_epoca = dsi_ambientacao_acertos(
-				$ambientacao_pedida,
-				dsi_dt_normalize_key( (string) $linha['titulo'] ),
-				dsi_dt_normalize_key( implode( ' ', array_map( 'strval', $temas_linha ) ) . ' ' . (string) $linha['sinopse'] )
-			);
+			$acertos_epoca = ! empty( $linha['epoca'] )
+				? ( $linha['epoca'] === $ambientacao_pedida ? 4 : 0 )
+				: dsi_ambientacao_acertos(
+					$ambientacao_pedida,
+					dsi_dt_normalize_key( (string) $linha['titulo'] ),
+					dsi_dt_normalize_key( implode( ' ', array_map( 'strval', $temas_linha ) ) . ' ' . (string) $linha['sinopse'] )
+				);
 			if ( $acertos_epoca > 0 ) {
 				$tem_ambientacao = true;
 				$score          += DSI_SCORE_PESO_GENERO + 5 * min( $acertos_epoca, 4 );
@@ -4315,7 +4323,8 @@ add_action( 'init', function (): void {
 	// contagem_mencoes: mencoes conta "citado pelo visitante pelo nome",
 	// recomendacoes conta "apareceu de verdade na lista sem_resenha de uma
 	// resposta real" (nunca incrementado durante import em massa).
-	$versao_atual = '1.2';
+	// 1.3 (2026-09-28): epoca do titulo (ver dsi_classificar_epoca).
+	$versao_atual = '1.3';
 	if ( get_option( 'dsi_filme_externo_cache_versao' ) === $versao_atual ) {
 		return;
 	}
@@ -4344,10 +4353,12 @@ add_action( 'init', function (): void {
 		primeira_mencao_em DATETIME NOT NULL,
 		liberado_em DATETIME NULL,
 		post_id_gerado BIGINT UNSIGNED NULL,
+		epoca VARCHAR(32) NULL,
 		PRIMARY KEY  (id),
 		KEY titulo_normalizado (titulo_normalizado),
 		KEY liberado_em (liberado_em),
-		KEY post_id_gerado (post_id_gerado)
+		KEY post_id_gerado (post_id_gerado),
+		KEY epoca (epoca)
 	) {$charset_collate};";
 	dbDelta( $sql );
 	update_option( 'dsi_filme_externo_cache_versao', $versao_atual );
@@ -4374,10 +4385,84 @@ Você classifica filmes/séries em temas e subtemas narrativos, em
 português, a partir da sinopse. Use termos curtos e genéricos (ex:
 vingança, redenção, amizade, sobrevivência, sátira social), não frases.
 
+Diga tambem a epoca/ambientacao da historia, SEMPRE um destes valores:
+antiguidade, idade media, seculos xvi a xviii, velho oeste, seculo xix,
+primeira guerra, segunda guerra, guerra fria, futuro, espaco, ou nenhuma
+(historia atual ou sem epoca marcada).
+
 Responda SEMPRE em JSON, sem markdown, sem texto fora do JSON, neste
 formato exato:
-{"temas": ["tema1", "tema2"], "subtemas": ["subtema1", "subtema2"]}
+{"temas": ["tema1", "tema2"], "subtemas": ["subtema1", "subtema2"], "epoca": "nenhuma"}
 PROMPT;
+
+// Epoca de um titulo so (criticas do site e backfill do catalogo,
+// 2026-09-28). Mesma lista da busca do chat (DSI_AMBIENTACOES) mais
+// "nenhuma". Teste com 21 criticas: 20 certas com deepseek-flash (o erro foi
+// Reality Z, que a propria critica chama de distopia).
+const DSI_EPOCA_INSTRUCAO = <<<PROMPT
+Você classifica a época/ambientação de um filme ou série a partir do título e do texto de uma crítica ou sinopse. Escolha UMA opção desta lista:
+antiguidade = Roma, Grécia ou Egito antigos, gladiadores, China antiga;
+idade media = cavaleiros, castelos, cruzadas, vikings, reinos feudais, fantasia de inspiração medieval;
+seculos xvi a xviii = piratas, mosqueteiros, cortes reais, período colonial, Revolução Francesa;
+velho oeste = cowboys, pistoleiros, fronteira americana, guerras contra povos indígenas no século 19;
+seculo xix = século 19 fora do Velho Oeste, era vitoriana, Guerra Civil Americana, escravidão;
+primeira guerra = Primeira Guerra Mundial e começo do século 20;
+segunda guerra = Segunda Guerra Mundial, nazismo, Holocausto, anos 30 e 40;
+guerra fria = Guerra Fria e décadas de 50 a 80, Guerra do Vietnã, ditaduras;
+futuro = futuro, distopias, mundos pós-apocalípticos;
+espaco = espaço sideral, naves, outros planetas, astronautas;
+nenhuma = história atual ou sem época marcada.
+Responda só JSON: {"epoca": "..."}
+PROMPT;
+function dsi_classificar_epoca( string $titulo, string $texto ): ?string {
+	$chave = defined( 'DSI_DEEPSEEK_KEY' ) ? DSI_DEEPSEEK_KEY : '';
+	if ( $chave === '' || trim( $titulo . $texto ) === '' ) {
+		return null;
+	}
+	$resposta = wp_remote_post( 'https://api.deepseek.com/chat/completions', [
+		'headers' => [ 'Authorization' => 'Bearer ' . $chave, 'Content-Type' => 'application/json' ],
+		'body'    => wp_json_encode( [
+			'model'           => 'deepseek-flash',
+			'messages'        => [
+				[ 'role' => 'system', 'content' => DSI_EPOCA_INSTRUCAO ],
+				[ 'role' => 'user', 'content' => 'Título: ' . $titulo . "\n\n" . mb_substr( $texto, 0, 1500 ) ],
+			],
+			'response_format' => [ 'type' => 'json_object' ],
+			'temperature'     => 0,
+		] ),
+		'timeout' => 20,
+	] );
+	if ( is_wp_error( $resposta ) ) {
+		return null;
+	}
+	$corpo = json_decode( wp_remote_retrieve_body( $resposta ), true );
+	$json  = json_decode( $corpo['choices'][0]['message']['content'] ?? '', true );
+	return dsi_epoca_valida( $json['epoca'] ?? null );
+}
+
+// Critica nova com ficha tecnica ganha epoca sozinha, fora do salvamento (o
+// agendamento roda depois, pra nao atrasar quem publica). Meta _dsi_epoca.
+add_action( 'wp_after_insert_post', function ( int $post_id, WP_Post $post ): void {
+	if ( $post->post_type !== 'post' || $post->post_status !== 'publish' ) {
+		return;
+	}
+	if ( get_post_meta( $post_id, '_dsi_epoca', true ) !== '' || get_post_meta( $post_id, '_dsi_dados_tecnicos_raw', true ) === '' ) {
+		return;
+	}
+	if ( ! wp_next_scheduled( 'dsi_classificar_epoca_post', [ $post_id ] ) ) {
+		wp_schedule_single_event( time() + 60, 'dsi_classificar_epoca_post', [ $post_id ] );
+	}
+}, 20, 2 );
+add_action( 'dsi_classificar_epoca_post', function ( int $post_id ): void {
+	$post = get_post( $post_id );
+	if ( ! $post ) {
+		return;
+	}
+	$epoca = dsi_classificar_epoca( get_the_title( $post ), wp_strip_all_tags( $post->post_content ) );
+	if ( $epoca !== null ) {
+		update_post_meta( $post_id, '_dsi_epoca', $epoca );
+	}
+} );
 
 function dsi_classificar_filme_externo_endpoint( WP_REST_Request $req ): WP_REST_Response {
 	$titulo = (string) $req->get_param( 'titulo_mencionado' );
@@ -4595,6 +4680,7 @@ function dsi_catalogo_tmdb_processar_item( array $item, string $tipo ): ?array {
 
 	$temas    = [];
 	$subtemas = [];
+	$epoca    = null;
 	$deepseek_key = defined( 'DSI_DEEPSEEK_KEY' ) ? DSI_DEEPSEEK_KEY : '';
 	if ( $deepseek_key && ! empty( $overview ) ) {
 		$classificacao = wp_remote_post( 'https://api.deepseek.com/chat/completions', [
@@ -4615,6 +4701,7 @@ function dsi_catalogo_tmdb_processar_item( array $item, string $tipo ): ?array {
 			$json     = json_decode( $corpo['choices'][0]['message']['content'] ?? '', true );
 			$temas    = $json['temas'] ?? [];
 			$subtemas = $json['subtemas'] ?? [];
+			$epoca    = dsi_epoca_valida( $json['epoca'] ?? null );
 		}
 	}
 
@@ -4636,6 +4723,7 @@ function dsi_catalogo_tmdb_processar_item( array $item, string $tipo ): ?array {
 		'atores'             => $elenco,
 		'temas'              => $temas,
 		'subtemas'           => $subtemas,
+		'epoca'              => $epoca,
 		'poster_url'         => ! empty( $item['poster_path'] ) ? 'https://image.tmdb.org/t/p/w500' . $item['poster_path'] : null,
 		'sinopse'            => $overview,
 		'post_id_gerado'     => dsi_catalogo_localizar_post_existente( $titulo, $chave ),
@@ -4797,6 +4885,7 @@ function dsi_classificar_filme_externo( string $titulo_mencionado ) {
 		'nota_tmdb'           => $processado['nota_tmdb'],
 		'temas'               => wp_json_encode( $processado['temas'] ),
 		'subtemas'            => wp_json_encode( $processado['subtemas'] ),
+		'epoca'               => $processado['epoca'] ?? null,
 		'atores'              => wp_json_encode( $processado['atores'] ),
 		'poster_url'          => $processado['poster_url'],
 		'sinopse'             => $processado['sinopse'],
@@ -4887,6 +4976,7 @@ function dsi_importar_catalogo_tmdb_endpoint( WP_REST_Request $req ): WP_REST_Re
 			'nota_tmdb'           => $processado['nota_tmdb'],
 			'temas'               => wp_json_encode( $processado['temas'] ),
 			'subtemas'            => wp_json_encode( $processado['subtemas'] ),
+			'epoca'               => $processado['epoca'] ?? null,
 			'atores'              => wp_json_encode( $processado['atores'] ),
 			'poster_url'          => $processado['poster_url'],
 			'sinopse'             => $processado['sinopse'],
