@@ -807,4 +807,64 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertStringContainsString( '3 tentativas sem sucesso', $tres['proximo']['texto'] );
 		$this->assertStringNotContainsString( '—', $tres['proximo']['texto'] );
 	}
+
+	// -- A2UI: aviso sobre o ator -------------------------------------------------
+
+	public function test_a2ui_aviso_ator_textos(): void {
+		$this->assertSame(
+			'Ainda não temos títulos com Fulano no nosso catálogo, então separei os de terror que mais combinam com o que você contou.',
+			dsi_a2ui_aviso_ator_texto( 'sem_ator', 'Fulano', 'Terror' )
+		);
+		$this->assertSame(
+			'Ainda não temos títulos com Fulano no nosso catálogo, então separei os que mais combinam com o que você contou.',
+			dsi_a2ui_aviso_ator_texto( 'sem_ator', 'Fulano', '' )
+		);
+		$this->assertSame(
+			'Não temos resenha de terror com Ben Stiller no site, então separei os títulos com Ben Stiller que temos por aqui.',
+			dsi_a2ui_aviso_ator_texto( 'sem_genero', 'Ben Stiller', 'Terror' )
+		);
+		$this->assertSame(
+			'Não temos resenha desse gênero com Ben Stiller no site, então separei os títulos com Ben Stiller que temos por aqui.',
+			dsi_a2ui_aviso_ator_texto( 'sem_genero', 'Ben Stiller', DSI_A2UI_SEM_PREFERENCIA )
+		);
+		$this->assertSame(
+			'Não achei comédia com Meryl Streep e mais 3 no nosso catálogo, então separei os de comédia que mais combinam com o que você contou.',
+			dsi_a2ui_aviso_ator_texto( 'genero_sem_ator', 'Meryl Streep e mais 3', 'Comédia' )
+		);
+	}
+
+	public function test_a2ui_aviso_ator_tem_botoes_de_genero_com_contexto(): void {
+		$aviso = [ 'tipo' => 'sem_genero', 'ator' => 'Ben Stiller', 'generos_com_ator' => [ 'Comédia', 'Romance', 'Ação', 'Drama' ] ];
+		$m     = dsi_a2ui_aviso_ator( $aviso, 'Terror', 'aviso-ator-1-abc' );
+		$c     = $this->componentesDe( $m );
+		$this->assertSame( [ 'g0', 'g1', 'g2' ], $c['botoes']['children'], 'no maximo 3 generos' );
+		$this->assertSame( 'escolher_genero', $c['g0']['action']['event']['name'] );
+		$this->assertSame( [ 'genero' => 'Comédia', 'ator' => 'Ben Stiller', 'tipo' => 'sem_genero', 'genero_pedido' => 'Terror' ], $c['g0']['action']['event']['context'] );
+		$this->assertSame( 'Comédia', $c['g0_t']['text'] );
+		$this->assertSame( 'Com Ben Stiller, temos títulos de:', $m[2]['updateDataModel']['value']['apoio'] );
+		foreach ( $c as $comp ) {
+			$this->assertContains( $comp['component'], [ 'Card', 'Column', 'Row', 'Image', 'Text', 'Button' ] );
+			foreach ( array_merge( (array) ( $comp['children'] ?? [] ), isset( $comp['child'] ) ? [ $comp['child'] ] : [] ) as $filho ) {
+				$this->assertArrayHasKey( $filho, $c, 'filho inexistente: ' . $filho );
+			}
+		}
+	}
+
+	public function test_a2ui_aviso_ator_sem_generos_e_so_texto(): void {
+		$m = dsi_a2ui_aviso_ator( [ 'tipo' => 'sem_ator', 'ator' => 'Fulano', 'generos_com_ator' => [] ], 'Terror', 's1' );
+		$c = $this->componentesDe( $m );
+		$this->assertSame( [ 'texto', 'corpo', 'root' ], array_keys( $c ) );
+		$this->assertArrayNotHasKey( 'botoes', $c );
+		$this->assertSame( [ 'texto' ], $c['corpo']['children'] );
+	}
+
+	public function test_a2ui_validar_escolha_genero(): void {
+		$ctx = [ 'genero' => 'Comédia', 'ator' => 'Ben Stiller', 'tipo' => 'sem_genero', 'genero_pedido' => 'Terror' ];
+		$this->assertSame( [ 'Comédia', 'Ben Stiller', 'sem_genero', 'Terror' ], dsi_a2ui_validar_escolha_genero( [ 'name' => 'escolher_genero', 'context' => $ctx ] ) );
+		$this->assertNull( dsi_a2ui_validar_escolha_genero( [ 'name' => 'escolher_genero', 'context' => array_merge( $ctx, [ 'tipo' => 'hackeado' ] ) ] ) );
+		$this->assertNull( dsi_a2ui_validar_escolha_genero( [ 'name' => 'escolher_genero', 'context' => array_merge( $ctx, [ 'genero' => '' ] ) ] ) );
+		$this->assertNull( dsi_a2ui_validar_escolha_genero( [ 'name' => 'escolher_genero', 'context' => array_merge( $ctx, [ 'ator' => str_repeat( 'a', 81 ) ] ) ] ) );
+		$this->assertNull( dsi_a2ui_validar_escolha_genero( [ 'name' => 'mais_parecidos', 'context' => $ctx ] ) );
+		$this->assertNull( dsi_a2ui_validar_escolha_genero( 'texto' ) );
+	}
 }

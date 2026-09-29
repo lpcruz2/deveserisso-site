@@ -731,7 +731,9 @@
 				else if ( item.tipo === 'a2ui' ) {
 					// Mesmas mensagens de antes, redesenhadas; se falhar, o texto.
 					try { renderA2ui( item.mensagens ); } catch ( err ) {
-						if ( item.fallback === 'feedback' ) renderFeedback(); else renderBot( item.html );
+						if ( item.fallback === 'feedback' ) renderFeedback();
+						else if ( item.fallback === 'aviso_ator' && item.dados ) renderAvisoAtor( { tipo: 'aviso_ator', aviso: item.dados.aviso, genero: item.dados.genero, usado: false } );
+						else renderBot( item.html );
 					}
 				}
 			} );
@@ -1562,16 +1564,20 @@
 		}
 
 		// true se desenhou (e gravou no historico); false = chamador mostra o texto.
-		function mostrarA2ui( mensagens, htmlTexto, fallback ) {
+		// Devolve o elemento desenhado (verdadeiro) ou false. $dados: o que a
+		// tela antiga precisa pra ser redesenhada se o cartao nao puder (ao
+		// restaurar a conversa).
+		function mostrarA2ui( mensagens, htmlTexto, fallback, dados ) {
+			var el;
 			try {
-				renderA2ui( mensagens );
+				el = renderA2ui( mensagens );
 			} catch ( err ) {
 				reportarErroA2ui( err, mensagens );
 				return false;
 			}
-			historico.push( { tipo: 'a2ui', mensagens: mensagens, html: htmlTexto, fallback: fallback || null } );
+			historico.push( { tipo: 'a2ui', mensagens: mensagens, html: htmlTexto, fallback: fallback || null, dados: dados || null } );
 			salvarEstado();
-			return true;
+			return el;
 		}
 
 		// Clique num botao com evento: vai ao servidor no formato "action" da
@@ -1605,6 +1611,14 @@
 					mensagensEnviadas++;
 					estado.q = proximo.q;
 					estado.q_tmdb = null;
+					rodadaAtual++;
+					salvarEstado();
+					buscarRecomendacoes();
+				} else if ( proximo.tipo === 'nova_rodada_genero' && proximo.genero ) {
+					// Botao de genero do aviso do ator: mesma pessoa, genero escolhido.
+					addUser( proximo.texto || ( 'Quero ' + String( proximo.genero ).toLowerCase() ) );
+					mensagensEnviadas++;
+					estado.genero = proximo.genero;
 					rodadaAtual++;
 					salvarEstado();
 					buscarRecomendacoes();
@@ -1667,7 +1681,12 @@
 						? 'Ainda não tenho títulos de ' + epoca + ' no catálogo, então separei os que mais combinam com o resto do que você contou.'
 						: 'Tenho poucos títulos de ' + epoca + ' por aqui. Estes são os que encontrei:' );
 				}
-				var avisoAtorEl = data.aviso_atores ? addAvisoAtor( data.aviso_atores, estado.genero ) : null;
+				// Aviso do ator: A2UI quando o servidor mandou e desenhou; senao o desenhado aqui.
+				var avisoAtorEl = null;
+				if ( data.aviso_atores ) {
+					avisoAtorEl = ( data.a2ui_aviso_ator && mostrarA2ui( data.a2ui_aviso_ator, '', 'aviso_ator', { aviso: data.aviso_atores, genero: estado.genero } ) )
+						|| addAvisoAtor( data.aviso_atores, estado.genero );
+				}
 				if ( itens.length ) {
 					itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
 					addFilmes( itens ); // seta ancoraComResenha internamente

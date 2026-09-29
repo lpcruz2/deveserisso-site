@@ -2279,6 +2279,14 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		$a2ui_feedback = dsi_a2ui_bloco_feedback( $rodada_fb, 'feedback-' . $rodada_fb . '-' . substr( md5( $sessao_id . '|' . $rodada_fb . '|' . microtime( true ) ), 0, 6 ) );
 	}
 
+	// Aviso sobre o ator em A2UI (2026-09-29): texto e botoes de genero
+	// descritos pelo servidor, quando o widget declara o catalogo.
+	$a2ui_aviso_ator = null;
+	if ( $aviso_atores && dsi_a2ui_cliente_suporta( [ 'supportedCatalogIds' => [ (string) $req->get_param( 'a2ui_catalogo' ) ] ] ) && in_array( $aviso_atores['tipo'] ?? '', DSI_A2UI_AVISO_TIPOS, true ) ) {
+		$rodada_av       = max( 1, (int) $req->get_param( 'rodada' ) );
+		$a2ui_aviso_ator = dsi_a2ui_aviso_ator( $aviso_atores, (string) $req->get_param( 'genero' ), 'aviso-ator-' . $rodada_av . '-' . substr( md5( $sessao_id . '|' . $rodada_av . '|' . microtime( true ) ), 0, 6 ) );
+	}
+
 	return new WP_REST_Response( [
 		'@context'         => 'https://schema.org',
 		'@type'            => 'ItemList',
@@ -2291,6 +2299,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		'aviso_atores'     => $aviso_atores,
 		'aviso_ambientacao' => $aviso_ambientacao,
 		'a2ui_feedback'    => $a2ui_feedback,
+		'a2ui_aviso_ator'  => $a2ui_aviso_ator,
 	] );
 }
 
@@ -3413,6 +3422,27 @@ function dsi_curador_acao( WP_REST_Request $req ): WP_REST_Response {
 		return new WP_REST_Response( [
 			'a2ui'    => $surface_id !== '' ? dsi_a2ui_bloco_feedback_resposta( $desfecho['texto'], $surface_id ) : null,
 			'proximo' => $desfecho['proximo'],
+		] );
+	}
+
+	// Botao de genero do aviso sobre o ator: a mesma superficie volta so com o
+	// texto (sem botoes) e o chat faz a busca com esse genero.
+	if ( is_array( $acao ) && ( $acao['name'] ?? '' ) === 'escolher_genero' ) {
+		$escolha = dsi_a2ui_validar_escolha_genero( $acao );
+		if ( $escolha === null ) {
+			return new WP_REST_Response( [ 'erro' => 'Ação desconhecida.' ], 400 );
+		}
+		[ $genero_escolhido, $ator_aviso, $tipo_aviso, $genero_pedido ] = $escolha;
+		$surface_id = substr( preg_replace( '/[^A-Za-z0-9_-]/', '', (string) ( $acao['surfaceId'] ?? '' ) ), 0, 120 );
+		dsi_bilheteiro_registrar_evento_ui( $sessao_id, 'acao', 'escolher_genero', [
+			'surfaceId'         => $surface_id,
+			'sourceComponentId' => mb_substr( (string) ( $acao['sourceComponentId'] ?? '' ), 0, 60 ),
+			'genero'            => $genero_escolhido,
+			'ator'              => $ator_aviso,
+		] );
+		return new WP_REST_Response( [
+			'a2ui'    => $surface_id !== '' ? dsi_a2ui_bloco_feedback_resposta( dsi_a2ui_aviso_ator_texto( $tipo_aviso, $ator_aviso, $genero_pedido ), $surface_id ) : null,
+			'proximo' => [ 'tipo' => 'nova_rodada_genero', 'genero' => $genero_escolhido, 'texto' => 'Quero ' . mb_strtolower( $genero_escolhido ) . ' com ' . $ator_aviso ],
 		] );
 	}
 
@@ -5358,7 +5388,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.11.2',
+		'1.11.3',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de

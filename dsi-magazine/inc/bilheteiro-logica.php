@@ -784,3 +784,77 @@ function dsi_a2ui_feedback_desfecho( string $veredito, int $negativas ): array {
 		: 'Me conta mais alguma coisa (outro gênero, ator, "sem terror"...) que eu tento de novo.';
 	return [ 'texto' => 'Poxa, vamos tentar de novo.', 'proximo' => [ 'tipo' => 'esperar_preferencia', 'texto' => $conversa ] ];
 }
+
+// -----------------------------------------------------------------------------
+// A2UI: aviso sobre o ator + botoes de genero (2026-09-29, terceira tela)
+// -----------------------------------------------------------------------------
+// O texto do aviso deixou o widget e passou pro servidor (era montado em
+// montarAvisoAtor, no JS). Tipos vindos de /recomendar-filme (aviso_atores):
+// sem_ator, sem_genero, genero_sem_ator.
+const DSI_A2UI_AVISO_TIPOS    = [ 'sem_ator', 'sem_genero', 'genero_sem_ator' ];
+// Mesmo valor de DSI_BILHETEIRO_SEM_PREFERENCIA (functions.php); local porque os testes so carregam este arquivo.
+const DSI_A2UI_SEM_PREFERENCIA = '__sem_preferencia__';
+
+function dsi_a2ui_aviso_ator_texto( string $tipo, string $ator, string $genero_pedido ): string {
+	$genero = $genero_pedido !== '' && $genero_pedido !== DSI_A2UI_SEM_PREFERENCIA ? mb_strtolower( $genero_pedido ) : '';
+	$da_lista = $genero !== '' ? 'de ' . $genero . ' ' : '';
+	switch ( $tipo ) {
+		case 'sem_ator':
+			return 'Ainda não temos títulos com ' . $ator . ' no nosso catálogo, então separei os ' . $da_lista . 'que mais combinam com o que você contou.';
+		case 'genero_sem_ator':
+			return 'Não achei ' . ( $genero !== '' ? $genero : 'títulos desse gênero' ) . ' com ' . $ator . ' no nosso catálogo, então separei os ' . $da_lista . 'que mais combinam com o que você contou.';
+		default: // sem_genero
+			return 'Não temos resenha ' . ( $genero !== '' ? 'de ' . $genero : 'desse gênero' ) . ' com ' . $ator . ' no site, então separei os títulos com ' . $ator . ' que temos por aqui.';
+	}
+}
+
+// $aviso = aviso_atores de /recomendar-filme (tipo, ator, generos_com_ator).
+function dsi_a2ui_aviso_ator( array $aviso, string $genero_pedido, string $surface_id ): array {
+	$tipo    = (string) ( $aviso['tipo'] ?? '' );
+	$ator    = mb_substr( (string) ( $aviso['ator'] ?? '' ), 0, 80 );
+	$generos = array_slice( array_values( array_filter( array_map( 'strval', (array) ( $aviso['generos_com_ator'] ?? [] ) ), fn( $g ) => $g !== '' && mb_strlen( $g ) <= 40 ) ), 0, 3 );
+	$genero_ctx = mb_substr( $genero_pedido === DSI_A2UI_SEM_PREFERENCIA ? '' : $genero_pedido, 0, 40 );
+
+	$filhos      = [ 'texto' ];
+	$componentes = [ [ 'id' => 'texto', 'component' => 'Text', 'text' => [ 'path' => '/texto' ] ] ];
+	if ( $generos ) {
+		$componentes[] = [ 'id' => 'apoio', 'component' => 'Text', 'text' => [ 'path' => '/apoio' ], 'variant' => 'caption' ];
+		$ids = [];
+		foreach ( $generos as $i => $g ) {
+			$id            = 'g' . $i;
+			$ids[]         = $id;
+			$componentes[] = [ 'id' => $id, 'component' => 'Button', 'child' => $id . '_t',
+				'action' => [ 'event' => [ 'name' => 'escolher_genero', 'context' => [ 'genero' => $g, 'ator' => $ator, 'tipo' => $tipo, 'genero_pedido' => $genero_ctx ] ] ] ];
+			$componentes[] = [ 'id' => $id . '_t', 'component' => 'Text', 'text' => $g ];
+		}
+		$componentes[] = [ 'id' => 'botoes', 'component' => 'Row', 'children' => $ids ];
+		$filhos        = [ 'texto', 'apoio', 'botoes' ];
+	}
+	$componentes[] = [ 'id' => 'corpo', 'component' => 'Column', 'children' => $filhos ];
+	$componentes[] = [ 'id' => 'root', 'component' => 'Card', 'child' => 'corpo' ];
+
+	return [
+		[ 'version' => DSI_A2UI_VERSAO, 'createSurface' => [ 'surfaceId' => $surface_id, 'catalogId' => DSI_A2UI_CATALOGO ] ],
+		[ 'version' => DSI_A2UI_VERSAO, 'updateComponents' => [ 'surfaceId' => $surface_id, 'components' => $componentes ] ],
+		[ 'version' => DSI_A2UI_VERSAO, 'updateDataModel' => [ 'surfaceId' => $surface_id, 'path' => '/', 'value' => [
+			'texto' => dsi_a2ui_aviso_ator_texto( $tipo, $ator, $genero_pedido ),
+			'apoio' => 'Com ' . $ator . ', temos títulos de:',
+		] ] ],
+	];
+}
+
+// Acao "escolher_genero". Devolve [ genero, ator, tipo, genero_pedido ] ou null.
+function dsi_a2ui_validar_escolha_genero( $acao ): ?array {
+	if ( ! is_array( $acao ) || ( $acao['name'] ?? '' ) !== 'escolher_genero' ) {
+		return null;
+	}
+	$c      = (array) ( $acao['context'] ?? [] );
+	$genero = trim( (string) ( $c['genero'] ?? '' ) );
+	$ator   = trim( (string) ( $c['ator'] ?? '' ) );
+	$tipo   = (string) ( $c['tipo'] ?? '' );
+	$pedido = trim( (string) ( $c['genero_pedido'] ?? '' ) );
+	if ( $genero === '' || mb_strlen( $genero ) > 40 || $ator === '' || mb_strlen( $ator ) > 80 || mb_strlen( $pedido ) > 40 || ! in_array( $tipo, DSI_A2UI_AVISO_TIPOS, true ) ) {
+		return null;
+	}
+	return [ $genero, $ator, $tipo, $pedido ];
+}
