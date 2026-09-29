@@ -687,7 +687,8 @@ function dsi_a2ui_validar_acao( $acao ): ?array {
 // ela e o botao, entao a frase sai sem endereco (e sem o "no link ..." que
 // ficaria pendurado).
 function dsi_a2ui_frase_sem_links( string $frase ): string {
-	$sem = preg_replace( '#https?://\S+#u', '', $frase );
+	// Tira o endereco e o dois-pontos/travessao que o apresentava ("critica: https://...").
+	$sem = preg_replace( '#\s*[:—–]?\s*https?://\S+#u', '', $frase );
 	$sem = preg_replace( '/\s+([,.;:!?])/u', '$1', (string) $sem );
 	$sem = preg_replace( '/\s{2,}/u', ' ', (string) $sem );
 	$sem = trim( (string) $sem, " \t\n\r—–-:," );
