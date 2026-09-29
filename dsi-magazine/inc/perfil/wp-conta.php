@@ -104,7 +104,10 @@ function dsi_perfil_autenticar_requisicao(): array {
 	$jwks = dsi_perfil_jwks();
 	try {
 		$kid = dsi_perfil_jwt_kid( $jwt );
-		if ( $kid !== null && ! in_array( $kid, array_column( $jwks['keys'] ?? [], 'kid' ), true ) ) {
+		// kid desconhecido: busca o JWKS de novo, no maximo 1 vez a cada 5 min
+		// (senao um token com kid aleatorio dispara uma chamada externa por requisicao).
+		if ( $kid !== null && ! in_array( $kid, array_column( $jwks['keys'] ?? [], 'kid' ), true ) && ! get_transient( 'dsi_perfil_jwks_renovado' ) ) {
+			set_transient( 'dsi_perfil_jwks_renovado', 1, 5 * MINUTE_IN_SECONDS );
 			$jwks = dsi_perfil_jwks( true );
 		}
 		$claims = dsi_perfil_jwt_verificar( $jwt, $jwks, $cfg['authkit'], $cfg['recurso'], time() );
@@ -217,7 +220,10 @@ function dsi_perfil_resenhas_do_post( int $post_id ): array {
 	}
 	$repo = dsi_perfil_repo();
 	$t    = $repo->tituloDoPost( $post_id );
-	$lista = $t ? $repo->resenhasNoAr( $t['tmdb_id'], $t['tipo'] ) : [];
+	if ( ! $t ) {
+		return []; // post sem titulo: nao grava cache (evita encher wp_options com ids aleatorios)
+	}
+	$lista = $repo->resenhasNoAr( $t['tmdb_id'], $t['tipo'] );
 	set_transient( $chave, $lista, 10 * MINUTE_IN_SECONDS );
 	return $lista;
 }
