@@ -601,7 +601,7 @@ function dsi_a2ui_interpretar_resposta( string $conteudo, int $n_itens ): array 
 	$json     = json_decode( $conteudo, true );
 	if ( ! is_array( $json ) || ! isset( $json['resposta'] ) || ! is_string( $json['resposta'] ) || trim( $json['resposta'] ) === '' ) {
 		// Nao veio JSON: usa o texto puro, sem cartao.
-		return [ 'resposta' => mb_substr( $conteudo, 0, 600 ), 'intencao' => 'outra', 'titulo' => null ];
+		return [ 'resposta' => mb_substr( $conteudo, 0, 600 ), 'intencao' => 'outra', 'titulo' => null, 'frase' => '' ];
 	}
 	$intencao = in_array( $json['intencao'] ?? null, DSI_A2UI_INTENCOES, true ) ? $json['intencao'] : 'outra';
 	$numero   = isset( $json['titulo'] ) && is_numeric( $json['titulo'] ) ? (int) $json['titulo'] : 0;
@@ -609,7 +609,13 @@ function dsi_a2ui_interpretar_resposta( string $conteudo, int $n_itens ): array 
 		$intencao = 'outra';
 		$numero   = null;
 	}
-	return [ 'resposta' => mb_substr( trim( $json['resposta'] ), 0, 600 ), 'intencao' => $intencao, 'titulo' => $numero ?: null ];
+	// frase: texto curto so pro cartao (sem link, sem repetir nota). Com endereco
+	// ou vazia, descarta e o cartao usa a resposta sem os links.
+	$frase = ( isset( $json['frase'] ) && is_string( $json['frase'] ) ) ? trim( $json['frase'] ) : '';
+	if ( $frase !== '' && preg_match( '#https?://|www\.#iu', $frase ) ) {
+		$frase = '';
+	}
+	return [ 'resposta' => mb_substr( trim( $json['resposta'] ), 0, 600 ), 'intencao' => $intencao, 'titulo' => $numero ?: null, 'frase' => mb_substr( $frase, 0, 260 ) ];
 }
 
 // Superficie do cartao de avaliacao: as 3 mensagens A2UI (criar, componentes,
@@ -687,7 +693,14 @@ function dsi_a2ui_validar_acao( $acao ): ?array {
 // ela e o botao, entao a frase sai sem endereco (e sem o "no link ..." que
 // ficaria pendurado).
 function dsi_a2ui_frase_sem_links( string $frase ): string {
-	// Tira o endereco e o dois-pontos/travessao que o apresentava ("critica: https://...").
+	// Com mais de uma frase, descarta as que trazem endereco ("que voce pode
+	// conferir em https://...") em vez de deixar um "em" pendurado.
+	$frases   = preg_split( '/(?<=[.!?])\s+/u', trim( $frase ) ) ?: [];
+	$sem_link = array_values( array_filter( $frases, fn( $f ) => ! preg_match( '#https?://#u', $f ) ) );
+	if ( $sem_link && count( $sem_link ) < count( $frases ) ) {
+		return implode( ' ', $sem_link );
+	}
+	// Frase unica com endereco: tira o endereco e o dois-pontos/travessao que o apresentava ("critica: https://...").
 	$sem = preg_replace( '#\s*[:—–]?\s*https?://\S+#u', '', $frase );
 	$sem = preg_replace( '/\s+([,.;:!?])/u', '$1', (string) $sem );
 	$sem = preg_replace( '/\s{2,}/u', ' ', (string) $sem );

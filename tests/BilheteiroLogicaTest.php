@@ -613,7 +613,7 @@ final class BilheteiroLogicaTest extends TestCase {
 
 	public function test_a2ui_interpreta_resposta_valida(): void {
 		$r = dsi_a2ui_interpretar_resposta( '{"resposta":"Tem crítica no site.","intencao":"avaliar_titulo","titulo":2}', 5 );
-		$this->assertSame( [ 'resposta' => 'Tem crítica no site.', 'intencao' => 'avaliar_titulo', 'titulo' => 2 ], $r );
+		$this->assertSame( [ 'resposta' => 'Tem crítica no site.', 'intencao' => 'avaliar_titulo', 'titulo' => 2, 'frase' => '' ], $r );
 	}
 
 	public function test_a2ui_titulo_fora_da_lista_vira_outra(): void {
@@ -632,7 +632,7 @@ final class BilheteiroLogicaTest extends TestCase {
 
 	public function test_a2ui_sem_json_usa_o_texto_puro(): void {
 		$r = dsi_a2ui_interpretar_resposta( "  O Zoolander tem crítica no site.  ", 5 );
-		$this->assertSame( [ 'resposta' => 'O Zoolander tem crítica no site.', 'intencao' => 'outra', 'titulo' => null ], $r );
+		$this->assertSame( [ 'resposta' => 'O Zoolander tem crítica no site.', 'intencao' => 'outra', 'titulo' => null, 'frase' => '' ], $r );
 		$this->assertSame( 'outra', dsi_a2ui_interpretar_resposta( '{"resposta":"","intencao":"avaliar_titulo","titulo":1}', 5 )['intencao'] );
 	}
 
@@ -716,6 +716,27 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertNull( dsi_a2ui_validar_acao( [ 'name' => 'mais_parecidos', 'context' => [] ] ) );
 		$this->assertNull( dsi_a2ui_validar_acao( [ 'name' => 'mais_parecidos', 'context' => [ 'titulo' => str_repeat( 'a', 121 ) ] ] ) );
 		$this->assertNull( dsi_a2ui_validar_acao( 'texto' ) );
+	}
+
+	public function test_a2ui_frase_do_modelo_para_o_cartao(): void {
+		$r = dsi_a2ui_interpretar_resposta( '{"resposta":"Texto longo com https://deveserisso.com.br/x/","intencao":"avaliar_titulo","titulo":1,"frase":" Um modelo em crise entra em conflito. "}', 3 );
+		$this->assertSame( 'Um modelo em crise entra em conflito.', $r['frase'] );
+	}
+
+	public function test_a2ui_frase_do_modelo_com_link_e_descartada(): void {
+		$r = dsi_a2ui_interpretar_resposta( '{"resposta":"ok","intencao":"avaliar_titulo","titulo":1,"frase":"Veja em https://deveserisso.com.br/x/"}', 3 );
+		$this->assertSame( '', $r['frase'] );
+		$r = dsi_a2ui_interpretar_resposta( '{"resposta":"ok","intencao":"avaliar_titulo","titulo":1,"frase":"Veja em www.exemplo.com"}', 3 );
+		$this->assertSame( '', $r['frase'] );
+		$r = dsi_a2ui_interpretar_resposta( '{"resposta":"ok","intencao":"avaliar_titulo","titulo":1,"frase":42}', 3 );
+		$this->assertSame( '', $r['frase'] );
+	}
+
+	public function test_a2ui_frase_sem_links_descarta_a_frase_inteira_do_link(): void {
+		$this->assertSame(
+			'Na trama, Derek entra em crise. Vale a pena.',
+			dsi_a2ui_frase_sem_links( 'O Deveserisso publicou uma crítica, que você pode conferir em https://deveserisso.com.br/z/. Na trama, Derek entra em crise. Vale a pena.' )
+		);
 	}
 
 	public function test_a2ui_frase_sem_links(): void {
