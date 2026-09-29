@@ -714,7 +714,13 @@ function dsi_a2ui_frase_sem_links( string $frase ): string {
 // O servidor manda o bloco junto com a lista (dsi_recomendar_filme) e, no
 // clique, devolve a MESMA superficie ja atualizada (agradecimento no lugar
 // dos botoes): createSurface com o mesmo surfaceId substitui a anterior.
-const DSI_A2UI_VEREDITOS = [ 'positivo', 'negativo', 'mais_opcoes' ];
+// 'mais_opcoes' continua aceito: o botao saiu do bloco (2026-09-29), mas widget
+// antigo em cache ainda o manda. Depois do 👎 o Curador pergunta se a pessoa
+// quer mais indicacoes ("sim" busca outra lista, ver dsi_bilheteiro_chat).
+const DSI_A2UI_VEREDITOS      = [ 'positivo', 'negativo', 'mais_opcoes' ];
+const DSI_A2UI_TEXTO_CONTINUAR = 'Quer que eu traga mais recomendações? Me conta o que não funcionou (outro gênero, ator, "sem terror"...) ou responda "sim" que eu busco outras com o que você já me contou.';
+const DSI_A2UI_AVISO_OUTRAS    = 'Certo! Separei outras opções com o que você já me contou. Se quiser mudar, me diga outro gênero, época ou ator.';
+const DSI_A2UI_MSG_SEM_MAIS    = 'Tudo bem! Se quiser outra recomendação, me diga um gênero, ator ou clima.';
 
 function dsi_a2ui_botao_evento( string $id, string $rotulo, string $veredito, int $rodada ): array {
 	return [
@@ -729,13 +735,12 @@ function dsi_a2ui_bloco_feedback( int $rodada, string $surface_id ): array {
 	$componentes = array_merge(
 		[
 			[ 'id' => 'root', 'component' => 'Card', 'child' => 'corpo' ],
-			[ 'id' => 'corpo', 'component' => 'Column', 'children' => [ 'pergunta', 'linha', 'mais' ] ],
+			[ 'id' => 'corpo', 'component' => 'Column', 'children' => [ 'pergunta', 'linha' ] ],
 			[ 'id' => 'pergunta', 'component' => 'Text', 'text' => 'Gostou das indicações?', 'variant' => 'h3' ],
 			[ 'id' => 'linha', 'component' => 'Row', 'children' => [ 'gostei', 'nao_curti' ] ],
 		],
 		dsi_a2ui_botao_evento( 'gostei', '👍 Gostei', 'positivo', $rodada ),
-		dsi_a2ui_botao_evento( 'nao_curti', '👎 Não curti', 'negativo', $rodada ),
-		dsi_a2ui_botao_evento( 'mais', '🔄 Quero mais opções', 'mais_opcoes', $rodada )
+		dsi_a2ui_botao_evento( 'nao_curti', '👎 Não curti', 'negativo', $rodada )
 	);
 	return [
 		[ 'version' => DSI_A2UI_VERSAO, 'createSurface' => [ 'surfaceId' => $surface_id, 'catalogId' => DSI_A2UI_CATALOGO ] ],
@@ -781,7 +786,7 @@ function dsi_a2ui_feedback_desfecho( string $veredito, int $negativas ): array {
 	}
 	$conversa = $negativas >= 3
 		? '3 tentativas sem sucesso, que tal recomeçar com outro gênero ou emoção? Me conta o que você quer agora.'
-		: 'Me conta mais alguma coisa (outro gênero, ator, "sem terror"...) que eu tento de novo.';
+		: DSI_A2UI_TEXTO_CONTINUAR;
 	return [ 'texto' => 'Poxa, vamos tentar de novo.', 'proximo' => [ 'tipo' => 'esperar_preferencia', 'texto' => $conversa ] ];
 }
 

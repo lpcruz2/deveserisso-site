@@ -3064,6 +3064,27 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		$deve_parar = false;
 	}
 
+	// Conversa ja completa e a mensagem nao mudou nada (2026-09-28, "quero
+	// filmes sobre idade média tipo o Reino já falei" depois do 👎): diz
+	// isso em vez de repetir a busca calado. Se a mensagem for um "não"
+	// (resposta a "Quer que eu traga mais recomendações?" do 👎), encerra
+	// sem buscar outra lista.
+	$nada_novo         = false;
+	$campos_comparados = array_merge( DSI_BILHETEIRO_CAMPOS, [ 'atores', 'exclusoes', 'temas', 'atores_principais' ] );
+	if ( $deve_parar && ! $pedido_pular ) {
+		$nada_novo = true;
+		foreach ( $campos_comparados as $campo_c ) {
+			if ( ( $estado[ $campo_c ] ?? null ) != ( $estado_antes[ $campo_c ] ?? null ) ) {
+				$nada_novo = false;
+				break;
+			}
+		}
+		if ( $nada_novo && ! empty( dsi_bilheteiro_campos_faltando( $estado_antes, $contexto_minigames ) ) ) {
+			$nada_novo = false;
+		}
+	}
+	$recusou_mais = $nada_novo && dsi_bilheteiro_eh_negativa( $mensagem );
+
 	$id_linha_log = dsi_bilheteiro_registrar_interacao( [
 		'sessao_id'        => $sessao_id,
 		'mensagem'         => $mensagem,
@@ -3071,7 +3092,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		'estado_depois'    => $estado,
 		'pedido_pular'     => $pedido_pular,
 		'perguntas_feitas' => $perguntas_feitas,
-		'pronto'           => $deve_parar,
+		'pronto'           => $deve_parar && ! $recusou_mais,
 		// Campo que dsi_bilheteiro_proxima_pergunta() vai perguntar na
 		// resposta deste turno -- null quando o turno ja fechou (nada mais
 		// pra perguntar, ver $deve_parar acima).
@@ -3095,21 +3116,19 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		}
 		// O widget nao mostra $mensagem_resposta quando pronto -- vai direto
 		// pras recomendacoes (linha tipo_evento=recomendacao da mesma sessao).
-		// Conversa ja completa e a mensagem nao mudou nada (2026-09-28, "quero
-		// filmes sobre idade média tipo o Reino já falei" depois do 👎): diz
-		// isso em vez de repetir a busca calado.
-		$aviso = '';
-		$campos_comparados = array_merge( DSI_BILHETEIRO_CAMPOS, [ 'atores', 'exclusoes', 'temas', 'atores_principais' ] );
-		$igual             = true;
-		foreach ( $campos_comparados as $campo_c ) {
-			if ( ( $estado[ $campo_c ] ?? null ) != ( $estado_antes[ $campo_c ] ?? null ) ) {
-				$igual = false;
-				break;
-			}
+		if ( $recusou_mais ) {
+			dsi_bilheteiro_registrar_resposta( $id_linha_log, DSI_A2UI_MSG_SEM_MAIS );
+			return new WP_REST_Response( [
+				'estado'                       => $estado,
+				'perguntas_feitas'             => $perguntas_feitas,
+				'aviso'                        => '',
+				'pronto'                       => false,
+				'mensagem'                     => DSI_A2UI_MSG_SEM_MAIS,
+				'campos_obrigatorios_faltando' => [],
+			] );
 		}
-		if ( $igual && ! $pedido_pular && empty( dsi_bilheteiro_campos_faltando( $estado_antes, $contexto_minigames ) ) ) {
-			$aviso = 'Não encontrei nada novo nessa mensagem, então separei outras opções com o que você já me contou. Se quiser mudar, me diga outro gênero, época ou ator.';
-		}
+		// Texto neutro: vale tanto pra "sim" quanto pra mensagem sem novidade.
+		$aviso = $nada_novo ? DSI_A2UI_AVISO_OUTRAS : '';
 		dsi_bilheteiro_registrar_resposta( $id_linha_log, $aviso !== '' ? $aviso . ' [mostrou as recomendações]' : '[mostrou as recomendações]' );
 		return new WP_REST_Response( [
 			'estado'                       => $estado,
@@ -5388,7 +5407,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.11.3',
+		'1.11.4',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de

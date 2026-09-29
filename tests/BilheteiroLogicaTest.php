@@ -773,8 +773,8 @@ final class BilheteiroLogicaTest extends TestCase {
 		$c = $this->componentesDe( dsi_a2ui_bloco_feedback( 3, 's' ) );
 		$this->assertSame( [ 'name' => 'feedback', 'context' => [ 'veredito' => 'positivo', 'rodada' => 3 ] ], $c['gostei']['action']['event'] );
 		$this->assertSame( 'negativo', $c['nao_curti']['action']['event']['context']['veredito'] );
-		$this->assertSame( 'mais_opcoes', $c['mais']['action']['event']['context']['veredito'] );
-		$this->assertSame( '🔄 Quero mais opções', $c['mais_t']['text'] );
+		$this->assertArrayNotHasKey( 'mais', $c );
+		$this->assertSame( [ 'pergunta', 'linha' ], $c['corpo']['children'] );
 	}
 
 	public function test_a2ui_bloco_feedback_resposta_troca_botoes_por_texto_na_mesma_superficie(): void {
@@ -802,7 +802,9 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertSame( [ 'tipo' => 'mais_opcoes' ], dsi_a2ui_feedback_desfecho( 'mais_opcoes', 0 )['proximo'] );
 		$neg = dsi_a2ui_feedback_desfecho( 'negativo', 1 );
 		$this->assertSame( 'esperar_preferencia', $neg['proximo']['tipo'] );
-		$this->assertStringContainsString( 'Me conta mais alguma coisa', $neg['proximo']['texto'] );
+		$this->assertStringContainsString( 'Quer que eu traga mais recomendações?', $neg['proximo']['texto'] );
+		$this->assertStringContainsString( 'responda "sim"', $neg['proximo']['texto'] );
+		$this->assertSame( DSI_A2UI_TEXTO_CONTINUAR, $neg['proximo']['texto'] );
 		$tres = dsi_a2ui_feedback_desfecho( 'negativo', 3 );
 		$this->assertStringContainsString( '3 tentativas sem sucesso', $tres['proximo']['texto'] );
 		$this->assertStringNotContainsString( '—', $tres['proximo']['texto'] );

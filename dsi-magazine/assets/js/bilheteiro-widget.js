@@ -254,7 +254,6 @@
 			/* 2026-09-25 (pedido do gestor): botoes no mesmo visual dos
 			   quebra-gelo (pilula bege tracejada), em grade de largura total. */
 			'.dsi-bh-feedback-botoes{display:grid;grid-template-columns:1fr 1fr;gap:8px;}' +
-			'.dsi-bh-fb--largo{grid-column:1 / -1;}' +
 			/* Cartao A2UI (2026-09-29): botoes no visual dos quebra-gelo/avaliacao. */
 			'.dsi-bh-a2ui-card{background:#fff;border-radius:8px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.12);}' +
 			'.dsi-bh-a2ui-col{display:flex;flex-direction:column;gap:8px;min-width:0;}' +
@@ -1231,11 +1230,8 @@
 				'<div class="dsi-bh-feedback-botoes">' +
 				'<button type="button" class="dsi-bh-fb" data-v="positivo">👍 Gostei</button>' +
 				'<button type="button" class="dsi-bh-fb" data-v="negativo">👎 Não curti</button>' +
-				// 2026-09-28 (relatorio semanal): "Quero outras" era o unico
-				// jeito de ver mais titulos, entao pedido de mais opcoes virava
-				// voto negativo. Agora e botao proprio, com as mesmas
-				// preferencias, e nao entra na taxa de aprovacao.
-				'<button type="button" class="dsi-bh-fb dsi-bh-fb--largo" data-v="mais_opcoes">🔄 Quero mais opções</button>' +
+				// 2026-09-29: sem botao "Quero mais opcoes"; o 👎 pergunta se a
+				// pessoa quer mais indicacoes ("sim" busca outra lista).
 				'</div></div>';
 		}
 		function renderFeedback() {
@@ -1381,7 +1377,7 @@
 						if ( resp.rodadas_negativas_consecutivas >= 3 ) {
 							addBot( '3 tentativas sem sucesso, que tal recomeçar com outro gênero ou emoção? Me conta o que você quer agora.' );
 						} else {
-							addBot( 'Me conta mais alguma coisa (outro gênero, ator, "sem terror"...) que eu tento de novo.' );
+							addBot( escapeHtml( 'Quer que eu traga mais recomendações? Me conta o que não funcionou (outro gênero, ator, "sem terror"...) ou responda "sim" que eu busco outras com o que você já me contou.' ) );
 						}
 					} );
 				} );
