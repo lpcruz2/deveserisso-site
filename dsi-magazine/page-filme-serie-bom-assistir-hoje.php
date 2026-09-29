@@ -89,7 +89,7 @@ $dsi_top_atores = dsi_lp_top_atores();
 @media(min-width:900px){
 .dsi-lp__inner{max-width:1120px;padding:0 48px 96px}
 .dsi-lp__hero-grid{display:grid;grid-template-columns:1fr 480px;gap:56px;align-items:start;padding:32px 0 56px}
-.dsi-bh-pre-carga .dsi-bh-painel{height:max(480px,calc(100vh - 150px));height:max(480px,calc(100dvh - 150px))}
+.dsi-bh-pre-carga .dsi-bh-painel{height:max(480px,calc(100vh - 220px));height:max(480px,calc(100dvh - 220px))}
 .dsi-lp__hero{text-align:left;align-items:flex-start;padding:0;gap:20px}
 .dsi-lp__titulo{font-size:52px}
 .dsi-lp__sub{max-width:440px}

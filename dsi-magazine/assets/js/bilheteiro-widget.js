@@ -266,6 +266,7 @@
 			'.dsi-bh-a2ui-btn{flex:1 1 0;min-width:0;background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;padding:10px 8px;' +
 			'font:inherit;font-size:14px;font-weight:600;color:#1d1a14;cursor:pointer;text-align:center;}' +
 			'.dsi-bh-a2ui-btn:hover{background:#e3d9c2;}' +
+			'.dsi-bh-a2ui-col>.dsi-bh-a2ui-btn{flex:0 0 auto;}' +
 			'.dsi-bh-a2ui-btn--primary{background:#9c3f14;border:1px solid #9c3f14;color:#fff;}' +
 			'.dsi-bh-a2ui-btn--primary:hover{background:#1d1a14;}' +
 			'.dsi-bh-a2ui-btn[disabled]{opacity:.6;cursor:default;}' +
@@ -340,13 +341,13 @@
 			   de digitar ficava cortado e em tela alta sobrava espaco. Agora o
 			   painel ocupa a janela (cabecalho + conversa + campo, tudo de uma
 			   vez) e so a conversa rola. Celular: quase a tela toda; desktop:
-			   a janela menos o cabecalho do site. Espelhado no CSS pre-carga
+			   a janela menos o cabecalho do site e o espaco acima do chat (220px). Espelhado no CSS pre-carga
 			   do template da LP. */
 			'.dsi-bh-widget--lp .dsi-bh-painel:not(.expandido){height:max(520px,calc(100vh - 32px))!important;' +
 			'height:max(520px,calc(100dvh - 32px))!important;}' +
 			'.dsi-bh-widget--lp .dsi-bh-painel:not(.expandido) .dsi-bh-thread{min-height:0;max-height:none;}' +
 			'@media(min-width:900px){.dsi-bh-widget--lp .dsi-bh-painel:not(.expandido){' +
-			'height:max(480px,calc(100vh - 150px))!important;height:max(480px,calc(100dvh - 150px))!important;}}' +
+			'height:max(480px,calc(100vh - 220px))!important;height:max(480px,calc(100dvh - 220px))!important;}}' +
 			/* Expandir na LP (2026-09-25, pedido do gestor): no desktop so
 			   aumenta o chat na propria pagina (a pagina tira a coluna do
 			   texto, ver body.dsi-bh-lp-expandido no template); abaixo de
@@ -729,7 +730,9 @@
 				else if ( item.tipo === 'pedido_email' ) renderPedidoEmail( item );
 				else if ( item.tipo === 'a2ui' ) {
 					// Mesmas mensagens de antes, redesenhadas; se falhar, o texto.
-					try { renderA2ui( item.mensagens ); } catch ( err ) { renderBot( item.html ); }
+					try { renderA2ui( item.mensagens ); } catch ( err ) {
+						if ( item.fallback === 'feedback' ) renderFeedback(); else renderBot( item.html );
+					}
 				}
 			} );
 		}
@@ -1374,7 +1377,7 @@
 						perguntasEncerradas = false;
 						salvarEstado();
 						if ( resp.rodadas_negativas_consecutivas >= 3 ) {
-							addBot( '3 tentativas sem sucesso — que tal recomeçar com outro gênero ou emoção? Me conta o que você quer agora.' );
+							addBot( '3 tentativas sem sucesso, que tal recomeçar com outro gênero ou emoção? Me conta o que você quer agora.' );
 						} else {
 							addBot( 'Me conta mais alguma coisa (outro gênero, ator, "sem terror"...) que eu tento de novo.' );
 						}
@@ -1519,7 +1522,29 @@
 			var el = renderBot( '' );
 			el.classList.add( 'dsi-bh-msg--filmes' );
 			el.appendChild( cartao );
+			el.setAttribute( 'data-a2ui-superficie', superficieDe( mensagens ) );
 			return el;
+		}
+
+		function superficieDe( mensagens ) {
+			try { return String( mensagens[ 0 ].createSurface.surfaceId || '' ); } catch ( e ) { return ''; }
+		}
+
+		// Mesma superficie com conteudo novo (createSurface com o mesmo id
+		// substitui a anterior): redesenha no lugar e atualiza o historico. Se o
+		// novo conteudo nao desenhar, fica o que estava.
+		function atualizarSuperficie( mensagens ) {
+			var id = superficieDe( mensagens );
+			var cartao = desenharA2ui( mensagens );
+			thread.querySelectorAll( '[data-a2ui-superficie]' ).forEach( function ( alvo ) {
+				if ( alvo.getAttribute( 'data-a2ui-superficie' ) !== id ) return;
+				alvo.innerHTML = '';
+				alvo.appendChild( cartao );
+			} );
+			historico.forEach( function ( item ) {
+				if ( item.tipo === 'a2ui' && superficieDe( item.mensagens ) === id ) item.mensagens = mensagens;
+			} );
+			salvarEstado();
 		}
 
 		function reportarErroA2ui( err, mensagens ) {
@@ -1537,14 +1562,14 @@
 		}
 
 		// true se desenhou (e gravou no historico); false = chamador mostra o texto.
-		function mostrarA2ui( mensagens, htmlTexto ) {
+		function mostrarA2ui( mensagens, htmlTexto, fallback ) {
 			try {
 				renderA2ui( mensagens );
 			} catch ( err ) {
 				reportarErroA2ui( err, mensagens );
 				return false;
 			}
-			historico.push( { tipo: 'a2ui', mensagens: mensagens, html: htmlTexto } );
+			historico.push( { tipo: 'a2ui', mensagens: mensagens, html: htmlTexto, fallback: fallback || null } );
 			salvarEstado();
 			return true;
 		}
@@ -1568,15 +1593,29 @@
 					return corpo;
 				} );
 			} ).then( function ( corpo ) {
-				if ( corpo.proximo && corpo.proximo.tipo === 'nova_rodada' && corpo.proximo.q ) {
+				// O servidor pode devolver a superficie ja atualizada (bloco de
+				// avaliacao: botoes viram agradecimento).
+				if ( corpo.a2ui ) {
+					try { atualizarSuperficie( corpo.a2ui ); } catch ( e ) { reportarErroA2ui( e, corpo.a2ui ); }
+				}
+				var proximo = corpo.proximo || {};
+				if ( proximo.tipo === 'nova_rodada' && proximo.q ) {
 					// "Ver parecidos": mesmas preferencias, com o titulo como referencia.
-					addUser( 'Ver parecidos com ' + corpo.proximo.q );
+					addUser( 'Ver parecidos com ' + proximo.q );
 					mensagensEnviadas++;
-					estado.q = corpo.proximo.q;
+					estado.q = proximo.q;
 					estado.q_tmdb = null;
 					rodadaAtual++;
 					salvarEstado();
 					buscarRecomendacoes();
+				} else if ( proximo.tipo === 'mais_opcoes' ) {
+					pedirMaisOpcoes( 'Quero mais opções' );
+				} else if ( proximo.tipo === 'esperar_preferencia' ) {
+					// 👎: a proxima mensagem e preferencia nova, nao pergunta sobre a lista.
+					rodadaAtual++;
+					perguntasEncerradas = false;
+					salvarEstado();
+					addBot( escapeHtml( proximo.texto || '' ) );
 				}
 			} ).catch( function ( err ) {
 				if ( botao ) botao.disabled = false;
@@ -1596,6 +1635,8 @@
 			if ( valorOuVazio( estado.q ) ) params.q = estado.q;
 			// Obra exata escolhida quando o titulo era ambiguo, e epoca pedida (2026-09-28).
 			if ( estado.q_tmdb ) params.q_tmdb = estado.q_tmdb;
+			// A2UI: o bloco "Gostou das indicacoes?" vem do servidor se ele souber que este widget desenha o catalogo.
+			params.a2ui_catalogo = A2UI_CATALOGO;
 			if ( valorOuVazio( estado.ambientacao ) ) params.ambientacao = estado.ambientacao;
 			if ( ( estado.temas || [] ).length ) params.temas = estado.temas.join( ',' );
 			if ( ( estado.atores || [] ).length ) params.atores = estado.atores.join( ',' );
@@ -1647,8 +1688,12 @@
 				// lista externa). So pergunta quando houve algo com resenha
 				// pra avaliar, mesmo comportamento de antes.
 				// Desde 2026-09-28 tambem com so a lista externa: o botao
-				// "Quero mais opções" mora aqui.
-				addFeedback();
+				// "Quero mais opções" mora aqui. Desde 2026-09-29 o bloco pode
+				// vir do servidor em A2UI; se nao vier (ou nao desenhar), o
+				// bloco antigo, desenhado aqui.
+				if ( ! ( data.a2ui_feedback && mostrarA2ui( data.a2ui_feedback, '', 'feedback' ) ) ) {
+					addFeedback();
+				}
 				if ( ancoraComResenha ) {
 					// Achado ao vivo 2026-09-22 (pedido do gestor): renderBot
 					// sempre rola pro fim -- com os dois blocos, a tela parava

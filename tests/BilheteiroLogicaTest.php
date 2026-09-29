@@ -749,4 +749,62 @@ final class BilheteiroLogicaTest extends TestCase {
 		// so link: nao devolve string vazia
 		$this->assertSame( 'https://deveserisso.com.br/x/', dsi_a2ui_frase_sem_links( 'https://deveserisso.com.br/x/' ) );
 	}
+
+	// -- A2UI: bloco de feedback ------------------------------------------------
+
+	public function test_a2ui_bloco_feedback_estrutura(): void {
+		$m = dsi_a2ui_bloco_feedback( 3, 'feedback-3-abc123' );
+		$this->assertCount( 3, $m );
+		$this->assertSame( DSI_A2UI_CATALOGO, $m[0]['createSurface']['catalogId'] );
+		$this->assertSame( 'feedback-3-abc123', $m[1]['updateComponents']['surfaceId'] );
+		$c = $this->componentesDe( $m );
+		$this->assertArrayHasKey( 'root', $c );
+		foreach ( $c as $comp ) {
+			$this->assertContains( $comp['component'], [ 'Card', 'Column', 'Row', 'Image', 'Text', 'Button' ] );
+			foreach ( array_merge( (array) ( $comp['children'] ?? [] ), isset( $comp['child'] ) ? [ $comp['child'] ] : [] ) as $filho ) {
+				$this->assertArrayHasKey( $filho, $c, 'filho inexistente: ' . $filho );
+			}
+		}
+		$this->assertSame( 'Gostou das indicações?', $c['pergunta']['text'] );
+		$this->assertSame( [ 'gostei', 'nao_curti' ], $c['linha']['children'] );
+	}
+
+	public function test_a2ui_bloco_feedback_botoes_levam_veredito_e_rodada(): void {
+		$c = $this->componentesDe( dsi_a2ui_bloco_feedback( 3, 's' ) );
+		$this->assertSame( [ 'name' => 'feedback', 'context' => [ 'veredito' => 'positivo', 'rodada' => 3 ] ], $c['gostei']['action']['event'] );
+		$this->assertSame( 'negativo', $c['nao_curti']['action']['event']['context']['veredito'] );
+		$this->assertSame( 'mais_opcoes', $c['mais']['action']['event']['context']['veredito'] );
+		$this->assertSame( '🔄 Quero mais opções', $c['mais_t']['text'] );
+	}
+
+	public function test_a2ui_bloco_feedback_resposta_troca_botoes_por_texto_na_mesma_superficie(): void {
+		$m = dsi_a2ui_bloco_feedback_resposta( 'Boa escolha! 🍿', 'feedback-3-abc123' );
+		$this->assertSame( 'feedback-3-abc123', $m[0]['createSurface']['surfaceId'] );
+		$c = $this->componentesDe( $m );
+		$this->assertSame( [ 'root', 'msg' ], array_keys( $c ) );
+		$this->assertSame( 'Boa escolha! 🍿', $m[2]['updateDataModel']['value']['texto'] );
+	}
+
+	public function test_a2ui_validar_feedback(): void {
+		$ok = [ 'name' => 'feedback', 'context' => [ 'veredito' => 'negativo', 'rodada' => 2 ] ];
+		$this->assertSame( [ 'negativo', 2 ], dsi_a2ui_validar_feedback( $ok ) );
+		$this->assertSame( [ 'mais_opcoes', 1 ], dsi_a2ui_validar_feedback( [ 'name' => 'feedback', 'context' => [ 'veredito' => 'mais_opcoes', 'rodada' => '1' ] ] ) );
+		$this->assertNull( dsi_a2ui_validar_feedback( [ 'name' => 'feedback', 'context' => [ 'veredito' => 'ruim', 'rodada' => 2 ] ] ) );
+		$this->assertNull( dsi_a2ui_validar_feedback( [ 'name' => 'feedback', 'context' => [ 'veredito' => 'positivo', 'rodada' => 0 ] ] ) );
+		$this->assertNull( dsi_a2ui_validar_feedback( [ 'name' => 'feedback', 'context' => [ 'veredito' => 'positivo', 'rodada' => 100 ] ] ) );
+		$this->assertNull( dsi_a2ui_validar_feedback( [ 'name' => 'mais_parecidos', 'context' => [ 'veredito' => 'positivo', 'rodada' => 1 ] ] ) );
+		$this->assertNull( dsi_a2ui_validar_feedback( 'texto' ) );
+	}
+
+	public function test_a2ui_feedback_desfecho(): void {
+		$this->assertSame( 'Boa escolha! 🍿', dsi_a2ui_feedback_desfecho( 'positivo', 0 )['texto'] );
+		$this->assertSame( [ 'tipo' => 'nenhum' ], dsi_a2ui_feedback_desfecho( 'positivo', 0 )['proximo'] );
+		$this->assertSame( [ 'tipo' => 'mais_opcoes' ], dsi_a2ui_feedback_desfecho( 'mais_opcoes', 0 )['proximo'] );
+		$neg = dsi_a2ui_feedback_desfecho( 'negativo', 1 );
+		$this->assertSame( 'esperar_preferencia', $neg['proximo']['tipo'] );
+		$this->assertStringContainsString( 'Me conta mais alguma coisa', $neg['proximo']['texto'] );
+		$tres = dsi_a2ui_feedback_desfecho( 'negativo', 3 );
+		$this->assertStringContainsString( '3 tentativas sem sucesso', $tres['proximo']['texto'] );
+		$this->assertStringNotContainsString( '—', $tres['proximo']['texto'] );
+	}
 }

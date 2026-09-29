@@ -707,3 +707,80 @@ function dsi_a2ui_frase_sem_links( string $frase ): string {
 	$sem = trim( (string) $sem, " \t\n\r—–-:," );
 	return $sem === '' ? trim( $frase ) : $sem;
 }
+
+// -----------------------------------------------------------------------------
+// A2UI: bloco "Gostou das indicacoes?" (2026-09-29, segunda tela migrada)
+// -----------------------------------------------------------------------------
+// O servidor manda o bloco junto com a lista (dsi_recomendar_filme) e, no
+// clique, devolve a MESMA superficie ja atualizada (agradecimento no lugar
+// dos botoes): createSurface com o mesmo surfaceId substitui a anterior.
+const DSI_A2UI_VEREDITOS = [ 'positivo', 'negativo', 'mais_opcoes' ];
+
+function dsi_a2ui_botao_evento( string $id, string $rotulo, string $veredito, int $rodada ): array {
+	return [
+		[ 'id' => $id, 'component' => 'Button', 'child' => $id . '_t',
+			'action' => [ 'event' => [ 'name' => 'feedback', 'context' => [ 'veredito' => $veredito, 'rodada' => $rodada ] ] ] ],
+		[ 'id' => $id . '_t', 'component' => 'Text', 'text' => $rotulo ],
+	];
+}
+
+function dsi_a2ui_bloco_feedback( int $rodada, string $surface_id ): array {
+	$rodada      = max( 1, min( 99, $rodada ) );
+	$componentes = array_merge(
+		[
+			[ 'id' => 'root', 'component' => 'Card', 'child' => 'corpo' ],
+			[ 'id' => 'corpo', 'component' => 'Column', 'children' => [ 'pergunta', 'linha', 'mais' ] ],
+			[ 'id' => 'pergunta', 'component' => 'Text', 'text' => 'Gostou das indicações?', 'variant' => 'h3' ],
+			[ 'id' => 'linha', 'component' => 'Row', 'children' => [ 'gostei', 'nao_curti' ] ],
+		],
+		dsi_a2ui_botao_evento( 'gostei', '👍 Gostei', 'positivo', $rodada ),
+		dsi_a2ui_botao_evento( 'nao_curti', '👎 Não curti', 'negativo', $rodada ),
+		dsi_a2ui_botao_evento( 'mais', '🔄 Quero mais opções', 'mais_opcoes', $rodada )
+	);
+	return [
+		[ 'version' => DSI_A2UI_VERSAO, 'createSurface' => [ 'surfaceId' => $surface_id, 'catalogId' => DSI_A2UI_CATALOGO ] ],
+		[ 'version' => DSI_A2UI_VERSAO, 'updateComponents' => [ 'surfaceId' => $surface_id, 'components' => $componentes ] ],
+		[ 'version' => DSI_A2UI_VERSAO, 'updateDataModel' => [ 'surfaceId' => $surface_id, 'path' => '/', 'value' => new stdClass() ] ],
+	];
+}
+
+// A mesma superficie depois do clique: so o texto.
+function dsi_a2ui_bloco_feedback_resposta( string $texto, string $surface_id ): array {
+	return [
+		[ 'version' => DSI_A2UI_VERSAO, 'createSurface' => [ 'surfaceId' => $surface_id, 'catalogId' => DSI_A2UI_CATALOGO ] ],
+		[ 'version' => DSI_A2UI_VERSAO, 'updateComponents' => [ 'surfaceId' => $surface_id, 'components' => [
+			[ 'id' => 'root', 'component' => 'Card', 'child' => 'msg' ],
+			[ 'id' => 'msg', 'component' => 'Text', 'text' => [ 'path' => '/texto' ] ],
+		] ] ],
+		[ 'version' => DSI_A2UI_VERSAO, 'updateDataModel' => [ 'surfaceId' => $surface_id, 'path' => '/', 'value' => [ 'texto' => $texto ] ] ],
+	];
+}
+
+// Acao "feedback" do bloco. Devolve [ veredito, rodada ] ou null.
+function dsi_a2ui_validar_feedback( $acao ): ?array {
+	if ( ! is_array( $acao ) || ( $acao['name'] ?? '' ) !== 'feedback' ) {
+		return null;
+	}
+	$contexto = (array) ( $acao['context'] ?? [] );
+	$veredito = (string) ( $contexto['veredito'] ?? '' );
+	$rodada   = $contexto['rodada'] ?? null;
+	if ( ! in_array( $veredito, DSI_A2UI_VEREDITOS, true ) || ! is_numeric( $rodada ) || (int) $rodada < 1 || (int) $rodada > 99 ) {
+		return null;
+	}
+	return [ $veredito, (int) $rodada ];
+}
+
+// Texto que troca os botoes e o que o chat faz em seguida, por veredito.
+// $negativas = rodadas negativas seguidas, contando a de agora.
+function dsi_a2ui_feedback_desfecho( string $veredito, int $negativas ): array {
+	if ( $veredito === 'positivo' ) {
+		return [ 'texto' => 'Boa escolha! 🍿', 'proximo' => [ 'tipo' => 'nenhum' ] ];
+	}
+	if ( $veredito === 'mais_opcoes' ) {
+		return [ 'texto' => 'Separando mais opções pra você...', 'proximo' => [ 'tipo' => 'mais_opcoes' ] ];
+	}
+	$conversa = $negativas >= 3
+		? '3 tentativas sem sucesso, que tal recomeçar com outro gênero ou emoção? Me conta o que você quer agora.'
+		: 'Me conta mais alguma coisa (outro gênero, ator, "sem terror"...) que eu tento de novo.';
+	return [ 'texto' => 'Poxa, vamos tentar de novo.', 'proximo' => [ 'tipo' => 'esperar_preferencia', 'texto' => $conversa ] ];
+}

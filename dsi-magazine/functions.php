@@ -2270,6 +2270,15 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		);
 	}
 
+	// A2UI (2026-09-29): bloco "Gostou das indicacoes?" descrito pelo servidor
+	// quando o widget declara o catalogo (param a2ui_catalogo). Sem isso, o
+	// widget desenha o bloco antigo por conta propria.
+	$a2ui_feedback = null;
+	if ( ( $resultados || $sem_resenha ) && dsi_a2ui_cliente_suporta( [ 'supportedCatalogIds' => [ (string) $req->get_param( 'a2ui_catalogo' ) ] ] ) ) {
+		$rodada_fb     = max( 1, (int) $req->get_param( 'rodada' ) );
+		$a2ui_feedback = dsi_a2ui_bloco_feedback( $rodada_fb, 'feedback-' . $rodada_fb . '-' . substr( md5( $sessao_id . '|' . $rodada_fb . '|' . microtime( true ) ), 0, 6 ) );
+	}
+
 	return new WP_REST_Response( [
 		'@context'         => 'https://schema.org',
 		'@type'            => 'ItemList',
@@ -2281,6 +2290,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		// Aditivo tambem (2026-09-25) -- null quando nao ha o que avisar.
 		'aviso_atores'     => $aviso_atores,
 		'aviso_ambientacao' => $aviso_ambientacao,
+		'a2ui_feedback'    => $a2ui_feedback,
 	] );
 }
 
@@ -3380,7 +3390,32 @@ function dsi_curador_acao( WP_REST_Request $req ): WP_REST_Response {
 		return new WP_REST_Response( [ 'registrado' => true ] );
 	}
 
-	$acao   = $req->get_param( 'action' );
+	$acao = $req->get_param( 'action' );
+
+	// Bloco "Gostou das indicacoes?": registra o voto como sempre e devolve a
+	// mesma superficie ja trocada por texto, mais o que o chat faz em seguida.
+	if ( is_array( $acao ) && ( $acao['name'] ?? '' ) === 'feedback' ) {
+		$feedback = dsi_a2ui_validar_feedback( $acao );
+		if ( $feedback === null ) {
+			return new WP_REST_Response( [ 'erro' => 'Ação desconhecida.' ], 400 );
+		}
+		[ $veredito, $rodada ] = $feedback;
+		$surface_id = substr( preg_replace( '/[^A-Za-z0-9_-]/', '', (string) ( $acao['surfaceId'] ?? '' ) ), 0, 120 );
+		dsi_bilheteiro_registrar_evento_ui( $sessao_id, 'acao', 'feedback', [
+			'surfaceId'         => $surface_id,
+			'sourceComponentId' => mb_substr( (string) ( $acao['sourceComponentId'] ?? '' ), 0, 60 ),
+			'veredito'          => $veredito,
+			'rodada'            => $rodada,
+		] );
+		dsi_bilheteiro_registrar_feedback( $sessao_id, $rodada, $veredito );
+		$negativas = $veredito === 'negativo' ? dsi_bilheteiro_rodadas_negativas_consecutivas( $sessao_id ) : 0;
+		$desfecho  = dsi_a2ui_feedback_desfecho( $veredito, $negativas );
+		return new WP_REST_Response( [
+			'a2ui'    => $surface_id !== '' ? dsi_a2ui_bloco_feedback_resposta( $desfecho['texto'], $surface_id ) : null,
+			'proximo' => $desfecho['proximo'],
+		] );
+	}
+
 	$valida = dsi_a2ui_validar_acao( $acao );
 	if ( $valida === null ) {
 		return new WP_REST_Response( [ 'erro' => 'Ação desconhecida.' ], 400 );
@@ -4376,26 +4411,31 @@ function dsi_recomendacao_feedback( WP_REST_Request $req ): WP_REST_Response {
 		return new WP_REST_Response( [ 'erro' => 'veredito deve ser positivo, negativo ou mais_opcoes.' ], 400 );
 	}
 
-	global $wpdb;
-	// Sem IP, sem identificador do visitante -- mesma regra permanente do
-	// resto deste log (PRD secao 8).
-	$wpdb->insert(
-		dsi_bilheteiro_log_table_name(),
-		[
-			'criado_em'   => current_time( 'mysql' ),
-			'sessao_id'   => $sessao_id,
-			'tipo_evento' => 'feedback',
-			'rodada'      => (int) $req->get_param( 'rodada' ),
-			'veredito'    => $veredito,
-			'motivo'      => (string) $req->get_param( 'motivo' ),
-		],
-		[ '%s', '%s', '%s', '%d', '%s', '%s' ]
-	);
+	dsi_bilheteiro_registrar_feedback( $sessao_id, (int) $req->get_param( 'rodada' ), $veredito, (string) $req->get_param( 'motivo' ) );
 
 	return new WP_REST_Response( [
 		'registrado'                       => true,
 		'rodadas_negativas_consecutivas'   => dsi_bilheteiro_rodadas_negativas_consecutivas( $sessao_id ),
 	] );
+}
+
+// Uma linha tipo_evento=feedback. Usada pela rota antiga (recomendacao-
+// feedback) e pelo bloco A2UI (curador-acao). Sem IP, sem identificador do
+// visitante -- mesma regra permanente do resto deste log (PRD secao 8).
+function dsi_bilheteiro_registrar_feedback( string $sessao_id, int $rodada, string $veredito, string $motivo = '' ): void {
+	global $wpdb;
+	$wpdb->insert(
+		dsi_bilheteiro_log_table_name(),
+		[
+			'criado_em'   => current_time( 'mysql' ),
+			'sessao_id'   => mb_substr( sanitize_text_field( $sessao_id ), 0, 64 ),
+			'tipo_evento' => 'feedback',
+			'rodada'      => $rodada,
+			'veredito'    => $veredito,
+			'motivo'      => $motivo,
+		],
+		[ '%s', '%s', '%s', '%d', '%s', '%s' ]
+	);
 }
 
 // -------------------- Cache de filme externo (PRD seção 6) --------------------
@@ -5318,7 +5358,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.11.1',
+		'1.11.2',
 		true
 	);
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de
