@@ -380,6 +380,14 @@ function dsi_jfix_organization( array $node ): array {
 		if ( ! empty( $social['twitter_site'] ) ) {
 			$profiles[] = 'https://x.com/' . ltrim( $social['twitter_site'], '@' );
 		}
+		// "Outros perfis" do Yoast (ex.: entidade no Wikidata); as chaves fixas acima não os cobrem.
+		if ( ! empty( $social['other_social_urls'] ) && is_array( $social['other_social_urls'] ) ) {
+			foreach ( $social['other_social_urls'] as $url ) {
+				if ( is_string( $url ) && filter_var( $url, FILTER_VALIDATE_URL ) ) {
+					$profiles[] = $url;
+				}
+			}
+		}
 		if ( $profiles ) {
 			$node['sameAs'] = array_values( array_unique( $profiles ) );
 		}
