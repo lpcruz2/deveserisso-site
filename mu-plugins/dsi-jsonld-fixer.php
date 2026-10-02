@@ -148,6 +148,10 @@ function dsi_jfix_end(): void {
 			case 'Organization':
 				$node = dsi_jfix_organization( $node );
 				break;
+			case 'WebSite':
+				$node['name']       = 'Deveserisso';
+				$node['inLanguage'] = 'pt-BR';
+				break;
 		}
 
 		// Correções transversais
@@ -171,6 +175,20 @@ function dsi_jfix_end(): void {
 		}
 
 		$output_nodes[] = $node;
+	}
+
+	// Página "Sobre": declara que ela trata da Organization e liga ao WebSite.
+	if ( is_page( 'sobre' ) ) {
+		$output_nodes[] = [
+			'@context'   => 'https://schema.org',
+			'@type'      => 'AboutPage',
+			'@id'        => get_permalink() . '#aboutpage',
+			'url'        => get_permalink(),
+			'name'       => 'Sobre o Deveserisso',
+			'inLanguage' => 'pt-BR',
+			'about'      => [ '@id' => 'https://deveserisso.com.br#Organization' ],
+			'isPartOf'   => [ '@id' => 'https://deveserisso.com.br#website' ],
+		];
 	}
 
 	// ── 4. Remover blocos originais do buffer do wp_head ────────────────
@@ -361,6 +379,15 @@ function dsi_jfix_person( array $node, string $field ): array {
  * por isso o sameAs saía sempre vazio mesmo com os perfis reais existindo.
  */
 function dsi_jfix_organization( array $node ): array {
+	// Nome da entidade = nome do site (igual ao rótulo do item no Wikidata); o slogan fica na description.
+	$node['name']         = 'Deveserisso';
+	$node['foundingDate'] = '2009';
+	$node['founder']      = [
+		'@type' => 'Person',
+		'name'  => 'Leonardo Cruz',
+		'url'   => home_url( '/author/lpcruz2/' ),
+	];
+
 	if ( empty( $node['description'] ) ) {
 		$node['description'] = 'Portal brasileiro de cultura pop e entretenimento — resenhas de filmes e séries, guias de streaming e cobertura de premiações.';
 	}
