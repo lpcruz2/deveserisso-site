@@ -1499,7 +1499,7 @@ function dsi_uisensor_render_baseline_rates( string $table, string $inicio_sql, 
 	$partes = [];
 	foreach ( $linhas as $l ) {
 		$pct        = $l->br === null ? null : round( (float) $l->br * 100, 1 );
-		$partes[]   = ( $pct === null ? '?' : rtrim( rtrim( (string) $pct, '0' ), '.' ) ) . '%: ' . (int) $l->total . ' linhas';
+		$partes[]   = ( $pct === null ? '?' : rtrim( rtrim( number_format( $pct, 1, '.', '' ), '0' ), '.' ) ) . '%: ' . (int) $l->total . ' linhas';
 	}
 	echo esc_html( implode( ' · ', $partes ) );
 	echo '</div>';
