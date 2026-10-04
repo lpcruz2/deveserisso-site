@@ -23,7 +23,7 @@ function dsi_agentmd_alternate_link(): void {
 		return;
 	}
 
-	if ( ! is_singular( [ 'post', 'page' ] ) ) {
+	if ( ! is_singular( [ 'post', 'page' ] ) || post_password_required() ) {
 		return;
 	}
 
@@ -76,6 +76,12 @@ function dsi_agentmd_serve_via_md_suffix(): void {
 
 	$post = get_page_by_path( $path, OBJECT, [ 'post', 'page' ] );
 	if ( ! $post instanceof WP_Post || $post->post_status !== 'publish' ) {
+		return;
+	}
+
+	// Post protegido por senha: o .md nao pode entregar o corpo que o HTML
+	// esconde atras do formulario. Sem servir Markdown: o rewrite leva a /slug/, que mostra o formulario de senha.
+	if ( $post->post_password !== '' ) {
 		return;
 	}
 
