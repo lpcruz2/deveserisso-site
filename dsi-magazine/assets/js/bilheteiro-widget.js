@@ -586,7 +586,11 @@
 			if ( ! iniciado ) {
 				iniciado = true;
 				var salvo = carregarEstadoSalvo();
-				if ( salvo && salvo.historico && salvo.historico.length ) {
+				// Em pagina de filme, conversa salva em que a pessoa nao escreveu nada
+				// (so saudacao e pergunta de abertura) nao vale restaurar: abre direto
+				// com a escolha conversar/recomendar (achado do gestor 2026-10-06).
+				var salvoSemFala = pagina && salvo && salvo.historico && ! salvo.historico.some( function ( i ) { return i.tipo === 'user'; } );
+				if ( salvo && salvo.historico && salvo.historico.length && ! salvoSemFala ) {
 					restaurar( salvo );
 					// Quem recarregou a LP antes de responder o genero (nenhum
 					// turno de verdade rodou ainda, perguntasFeitas continua
