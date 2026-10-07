@@ -904,8 +904,9 @@
 			conversaTitulo  = pagina.titulo;
 			turnosConversa  = [];
 			salvarEstado();
+			// Sem botao de voltar (pedido do gestor 2026-10-06): pedir indicacao
+			// digitando ja troca de modo (quer_recomendacao).
 			addBot( 'Vamos lá! Pode perguntar sobre a história, o elenco, o que a crítica achou... Quando quiser uma indicação, é só pedir.' );
-			addOpcoes( [ { rotulo: 'Prefiro uma recomendação', acao: function () { comecarRecomendacao( conversaTitulo ); } } ] );
 		}
 
 		function escolherRecomendacao() {
