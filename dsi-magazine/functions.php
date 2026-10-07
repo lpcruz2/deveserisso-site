@@ -3546,6 +3546,17 @@ function dsi_curador_acao( WP_REST_Request $req ): WP_REST_Response {
 
 	$acao = $req->get_param( 'action' );
 
+	// Pagina de filme (2026-10-06): escolha conversar/recomendacao e troca de
+	// modo. So contagem, sem texto da pessoa.
+	if ( is_array( $acao ) && ( $acao['name'] ?? '' ) === 'pagina_filme' ) {
+		$evento = dsi_bilheteiro_validar_evento_pagina_filme( $acao );
+		if ( $evento === null ) {
+			return new WP_REST_Response( [ 'erro' => 'Ação desconhecida.' ], 400 );
+		}
+		dsi_bilheteiro_registrar_evento_ui( $sessao_id, 'acao', 'pagina_filme', [ 'evento' => $evento[0], 'post_id' => $evento[1] ] );
+		return new WP_REST_Response( [ 'registrado' => true ] );
+	}
+
 	// Bloco "Gostou das indicacoes?": registra o voto como sempre e devolve a
 	// mesma superficie ja trocada por texto, mais o que o chat faz em seguida.
 	if ( is_array( $acao ) && ( $acao['name'] ?? '' ) === 'feedback' ) {
@@ -4080,6 +4091,58 @@ function dsi_bilheteiro_contar_valores( array $valores, int $top = 5 ): array {
 	return $top_itens;
 }
 
+// Numeros da conversa sobre o filme (2026-10-06) pro relatorio: cliques nos
+// botoes da pagina de filme (acao 'pagina_filme'), conversas (sessoes com
+// pergunta 'conversa_filme:<post>') e filmes mais conversados.
+function dsi_bilheteiro_relatorio_pagina_filme( string $tabela, string $inicio, string $filtro_teste ): array {
+	global $wpdb;
+	$eventos = array_fill_keys( DSI_PAGINA_FILME_EVENTOS, 0 );
+	$linhas  = $wpdb->get_col( $wpdb->prepare(
+		"SELECT motivo FROM {$tabela} WHERE tipo_evento = 'acao' AND mensagem = 'pagina_filme' AND criado_em >= %s AND {$filtro_teste}",
+		$inicio
+	) );
+	foreach ( $linhas as $motivo ) {
+		$ev = (string) ( ( json_decode( (string) $motivo, true ) ?: [] )['evento'] ?? '' );
+		if ( isset( $eventos[ $ev ] ) ) {
+			$eventos[ $ev ]++;
+		}
+	}
+	$perguntas = $wpdb->get_results( $wpdb->prepare(
+		"SELECT sessao_id, motivo FROM {$tabela} WHERE tipo_evento = 'pergunta' AND motivo LIKE 'conversa_filme:%%' AND criado_em >= %s AND {$filtro_teste}",
+		$inicio
+	), ARRAY_A );
+	$sessoes = [];
+	$por_post = [];
+	$erros   = 0;
+	$mensagens = 0;
+	foreach ( $perguntas as $linha ) {
+		if ( substr( $linha['motivo'], -5 ) === ':erro' ) {
+			$erros++;
+			continue;
+		}
+		$mensagens++;
+		$sessoes[ $linha['sessao_id'] ] = true;
+		$post_id = (int) substr( $linha['motivo'], strlen( 'conversa_filme:' ) );
+		$por_post[ $post_id ] = ( $por_post[ $post_id ] ?? 0 ) + 1;
+	}
+	arsort( $por_post );
+	$top = [];
+	foreach ( array_slice( $por_post, 0, 10, true ) as $post_id => $total ) {
+		$top[] = [ 'rotulo' => get_the_title( $post_id ) ?: ( 'post ' . $post_id ), 'total' => $total ];
+	}
+	$conversas = count( $sessoes );
+	return [
+		'escolheu_conversa'        => $eventos['escolha_conversa'],
+		'escolheu_recomendacao'    => $eventos['escolha_recomendacao'],
+		'trocou_para_recomendacao' => $eventos['troca_para_recomendacao'],
+		'conversas'                => $conversas,
+		'mensagens_conversa'       => $mensagens,
+		'mensagens_por_conversa'   => $conversas > 0 ? round( $mensagens / $conversas, 1 ) : null,
+		'erros_conversa'           => $erros,
+		'top_filmes_conversados'   => $top,
+	];
+}
+
 function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 	global $wpdb;
 	$tabela          = dsi_bilheteiro_log_table_name();
@@ -4268,6 +4331,7 @@ function dsi_bilheteiro_relatorio_dados( int $dias = 7 ): array {
 		'top_titulos'        => dsi_bilheteiro_contar_valores( $valores_titulos, 10 ),
 		'top_atores'         => dsi_bilheteiro_contar_valores( $valores_atores, 10 ),
 		'mais_recomendados'  => $mais_recomendados,
+		'pagina_filme'       => dsi_bilheteiro_relatorio_pagina_filme( $tabela, $inicio_intervalo, $filtro_teste ),
 	];
 }
 
@@ -5533,7 +5597,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.12.2',
+		'1.12.3',
 		true
 	);
 	// Pagina de filme/serie com ficha tecnica (2026-10-06): o widget oferece

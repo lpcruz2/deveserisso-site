@@ -932,4 +932,24 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertNull( $r['outro_titulo'] );
 		$this->assertFalse( $r['quer_recomendacao'] );
 	}
+
+	// -- eventos da pagina de filme (2026-10-06) ---------------------------
+
+	public function test_evento_pagina_filme_valido(): void {
+		$acao = [ 'name' => 'pagina_filme', 'context' => [ 'evento' => 'escolha_conversa', 'post_id' => '77887' ] ];
+		$this->assertSame( [ 'escolha_conversa', 77887 ], dsi_bilheteiro_validar_evento_pagina_filme( $acao ) );
+		foreach ( [ 'escolha_recomendacao', 'troca_para_recomendacao' ] as $ev ) {
+			$this->assertSame( [ $ev, 5 ], dsi_bilheteiro_validar_evento_pagina_filme( [ 'name' => 'pagina_filme', 'context' => [ 'evento' => $ev, 'post_id' => 5 ] ] ) );
+		}
+	}
+
+	public function test_evento_pagina_filme_invalido_vira_null(): void {
+		$ctx = fn( array $c ) => [ 'name' => 'pagina_filme', 'context' => $c ];
+		$this->assertNull( dsi_bilheteiro_validar_evento_pagina_filme( $ctx( [ 'evento' => 'outro', 'post_id' => 1 ] ) ) );
+		$this->assertNull( dsi_bilheteiro_validar_evento_pagina_filme( $ctx( [ 'evento' => 'escolha_conversa' ] ) ) );
+		$this->assertNull( dsi_bilheteiro_validar_evento_pagina_filme( $ctx( [ 'evento' => 'escolha_conversa', 'post_id' => 0 ] ) ) );
+		$this->assertNull( dsi_bilheteiro_validar_evento_pagina_filme( $ctx( [ 'evento' => 'escolha_conversa', 'post_id' => 'abc' ] ) ) );
+		$this->assertNull( dsi_bilheteiro_validar_evento_pagina_filme( [ 'name' => 'feedback', 'context' => [ 'evento' => 'escolha_conversa', 'post_id' => 1 ] ] ) );
+		$this->assertNull( dsi_bilheteiro_validar_evento_pagina_filme( 'texto' ) );
+	}
 }

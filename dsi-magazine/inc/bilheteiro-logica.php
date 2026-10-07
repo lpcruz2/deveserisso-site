@@ -930,3 +930,21 @@ function dsi_bilheteiro_conversa_filme_interpretar( string $conteudo ): array {
 		'quer_recomendacao' => ! empty( $json['quer_recomendacao'] ) && $json['quer_recomendacao'] !== 'false',
 	];
 }
+
+// Eventos da pagina de filme (2026-10-06): o widget avisa o servidor da
+// escolha "conversar"/"recomendacao" e da troca de conversa para recomendacao,
+// pro relatorio nao depender do GA4. Lista fechada; post_id obrigatorio.
+const DSI_PAGINA_FILME_EVENTOS = [ 'escolha_conversa', 'escolha_recomendacao', 'troca_para_recomendacao' ];
+
+function dsi_bilheteiro_validar_evento_pagina_filme( $acao ): ?array {
+	if ( ! is_array( $acao ) || ( $acao['name'] ?? '' ) !== 'pagina_filme' ) {
+		return null;
+	}
+	$ctx    = (array) ( $acao['context'] ?? [] );
+	$evento = (string) ( $ctx['evento'] ?? '' );
+	$post   = $ctx['post_id'] ?? null;
+	if ( ! in_array( $evento, DSI_PAGINA_FILME_EVENTOS, true ) || ! is_numeric( $post ) || (int) $post < 1 ) {
+		return null;
+	}
+	return [ $evento, (int) $post ];
+}

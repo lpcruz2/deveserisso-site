@@ -896,7 +896,21 @@
 			thread.scrollTop = thread.scrollHeight;
 		}
 
+		// Conta no servidor (relatorio do Curador) alem do GA4: escolha_conversa,
+		// escolha_recomendacao, troca_para_recomendacao. Falha em silencio.
+		function registrarEventoPagina( evento, postId ) {
+			try {
+				fetch( CURADOR_ACAO_ENDPOINT, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					keepalive: true,
+					body: JSON.stringify( { sessao_id: sessaoId, action: { name: 'pagina_filme', context: { evento: evento, post_id: postId } } } )
+				} ).catch( function () {} );
+			} catch ( e ) {}
+		}
+
 		function escolherConversa() {
+			registrarEventoPagina( 'escolha_conversa', pagina.post_id );
 			track( 'widget_pagina_escolha', { escolha: 'conversa', filme_id: pagina.post_id, sessao_id: sessaoId } );
 			escolhaPaginaId = pagina.post_id;
 			modoConversa    = true;
@@ -910,6 +924,7 @@
 		}
 
 		function escolherRecomendacao() {
+			registrarEventoPagina( 'escolha_recomendacao', pagina.post_id );
 			track( 'widget_pagina_escolha', { escolha: 'recomendacao', filme_id: pagina.post_id, sessao_id: sessaoId } );
 			escolhaPaginaId = pagina.post_id;
 			comecarRecomendacao( pagina.titulo );
@@ -918,6 +933,7 @@
 		// Sai da conversa e abre o fluxo de recomendacao com o titulo da pagina
 		// como referencia (estado.q), entao o Curador nao pergunta de novo.
 		function comecarRecomendacao( tituloRef ) {
+			if ( modoConversa ) registrarEventoPagina( 'troca_para_recomendacao', conversaPostId );
 			modoConversa        = false;
 			estado              = { q: tituloRef };
 			perguntasFeitas     = 0;
