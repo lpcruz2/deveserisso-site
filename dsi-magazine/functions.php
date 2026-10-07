@@ -2588,8 +2588,18 @@ function dsi_bilheteiro_limite_excedido( string $ip ): string {
 	$chave_min = 'dsi_bh_rl_min_' . md5( $ip );
 	$chave_dia = 'dsi_bh_rl_dia_' . md5( $ip );
 
-	$por_minuto = (int) get_transient( $chave_min );
-	$por_dia    = (int) get_transient( $chave_dia );
+	// Janela fixa (2026-10-06): set_transient renova o prazo a cada chamada,
+	// entao o contador so zerava depois de 60 s (ou 24 h) sem nenhuma
+	// requisicao. Varias conversas seguidas da mesma rede travavam no "minuto"
+	// sem passar de 10 por minuto de verdade (sessoes 33725e9 e 96558cd).
+	// Agora o contador guarda o inicio da janela e o prazo restante.
+	$agora      = time();
+	$janela_min = get_transient( $chave_min );
+	$janela_dia = get_transient( $chave_dia );
+	$por_minuto = ( is_array( $janela_min ) && $agora - (int) $janela_min['t'] < MINUTE_IN_SECONDS ) ? (int) $janela_min['n'] : 0;
+	$por_dia    = ( is_array( $janela_dia ) && $agora - (int) $janela_dia['t'] < DAY_IN_SECONDS ) ? (int) $janela_dia['n'] : 0;
+	$inicio_min = $por_minuto > 0 ? (int) $janela_min['t'] : $agora;
+	$inicio_dia = $por_dia > 0 ? (int) $janela_dia['t'] : $agora;
 
 	// 10/minuto cobre folgado uma conversa real (DSI_BILHETEIRO_LIMITE_PERGUNTAS
 	// limita a 6 perguntas de acompanhamento, atualizado 2026-09-22); o teto
@@ -2603,8 +2613,8 @@ function dsi_bilheteiro_limite_excedido( string $ip ): string {
 		return 'minuto';
 	}
 
-	set_transient( $chave_min, $por_minuto + 1, MINUTE_IN_SECONDS );
-	set_transient( $chave_dia, $por_dia + 1, DAY_IN_SECONDS );
+	set_transient( $chave_min, [ 'n' => $por_minuto + 1, 't' => $inicio_min ], max( 1, MINUTE_IN_SECONDS - ( $agora - $inicio_min ) ) );
+	set_transient( $chave_dia, [ 'n' => $por_dia + 1, 't' => $inicio_dia ], max( 1, DAY_IN_SECONDS - ( $agora - $inicio_dia ) ) );
 	return '';
 }
 
@@ -3384,6 +3394,122 @@ function dsi_bilheteiro_perguntar_pos_recomendacao( WP_REST_Request $req ): WP_R
 	}
 	dsi_bilheteiro_registrar_pergunta( $sessao_id, $pergunta, $resposta['resposta'], $resposta['intencao'], $interface );
 	return new WP_REST_Response( $corpo );
+}
+
+// Conversa sobre o filme (2026-10-06). Na pagina de um filme/serie com ficha
+// tecnica, o widget deixa a pessoa escolher entre conversar sobre o titulo e
+// pedir recomendacao. Esta rota e a conversa: contexto = critica da propria
+// pagina + ficha, prompt flexivel (ver DSI_BILHETEIRO_CONVERSA_FILME_INSTRUCAO).
+// Mesmo limite de uso das outras rotas (10 por minuto); o atraso de ~3 s na
+// resposta e do widget, nao daqui.
+add_action( 'rest_api_init', function (): void {
+	register_rest_route( 'dsi/v1', '/bilheteiro-conversa-filme', [
+		'methods'             => 'POST',
+		'callback'            => 'dsi_bilheteiro_conversa_filme',
+		'permission_callback' => '__return_true',
+		'args'                => [
+			'post_id'  => [ 'required' => true, 'sanitize_callback' => 'absint' ],
+			'pergunta' => [ 'required' => true, 'sanitize_callback' => 'sanitize_textarea_field' ],
+		],
+	] );
+} );
+
+// Acha no site (post com ficha tecnica) o titulo que o modelo citou. So devolve
+// se o nome bate exatamente com o da ficha: melhor nao mostrar cartao do que
+// mostrar o filme errado.
+function dsi_bilheteiro_achar_titulo_no_site( string $titulo, int $excluir_post_id = 0 ): ?array {
+	$chave = dsi_dt_normalize_key( $titulo );
+	if ( $chave === '' ) {
+		return null;
+	}
+	$query = new WP_Query( [
+		'post_type'      => 'post',
+		'post_status'    => 'publish',
+		's'              => $titulo,
+		'posts_per_page' => 10,
+		'post__not_in'   => $excluir_post_id ? [ $excluir_post_id ] : [],
+		'meta_query'     => [ [ 'key' => '_dsi_dados_tecnicos_raw', 'value' => '', 'compare' => '!=' ] ],
+	] );
+	foreach ( $query->posts as $post ) {
+		$d = dsi_parse_dados_tecnicos( (string) get_post_meta( $post->ID, '_dsi_dados_tecnicos_raw', true ) );
+		if ( empty( $d['titulo'] ) || dsi_dt_normalize_key( $d['titulo'] ) !== $chave ) {
+			continue;
+		}
+		return [
+			'id'     => $post->ID,
+			'fonte'  => 'catalogo',
+			'titulo' => $d['titulo'],
+			'nota'   => null,
+			'sinopse' => str_replace( '&nbsp;', ' ', dsi_excerpt( 200, $post->ID ) ),
+			'poster' => get_the_post_thumbnail_url( $post->ID, 'dsi-poster' ) ?: null,
+			'link'   => get_permalink( $post ),
+		];
+	}
+	return null;
+}
+
+function dsi_bilheteiro_conversa_filme( WP_REST_Request $req ): WP_REST_Response {
+	header( 'Access-Control-Allow-Origin: *' );
+
+	$sessao_id = (string) $req->get_param( 'sessao_id' );
+	$limite    = dsi_bilheteiro_limite_excedido( dsi_bilheteiro_ip_visitante() );
+	if ( $limite !== '' ) {
+		return dsi_bilheteiro_resposta_bloqueio( 'conversa', $limite, $sessao_id, (string) $req->get_param( 'pergunta' ) );
+	}
+
+	$api_key = defined( 'DSI_DEEPSEEK_KEY' ) ? DSI_DEEPSEEK_KEY : '';
+	if ( empty( $api_key ) ) {
+		return new WP_REST_Response( [ 'erro' => 'Bilheteiro conversacional temporariamente indisponível.' ], 503 );
+	}
+
+	$pergunta = dsi_bilheteiro_sem_email( mb_substr( (string) $req->get_param( 'pergunta' ), 0, 500 ) );
+	if ( trim( $pergunta ) === '' ) {
+		return new WP_REST_Response( [ 'erro' => 'Pergunta vazia.' ], 400 );
+	}
+
+	$post_id = (int) $req->get_param( 'post_id' );
+	$post    = $post_id ? get_post( $post_id ) : null;
+	$raw     = $post ? (string) get_post_meta( $post->ID, '_dsi_dados_tecnicos_raw', true ) : '';
+	if ( ! $post || $post->post_type !== 'post' || $post->post_status !== 'publish' || $raw === '' ) {
+		return new WP_REST_Response( [ 'erro' => 'Não encontrei esse título.' ], 404 );
+	}
+	$ficha   = dsi_parse_dados_tecnicos( $raw );
+	$critica = wp_strip_all_tags( strip_shortcodes( $post->post_content ) );
+
+	$mensagens = array_merge(
+		[ [ 'role' => 'system', 'content' => DSI_BILHETEIRO_CONVERSA_FILME_INSTRUCAO . "\n\nTítulo da página:\n" . dsi_bilheteiro_conversa_filme_contexto( $ficha, $critica ) ] ],
+		dsi_bilheteiro_conversa_filme_historico( $req->get_param( 'historico' ) ),
+		[ [ 'role' => 'user', 'content' => $pergunta ] ]
+	);
+	$response = wp_remote_post( 'https://api.deepseek.com/chat/completions', [
+		'headers' => [ 'Authorization' => 'Bearer ' . $api_key, 'Content-Type' => 'application/json' ],
+		'body'    => wp_json_encode( [
+			'model'           => 'deepseek-flash',
+			'messages'        => $mensagens,
+			'response_format' => [ 'type' => 'json_object' ],
+			'temperature'     => 0.5,
+		] ),
+		'timeout' => 25,
+	] );
+	$texto = '';
+	if ( ! is_wp_error( $response ) && (int) wp_remote_retrieve_response_code( $response ) === 200 ) {
+		$body  = json_decode( wp_remote_retrieve_body( $response ), true );
+		$texto = trim( (string) ( $body['choices'][0]['message']['content'] ?? '' ) );
+	}
+	$motivo = 'conversa_filme:' . $post->ID;
+	if ( $texto === '' ) {
+		dsi_bilheteiro_registrar_pergunta( $sessao_id, $pergunta, null, $motivo . ':erro' );
+		return new WP_REST_Response( [ 'erro' => 'Não consegui responder isso agora, pode tentar de novo?' ], 502 );
+	}
+
+	$r      = dsi_bilheteiro_conversa_filme_interpretar( $texto );
+	$cartao = $r['outro_titulo'] ? dsi_bilheteiro_achar_titulo_no_site( $r['outro_titulo'], $post->ID ) : null;
+	dsi_bilheteiro_registrar_pergunta( $sessao_id, $pergunta, $r['resposta'], $motivo );
+	return new WP_REST_Response( [
+		'resposta'          => $r['resposta'],
+		'cartao'            => $cartao,
+		'quer_recomendacao' => $r['quer_recomendacao'],
+	] );
 }
 
 // Acoes e erros de interface A2UI (2026-09-29). O widget manda aqui o clique
@@ -5407,9 +5533,27 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.11.4',
+		'1.12.0',
 		true
 	);
+	// Pagina de filme/serie com ficha tecnica (2026-10-06): o widget oferece
+	// "conversar sobre este filme" ou "recomendacao". Fora disso nao existe
+	// window.dsiBhPagina e o comportamento nao muda.
+	if ( is_singular( 'post' ) ) {
+		$raw = (string) get_post_meta( get_queried_object_id(), '_dsi_dados_tecnicos_raw', true );
+		$d   = $raw !== '' ? dsi_parse_dados_tecnicos( $raw ) : [];
+		if ( ! empty( $d['titulo'] ) ) {
+			wp_add_inline_script(
+				'dsi-bilheteiro-widget',
+				'window.dsiBhPagina=' . wp_json_encode( [
+					'post_id' => get_queried_object_id(),
+					'titulo'  => $d['titulo'],
+					'tipo'    => ( $d['tipo'] ?? 'filme' ) === 'serie' ? 'serie' : 'filme',
+				], JSON_UNESCAPED_UNICODE ) . ';',
+				'before'
+			);
+		}
+	}
 	// defer (2026-09-22, audit Lighthouse): widget carrega sem gate de
 	// pagina, entao competia com o parse/render de TODA pagina do site
 	// mesmo quando nao usado (ex: home, onde nem aparece na dobra

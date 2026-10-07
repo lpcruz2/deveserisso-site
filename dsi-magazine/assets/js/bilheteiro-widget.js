@@ -22,6 +22,12 @@
 	var A2UI_HOSTS_IMAGEM        = [ 'deveserisso.com.br', 'image.tmdb.org' ];
 	var A2UI_HOSTS_LINK          = [ 'deveserisso.com.br' ];
 	var NEWSLETTER_ENDPOINT      = 'https://deveserisso.com.br/wp-json/dsi/v1/bilheteiro-newsletter';
+	// Conversa sobre o filme (2026-10-06): na pagina de um filme/serie com ficha
+	// (window.dsiBhPagina, posto pelo tema), a pessoa escolhe entre conversar
+	// sobre o titulo e pedir recomendacao. A resposta espera ao menos 3 s
+	// (decisao do gestor) pra nao parecer metralhadora.
+	var CONVERSA_FILME_ENDPOINT  = 'https://deveserisso.com.br/wp-json/dsi/v1/bilheteiro-conversa-filme';
+	var ATRASO_CONVERSA_MS       = 3000;
 	// A partir de quantas mensagens do usuario (qualquer tipo, preferencia
 	// ou pergunta) o bot oferece cadastro na newsletter (2026-09-24, pedido
 	// do gestor: "a pessoa pode falar infinitamente... mas não ganho nada
@@ -464,6 +470,15 @@
 		// junto fica guardada aqui e so aparece depois que a pessoa cadastra
 		// ou recusa -- ver liberarRespostaPendente().
 		var respostaPendente = null;
+		// Conversa sobre o filme da pagina. escolhaPaginaId = pagina (post) pra
+		// qual a pessoa ja escolheu conversar/recomendacao; modoConversa vale
+		// ate ela pedir recomendacao.
+		var pagina            = ( ! modoLP && window.dsiBhPagina && window.dsiBhPagina.post_id ) ? window.dsiBhPagina : null;
+		var modoConversa      = false;
+		var conversaPostId    = 0;
+		var conversaTitulo    = '';
+		var turnosConversa    = [];
+		var escolhaPaginaId   = 0;
 
 		function salvarEstado() {
 			salvarEstadoFn( {
@@ -480,6 +495,11 @@
 				ultimosItensRecomendados: ultimosItensRecomendados,
 				perguntasEncerradas: perguntasEncerradas,
 				respostaPendente: respostaPendente,
+				modoConversa: modoConversa,
+				conversaPostId: conversaPostId,
+				conversaTitulo: conversaTitulo,
+				turnosConversa: turnosConversa,
+				escolhaPaginaId: escolhaPaginaId,
 				salvoEm: Date.now()
 			} );
 		}
@@ -575,6 +595,10 @@
 					if ( modoLP && perguntasFeitas === 0 && ! perguntasEncerradas ) {
 						addQuebraGelo( GENEROS_LP );
 					}
+					// Conversa salva noutra pagina: oferece a escolha para esta.
+					if ( pagina && escolhaPaginaId !== pagina.post_id ) {
+						oferecerEscolhaPagina( true );
+					}
 				} else if ( modoLP ) {
 					iniciarLP();
 				} else {
@@ -657,6 +681,11 @@
 			aguardandoEmail      = false;
 			avisoLimiteMostrado  = false;
 			respostaPendente     = null;
+			modoConversa         = false;
+			conversaPostId       = 0;
+			conversaTitulo       = '';
+			turnosConversa       = [];
+			escolhaPaginaId      = 0;
 			thread.innerHTML = '';
 			painel.classList.remove( 'com-filmes' );
 			if ( modoLP ) iniciarLP(); else iniciar();
@@ -718,6 +747,11 @@
 			aguardandoEmail          = !! dados.aguardandoEmail;
 			avisoLimiteMostrado      = !! dados.avisoLimiteMostrado;
 			respostaPendente         = dados.respostaPendente || null;
+			modoConversa             = !! dados.modoConversa;
+			conversaPostId           = dados.conversaPostId || 0;
+			conversaTitulo           = dados.conversaTitulo || '';
+			turnosConversa           = dados.turnosConversa || [];
+			escolhaPaginaId          = dados.escolhaPaginaId || 0;
 			historico.forEach( function ( item ) {
 				if ( item.tipo === 'bot' ) renderBot( item.html );
 				else if ( item.tipo === 'user' ) renderUser( item.texto );
@@ -727,6 +761,7 @@
 				else if ( item.tipo === 'aviso_limite' ) renderAvisoLimite();
 				else if ( item.tipo === 'aviso_ator' ) renderAvisoAtor( item );
 				else if ( item.tipo === 'pedido_email' ) renderPedidoEmail( item );
+				else if ( item.tipo === 'outro_titulo' ) renderOutroTitulo( item.item );
 				else if ( item.tipo === 'a2ui' ) {
 					// Mesmas mensagens de antes, redesenhadas; se falhar, o texto.
 					try { renderA2ui( item.mensagens ); } catch ( err ) {
@@ -809,6 +844,7 @@
 		}
 
 		function iniciar() {
+			if ( pagina ) { oferecerEscolhaPagina( false ); return; }
 			// Mensagem de boas-vindas fixa, some na hora (nao depende da API) --
 			// achado do gestor 2026-09-20: sem isso, o painel abria vazio ate a
 			// primeira pergunta chegar, e quem tava usando nao entendia o que
@@ -822,6 +858,123 @@
 				carregando.remove();
 				addBot( ( err && err.mensagemAmigavel ) || 'Deu um probleminha aqui, tenta recarregar a página.' );
 			} );
+		}
+
+		// Pagina de filme/serie: "conversar sobre este filme" ou "recomendacao".
+		// Os botoes nao entram no historico (como os do quebra-gelo); ver abrir().
+		function oferecerEscolhaPagina( retomada ) {
+			var nome = '<strong>' + escapeHtml( pagina.titulo ) + '</strong>';
+			addBot( retomada
+				? 'Agora você está lendo sobre ' + nome + '. Quer conversar sobre ' + ( pagina.tipo === 'serie' ? 'essa série' : 'esse filme' ) + ' ou prefere uma recomendação?'
+				: 'Oi! Sou o seu curador pessoal. Quer conversar sobre ' + nome + ' ou prefere que eu te indique algo para assistir hoje?' );
+			addOpcoes( [
+				{ rotulo: pagina.tipo === 'serie' ? 'Conversar sobre esta série' : 'Conversar sobre este filme', acao: escolherConversa },
+				{ rotulo: 'Quero uma recomendação', acao: escolherRecomendacao }
+			] );
+		}
+
+		function addOpcoes( opcoes ) {
+			var wrap = document.createElement( 'div' );
+			wrap.className = 'dsi-bh-quebra-gelo-wrap';
+			opcoes.forEach( function ( opcao ) {
+				var botao = document.createElement( 'button' );
+				botao.type = 'button';
+				botao.className = 'dsi-bh-quebra-gelo';
+				botao.textContent = opcao.rotulo;
+				botao.addEventListener( 'click', function () {
+					wrap.remove();
+					addUser( opcao.rotulo );
+					opcao.acao();
+				} );
+				wrap.appendChild( botao );
+			} );
+			thread.appendChild( wrap );
+			thread.scrollTop = thread.scrollHeight;
+		}
+
+		function escolherConversa() {
+			track( 'widget_pagina_escolha', { escolha: 'conversa', filme_id: pagina.post_id, sessao_id: sessaoId } );
+			escolhaPaginaId = pagina.post_id;
+			modoConversa    = true;
+			conversaPostId  = pagina.post_id;
+			conversaTitulo  = pagina.titulo;
+			turnosConversa  = [];
+			salvarEstado();
+			addBot( 'Vamos lá! Pode perguntar sobre a história, o elenco, o que a crítica achou... Quando quiser uma indicação, é só pedir.' );
+			addOpcoes( [ { rotulo: 'Prefiro uma recomendação', acao: function () { comecarRecomendacao( conversaTitulo ); } } ] );
+		}
+
+		function escolherRecomendacao() {
+			track( 'widget_pagina_escolha', { escolha: 'recomendacao', filme_id: pagina.post_id, sessao_id: sessaoId } );
+			escolhaPaginaId = pagina.post_id;
+			comecarRecomendacao( pagina.titulo );
+		}
+
+		// Sai da conversa e abre o fluxo de recomendacao com o titulo da pagina
+		// como referencia (estado.q), entao o Curador nao pergunta de novo.
+		function comecarRecomendacao( tituloRef ) {
+			modoConversa        = false;
+			estado              = { q: tituloRef };
+			perguntasFeitas     = 0;
+			perguntasEncerradas = false;
+			salvarEstado();
+			addBot( 'Boa! Vou usar ' + escapeHtml( tituloRef ) + ' como referência.' );
+			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
+			chamarBilheteiro( '' ).then( function ( data ) {
+				carregando.remove();
+				processarResposta( data );
+			} ).catch( function ( err ) {
+				carregando.remove();
+				addBot( ( err && err.mensagemAmigavel ) || 'Deu um probleminha aqui, pode tentar de novo?' );
+			} );
+		}
+
+		function conversarSobreFilme( texto ) {
+			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
+			var espera = new Promise( function ( ok ) { setTimeout( ok, ATRASO_CONVERSA_MS ); } );
+			var chamada = fetch( CONVERSA_FILME_ENDPOINT, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( { post_id: conversaPostId, pergunta: texto, historico: turnosConversa.slice( -6 ), sessao_id: sessaoId } )
+			} ).then( function ( r ) {
+				return r.json().then( function ( body ) {
+					if ( ! r.ok ) {
+						if ( r.status === 429 ) trackBloqueio( 'conversa' );
+						var erro = new Error( ( body && body.erro ) || ( 'http ' + r.status ) );
+						erro.mensagemAmigavel = body && body.erro;
+						throw erro;
+					}
+					return body;
+				} );
+			} );
+			Promise.all( [ chamada, espera ] ).then( function ( res ) {
+				var data = res[0];
+				carregando.remove();
+				turnosConversa.push( { papel: 'user', texto: texto }, { papel: 'bot', texto: data.resposta } );
+				turnosConversa = turnosConversa.slice( -12 );
+				track( 'widget_conversa_mensagem', { filme_id: conversaPostId, com_cartao: data.cartao ? 1 : 0, sessao_id: sessaoId } );
+				var resposta = { html: escapeHtml( data.resposta ), sugestoes: null, cartao: data.cartao || null, quer_recomendacao: !! data.quer_recomendacao };
+				if ( talvezPedirEmail( resposta ) ) return;
+				talvezAvisarLimite();
+				mostrarResposta( resposta );
+			} ).catch( function ( err ) {
+				carregando.remove();
+				addBot( ( err && err.mensagemAmigavel ) || 'Não consegui responder isso agora, pode tentar de novo?' );
+			} );
+		}
+
+		// Cartao de outro titulo do site citado na conversa.
+		function renderOutroTitulo( item ) {
+			var msgEl = renderBot( montarCardsFilmes( [ item ], 'Esse título está no site', 'Quer conhecer? A crítica está aqui:' ) );
+			msgEl.classList.add( 'dsi-bh-msg--filmes' );
+			ligarCliquesFilmes( msgEl );
+			return msgEl;
+		}
+		function addOutroTitulo( item ) {
+			var el = renderOutroTitulo( item );
+			historico.push( { tipo: 'outro_titulo', item: item } );
+			salvarEstado();
+			return el;
 		}
 
 		// Abertura do modo LP (2026-09-25): a primeira pergunta ("genero")
@@ -916,6 +1069,8 @@
 			if ( resposta.a2ui && mostrarA2ui( resposta.a2ui, resposta.html ) ) return;
 			addBot( resposta.html );
 			if ( resposta.sugestoes ) addQuebraGelo( resposta.sugestoes );
+			if ( resposta.cartao ) addOutroTitulo( resposta.cartao );
+			if ( resposta.quer_recomendacao ) comecarRecomendacao( conversaTitulo );
 		}
 
 		// Mostra a resposta do bot que ficou guardada enquanto o pedido de
@@ -1073,6 +1228,10 @@
 			// preferencia -- vai pra rota separada que responde com base nos
 			// dados reais dos filmes, em vez de cair na extracao de
 			// preferencia de novo (ver perguntasEncerradas acima).
+			if ( modoConversa ) {
+				conversarSobreFilme( texto );
+				return;
+			}
 			if ( perguntasEncerradas ) {
 				perguntarSobreRecomendacoes( texto );
 				return;
@@ -1138,9 +1297,9 @@
 			return ( nota === null || nota === undefined ) ? '' : ' ⭐ ' + nota;
 		}
 
-		function montarCardsFilmes( itens ) {
-			var html = '<p class="dsi-bh-secao-titulo">Minhas indicações para você</p>' +
-				'<p class="dsi-bh-secao-apoio">Com base nas suas respostas, acredito que você vai gostar dessas produções.</p>' +
+		function montarCardsFilmes( itens, titulo, apoio ) {
+			var html = '<p class="dsi-bh-secao-titulo">' + escapeHtml( titulo || 'Minhas indicações para você' ) + '</p>' +
+				'<p class="dsi-bh-secao-apoio">' + escapeHtml( apoio || 'Com base nas suas respostas, acredito que você vai gostar dessas produções.' ) + '</p>' +
 				'<div class="dsi-bh-filmes">';
 			itens.forEach( function ( f, i ) {
 				html += '<a class="dsi-bh-filme" href="' + f.link + '" target="_blank" rel="noopener" ' +
