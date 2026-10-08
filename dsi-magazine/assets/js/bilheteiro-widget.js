@@ -299,6 +299,10 @@
 			'.dsi-bh-quebra-gelo{background:#ebe3d2;border:1px dashed #a89a7d;border-radius:999px;' +
 			'padding:8px 6px;font:inherit;font-size:13px;font-weight:600;color:#1d1a14;cursor:pointer;text-align:center;}' +
 			'.dsi-bh-quebra-gelo:hover{background:#e3d9c2;}' +
+			/* Escolha da pagina de filme (2026-10-08): so dois botoes, entao dividem
+			   a largura toda (a grade de 3 deixava cada um com 1/3 e texto espremido). */
+			'.dsi-bh-quebra-gelo-wrap--opcoes{grid-template-columns:1fr 1fr;}' +
+			'.dsi-bh-quebra-gelo-wrap--opcoes .dsi-bh-quebra-gelo{border-radius:18px;padding:14px 10px;font-size:14px;}' +
 			/* Aviso "nao achei com esse ator" (2026-09-25): botoes dentro do
 			   balao do bot, que ja tem o mesmo bege -- fundo branco pra
 			   aparecerem como botao. */
@@ -879,7 +883,7 @@
 
 		function addOpcoes( opcoes ) {
 			var wrap = document.createElement( 'div' );
-			wrap.className = 'dsi-bh-quebra-gelo-wrap';
+			wrap.className = 'dsi-bh-quebra-gelo-wrap dsi-bh-quebra-gelo-wrap--opcoes';
 			opcoes.forEach( function ( opcao ) {
 				var botao = document.createElement( 'button' );
 				botao.type = 'button';

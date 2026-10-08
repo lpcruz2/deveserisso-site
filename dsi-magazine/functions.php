@@ -5621,7 +5621,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.12.3',
+		'1.12.4',
 		true
 	);
 	// Pagina de filme/serie com ficha tecnica (2026-10-06): o widget oferece
