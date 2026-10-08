@@ -476,6 +476,37 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertFalse( dsi_bilheteiro_pede_nova_recomendacao( 'quais desses são de comédia?' ) );
 	}
 
+	public function test_pede_nova_recomendacao_mais_sugestoes_com_criterio(): void {
+		$this->assertTrue( dsi_bilheteiro_pede_nova_recomendacao( 'quero mais sugestões de comédia main stream' ) );
+		$this->assertTrue( dsi_bilheteiro_pede_nova_recomendacao( 'mais filmes com o Adam Sandler' ) );
+		$this->assertTrue( dsi_bilheteiro_pede_nova_recomendacao( 'tem outras opções sem terror?' ) );
+		// Sem critério novo segue sendo "mais opções" (nova rodada), não busca nova.
+		$this->assertFalse( dsi_bilheteiro_pede_nova_recomendacao( 'tem outros?' ) );
+		$this->assertFalse( dsi_bilheteiro_pede_nova_recomendacao( 'quero mais opções' ) );
+		$this->assertTrue( dsi_bilheteiro_pede_mais_opcoes( 'quero mais opções' ) );
+	}
+
+	// -- limitações do Curador e gêneros em português -------------------------
+
+	public function test_aviso_limitacao_por_tipo(): void {
+		$this->assertStringContainsString( 'diretor', dsi_curador_aviso_limitacao( 'diretor' ) );
+		$this->assertStringContainsString( 'letra do título', dsi_curador_aviso_limitacao( 'outro' ) );
+		$this->assertSame( '', dsi_curador_aviso_limitacao( null ) );
+		$this->assertSame( '', dsi_curador_aviso_limitacao( 'qualquer' ) );
+		$this->assertSame( '', dsi_curador_aviso_limitacao( [ 'diretor' ] ) );
+		foreach ( DSI_CURADOR_LIMITACOES as $texto ) {
+			$this->assertStringNotContainsString( '—', $texto );
+		}
+	}
+
+	public function test_generos_tmdb_em_portugues(): void {
+		$this->assertSame(
+			[ 'Ação e Aventura', 'Infantil', 'Comédia', 'Ficção científica e Fantasia' ],
+			dsi_generos_para_pt( [ 'Action & Adventure', 'Kids', 'Comédia', 'Sci-Fi & Fantasy' ] )
+		);
+		$this->assertSame( [], dsi_generos_para_pt( [] ) );
+	}
+
 	// -- dsi_bilheteiro_eh_negativa ------------------------------------------
 
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'negativas' )]

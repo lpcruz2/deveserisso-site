@@ -239,6 +239,10 @@ const DSI_BILHETEIRO_PEDIDOS_NOVA_RECOMENDACAO_REGEX = [
 	'/mudar (de )?g[eê]nero/iu',
 	'/recome[cç]ar/iu',
 	'/come[cç]ar (de novo|outra vez)/iu',
+	// "mais sugestões de comédia main stream" (relatorio 2026-10-08, pedido 3x
+	// e recusado): pedido de mais titulos COM um criterio novo e busca nova.
+	// Sem criterio ("tem outros?") continua em dsi_bilheteiro_pede_mais_opcoes.
+	'/\b(mais|outr[oa]s) (op[cç][oõ]es|sugest[oõ]es|indica[cç][oõ]es|recomenda[cç][oõ]es|filmes|s[eé]ries|t[ií]tulos) (de|d[oa]s?|com|tipo|parecid[oa]s?|que|sem)\b/iu',
 ];
 function dsi_bilheteiro_pede_nova_recomendacao( string $mensagem ): bool {
 	foreach ( DSI_BILHETEIRO_PEDIDOS_NOVA_RECOMENDACAO_REGEX as $padrao ) {
@@ -376,6 +380,39 @@ function dsi_generos_chaves_busca( string $genero_normalizado ): array {
 	}
 	return array_values( array_unique( $chaves ) );
 }
+// Generos do catalogo externo vem com os nomes da TMDB em ingles (relatorio
+// semanal 2026-10-08: "Action & Adventure", "Kids" apareciam na lista). So a
+// saida traduz; filtro e pontuacao continuam com o valor original.
+const DSI_GENEROS_TMDB_PT = [
+	'Action & Adventure' => 'Ação e Aventura',
+	'Sci-Fi & Fantasy'   => 'Ficção científica e Fantasia',
+	'War & Politics'     => 'Guerra e Política',
+	'Science Fiction'    => 'Ficção científica',
+	'Kids'               => 'Infantil',
+	'News'               => 'Notícias',
+	'Soap'               => 'Novela',
+	'Talk'               => 'Talk show',
+	'Reality'            => 'Reality',
+];
+function dsi_generos_para_pt( array $generos ): array {
+	return array_map(
+		fn( $g ) => is_string( $g ) ? ( DSI_GENEROS_TMDB_PT[ trim( $g ) ] ?? $g ) : $g,
+		$generos
+	);
+}
+
+// Pedido que o Curador nao sabe filtrar (relatorio semanal 2026-10-08: "só
+// Spielberg" levou um "ótima escolha!" e nada foi registrado; "filme com a
+// letra A" recebeu cinco titulos como se tivesse sido atendido). A extracao
+// devolve `limitacao` = diretor | outro; o texto sai daqui.
+const DSI_CURADOR_LIMITACOES = [
+	'diretor' => 'Ainda não busco por diretor, só por gênero, ator, clima, época e título parecido.',
+	'outro'   => 'Esse tipo de filtro (letra do título, duração, ano) eu ainda não faço. Busco por gênero, ator, clima, época e título parecido.',
+];
+function dsi_curador_aviso_limitacao( $tipo ): string {
+	return is_string( $tipo ) ? ( DSI_CURADOR_LIMITACOES[ $tipo ] ?? '' ) : '';
+}
+
 function dsi_genero_bate( string $genero_item_normalizado, array $chaves ): bool {
 	foreach ( $chaves as $chave ) {
 		if ( $chave !== '' && preg_match( '/(^|[^a-z0-9])' . preg_quote( $chave, '/' ) . '($|[^a-z0-9])/u', $genero_item_normalizado ) ) {
