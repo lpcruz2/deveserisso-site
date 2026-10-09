@@ -499,6 +499,23 @@ final class BilheteiroLogicaTest extends TestCase {
 		}
 	}
 
+	public function test_mensagem_confusa_reconhece_e_ignora(): void {
+		$this->assertTrue( dsi_curador_mensagem_confusa( 'nao entendi estava falando la do filme' ) );
+		$this->assertTrue( dsi_curador_mensagem_confusa( 'Não entendi' ) );
+		$this->assertTrue( dsi_curador_mensagem_confusa( 'como assim?' ) );
+		$this->assertTrue( dsi_curador_mensagem_confusa( 'eu estava falando do filme' ) );
+		$this->assertFalse( dsi_curador_mensagem_confusa( 'quero terror' ) );
+		$this->assertFalse( dsi_curador_mensagem_confusa( 'não' ) );
+		$this->assertFalse( dsi_curador_mensagem_confusa( str_repeat( 'não entendi ', 20 ) ) );
+	}
+
+	public function test_esclarecimento_cita_o_titulo_quando_ha(): void {
+		$this->assertStringContainsString( 'Quebrando Regras 3', dsi_curador_esclarecimento( 'Quebrando Regras 3' ) );
+		$this->assertStringNotContainsString( 'como referência', dsi_curador_esclarecimento( null ) );
+		$this->assertStringNotContainsString( 'como referência', dsi_curador_esclarecimento( '__sem_preferencia__' ) );
+		$this->assertStringNotContainsString( '—', dsi_curador_esclarecimento( 'X' ) );
+	}
+
 	public function test_generos_tmdb_em_portugues(): void {
 		$this->assertSame(
 			[ 'Ação e Aventura', 'Infantil', 'Comédia', 'Ficção científica e Fantasia' ],

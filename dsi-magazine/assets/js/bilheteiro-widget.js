@@ -936,14 +936,15 @@
 
 		// Sai da conversa e abre o fluxo de recomendacao com o titulo da pagina
 		// como referencia (estado.q), entao o Curador nao pergunta de novo.
-		function comecarRecomendacao( tituloRef ) {
+		function comecarRecomendacao( tituloRef, jaAvisou ) {
 			if ( modoConversa ) registrarEventoPagina( 'troca_para_recomendacao', conversaPostId );
 			modoConversa        = false;
 			estado              = { q: tituloRef };
 			perguntasFeitas     = 0;
 			perguntasEncerradas = false;
 			salvarEstado();
-			addBot( 'Boa! Vou usar ' + escapeHtml( tituloRef ) + ' como referência.' );
+			// Vindo da conversa, a propria resposta ja avisou da troca (ver conversarSobreFilme).
+			if ( ! jaAvisou ) addBot( 'Boa! Vou usar ' + escapeHtml( tituloRef ) + ' como referência.' );
 			var carregando = renderBot( '<span class="dsi-bh-digitando">...</span>' );
 			chamarBilheteiro( '' ).then( function ( data ) {
 				carregando.remove();
@@ -978,7 +979,13 @@
 				turnosConversa.push( { papel: 'user', texto: texto }, { papel: 'bot', texto: data.resposta } );
 				turnosConversa = turnosConversa.slice( -12 );
 				track( 'widget_conversa_mensagem', { filme_id: conversaPostId, com_cartao: data.cartao ? 1 : 0, sessao_id: sessaoId } );
-				var resposta = { html: escapeHtml( data.resposta ), sugestoes: null, cartao: data.cartao || null, quer_recomendacao: !! data.quer_recomendacao };
+				// Pedido de indicacao: a resposta do modelo (que as vezes lista titulos ou
+				// termina em pergunta) sai e entra um aviso fixo da troca para as indicacoes
+				// (2026-10-08, achado do gestor: conversa e quiz se contradiziam).
+				var html = data.quer_recomendacao
+					? 'Claro! Vou te indicar títulos parecidos com <strong>' + escapeHtml( conversaTitulo ) + '</strong>. Para acertar, preciso de umas respostas rápidas.'
+					: escapeHtml( data.resposta );
+				var resposta = { html: html, sugestoes: null, cartao: data.quer_recomendacao ? null : ( data.cartao || null ), quer_recomendacao: !! data.quer_recomendacao };
 				if ( talvezPedirEmail( resposta ) ) return;
 				talvezAvisarLimite();
 				mostrarResposta( resposta );
@@ -1095,7 +1102,7 @@
 			addBot( resposta.html );
 			if ( resposta.sugestoes ) addQuebraGelo( resposta.sugestoes );
 			if ( resposta.cartao ) addOutroTitulo( resposta.cartao );
-			if ( resposta.quer_recomendacao ) comecarRecomendacao( conversaTitulo );
+			if ( resposta.quer_recomendacao ) comecarRecomendacao( conversaTitulo, true );
 		}
 
 		// Mostra a resposta do bot que ficou guardada enquanto o pedido de

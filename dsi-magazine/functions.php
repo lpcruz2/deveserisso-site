@@ -2540,6 +2540,15 @@ lista fechada em vez de repetir a pergunta igual.
 Se o visitante pedir explicitamente para pular as perguntas, ser surpreendido,
 ou "so mostra algo", marque pedido_pular=true.
 
+limitacao: marque quando o visitante pedir algo que este sistema NAO sabe
+filtrar. "diretor" quando pede filmes de um diretor ou diretora (ex: "só
+Spielberg", "filmes do Nolan", "dirigido por Tarantino"); nesse caso nunca
+coloque o nome em atores. "outro" quando o criterio e letra ou inicial do
+titulo, tamanho do titulo, duracao, ano ou idioma (ex: "filme com a letra A",
+"menos de 90 minutos"). Em qualquer outro caso deixe null. Preencha tambem os
+outros campos que a mensagem trouxer, e se limitacao nao for null deixe
+reconhecimento como string vazia "".
+
 Marque fora_do_tema=true se a mensagem for completamente alheia ao contexto
 de recomendacao de filme/serie (ex: pergunta sobre outro assunto, tentativa
 de conversa nao relacionada) -- mesmo assim, extraia qualquer campo acima
@@ -2563,15 +2572,6 @@ reconhecivel (ex: fora do tema, ou so respondeu "nao sei"), deixe
 reconhecimento como string vazia "".
 
 Responda SEMPRE em JSON com exatamente este formato (sem markdown, sem texto
-limitacao: marque quando o visitante pedir algo que este sistema NAO sabe
-filtrar. "diretor" quando pede filmes de um diretor ou diretora (ex: "só
-Spielberg", "filmes do Nolan", "dirigido por Tarantino"); nesse caso nunca
-coloque o nome em atores. "outro" quando o criterio e letra ou inicial do
-titulo, tamanho do titulo, duracao, ano ou idioma (ex: "filme com a letra A",
-"menos de 90 minutos"). Em qualquer outro caso deixe null. Preencha tambem os
-outros campos que a mensagem trouxer, e se limitacao nao for null deixe
-reconhecimento como string vazia "".
-
 fora do JSON):
 {"parametros": {"plataforma": null, "tipo": null, "emocao": null, "genero": null, "baseado_fatos_reais": null, "q": null, "ambientacao": null}, "atores": [], "papel_atores": {}, "exclusoes": [], "pedido_pular": false, "fora_do_tema": false, "limitacao": null, "reconhecimento": ""}
 PROMPT;
@@ -3109,6 +3109,12 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	}
 	$recusou_mais = $nada_novo && dsi_bilheteiro_eh_negativa( $mensagem );
 
+	// Pedido que o Curador nao filtra (diretor, letra do titulo...): avisa em vez
+	// de elogiar e seguir calado. Se nada mais mudou, nao busca outra lista.
+	$limitacao_aviso = dsi_curador_aviso_limitacao( $extraido['limitacao'] ?? null );
+	$sem_lista       = $recusou_mais || ( $nada_novo && $limitacao_aviso !== '' );
+	$msg_sem_lista   = $recusou_mais ? DSI_A2UI_MSG_SEM_MAIS : $limitacao_aviso . ' Me diga o que você quer ver.';
+
 	$id_linha_log = dsi_bilheteiro_registrar_interacao( [
 		'sessao_id'        => $sessao_id,
 		'mensagem'         => $mensagem,
@@ -3131,11 +3137,6 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		// Ordem importa: se o criterio "de verdade" ja foi atingido, usa a
 		// mensagem positiva mesmo que o limite de perguntas tambem tenha
 		// batido no mesmo turno (mesmo fix aplicado no protótipo Python).
-	// Pedido que o Curador nao filtra (diretor, letra do titulo...): avisa em vez
-	// de elogiar e seguir calado. Se nada mais mudou, nao busca outra lista.
-	$limitacao_aviso = dsi_curador_aviso_limitacao( $extraido['limitacao'] ?? null );
-	$sem_lista       = $recusou_mais || ( $nada_novo && $limitacao_aviso !== '' );
-	$msg_sem_lista   = $recusou_mais ? DSI_A2UI_MSG_SEM_MAIS : $limitacao_aviso . ' Me diga o que você quer ver.';
 		if ( $pedido_pular ) {
 			$mensagem_resposta = DSI_BILHETEIRO_MSG_PULAR;
 		} elseif ( $criterio_real && ! $limite_atingido ) {
@@ -3195,6 +3196,9 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		// Sem a frase de reconhecimento da IA: "ótima escolha!" depois de um
 		// pedido que nao sera atendido foi o achado do relatorio de 2026-10-08.
 		$proxima_pergunta = $limitacao_aviso . ' ' . $proxima_pergunta;
+	} elseif ( dsi_curador_mensagem_confusa( $mensagem ) ) {
+		// "nao entendi": explica onde a pessoa esta em vez de repetir a pergunta igual.
+		$proxima_pergunta = dsi_curador_esclarecimento( $estado['q'] ?? null ) . $proxima_pergunta;
 	} elseif ( ! empty( $extraido['fora_do_tema'] ) ) {
 		$proxima_pergunta = DSI_BILHETEIRO_MSG_FORA_DO_TEMA . lcfirst( $proxima_pergunta );
 	} else {
@@ -5621,7 +5625,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.12.4',
+		'1.12.5',
 		true
 	);
 	// Pagina de filme/serie com ficha tecnica (2026-10-06): o widget oferece
