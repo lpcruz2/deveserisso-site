@@ -157,6 +157,58 @@ RewriteRule ^sessao-da-tarde-05-07-globo-exibe-hoje-o-filme-sem-reservas/?$ - [G
 </IfModule>
 # END 410 - Noticia/conteudo datado dentro de filmes/series
 
+# BEGIN 410 - Conteudo datado sem trafego (2026-10-10)
+# 30 posts sem nenhum clique em 16 meses no GSC, fora de T5/T6/T7. Ja em rascunho no WP.
+# Lista e criterio: experimentos/triagem-2026-10/. Rollback: git revert + voltar os posts a publicado.
+<IfModule mod_rewrite.c>
+RewriteRule ^jogos-de-futebol-hoje-06-07-onde-assistir-ao-vivo-e-horario/?$ - [G,L]
+RewriteRule ^filmes-parecidos-com-50-tons-de-cinza-para-assistir-hoje/?$ - [G,L]
+RewriteRule ^filmes-baseados-em-livros-que-voce-deve-assistir-hoje/?$ - [G,L]
+RewriteRule ^onde-assistir-online-lyon-bayern-de-munique-de-graca-champions-league/?$ - [G,L]
+RewriteRule ^melhores-series-de-terror-para-ver-na-netflix-hoje/?$ - [G,L]
+RewriteRule ^filmes-que-passaram-na-sessao-da-tarde-em-agosto-2020/?$ - [G,L]
+RewriteRule ^oscar-2020-que-tal-apostar-nos-vencedores-em-nosso-bolao/?$ - [G,L]
+RewriteRule ^dicas-das-series-mais-populares-na-netflix-para-ver-hoje/?$ - [G,L]
+RewriteRule ^jogos-de-futebol-hoje-28-07-veja-onde-assistir-ao-vivo-e-horario/?$ - [G,L]
+RewriteRule ^onde-assistir-online-os-filmes-indicados-ao-oscar-2022/?$ - [G,L]
+RewriteRule ^te-enganaram-filmes-completamente-diferentes-dos-trailers/?$ - [G,L]
+RewriteRule ^jogos-de-futebol-hoje-26-07-veja-onde-assistir-ao-vivo-e-horario/?$ - [G,L]
+RewriteRule ^amazon-prime-video-lancamentos-de-filmes-e-series-em-fevereiro-de-2020/?$ - [G,L]
+RewriteRule ^filmes-emocionantes-para-assistir-na-netflix-hoje/?$ - [G,L]
+RewriteRule ^filmes-que-a-globo-exibiu-na-tela-quente-em-novembro-de-2019/?$ - [G,L]
+RewriteRule ^jogos-de-futebol-hoje-onde-assistir-e-horarios/?$ - [G,L]
+RewriteRule ^pokemon-pocket-monsters-coco-ganha-trailer-inedito/?$ - [G,L]
+RewriteRule ^filmes-mais-assistidos-na-netflix-em-2020/?$ - [G,L]
+RewriteRule ^jogos-de-futebol-hoje-27-07-veja-onde-assistir-ao-vivo-e-horario/?$ - [G,L]
+RewriteRule ^filme-de-hoje-na-sessao-da-tarde/?$ - [G,L]
+RewriteRule ^jogos-de-futebol-hoje-25-07-veja-onde-assistir-ao-vivo-e-horario/?$ - [G,L]
+RewriteRule ^10-melhores-series-em-2020-para-assistir-em-casa/?$ - [G,L]
+RewriteRule ^quais-sao-os-filmes-e-series-que-estao-no-top-10-da-netflix-hoje/?$ - [G,L]
+RewriteRule ^filme-hoje-sessao-de-sabado-globo/?$ - [G,L]
+RewriteRule ^datas-de-estreia-das-series-mais-aguardadas-na-netflix/?$ - [G,L]
+RewriteRule ^filmes-que-passaram-na-sessao-da-tarde-em-fevereiro-2020/?$ - [G,L]
+RewriteRule ^oscar-2022-lista-completa-de-indicados-de-todas-as-categorias-do-oscar/?$ - [G,L]
+RewriteRule ^chadwick-boseman-de-pantera-negra-morre-aos-43-anos/?$ - [G,L]
+RewriteRule ^historias-em-quadrinhos-e-possivel-que-a-marvel-compre-a-dc-comics/?$ - [G,L]
+RewriteRule ^tom-holland-disse-que-sony-tinha-planos-para-a-saida-de-homem-aranha-do-mcu/?$ - [G,L]
+</IfModule>
+# END 410 - Conteudo datado sem trafego
+
+# BEGIN 301 - Noticia datada consolidada na pagina do mesmo titulo (2026-10-10)
+# 9 noticias sem clique em 16 meses, em rascunho no WP. Rollback: git revert + voltar os posts a publicado.
+<IfModule mod_rewrite.c>
+RewriteRule ^the-last-kingdom-confira-o-trailer-oficial-da-4a-temporada-da-serie/?$ https://deveserisso.com.br/the-last-kingdom-tudo-que-voce-precisa-saber-sobre-a-4a-temporada/ [R=301,L]
+RewriteRule ^the-last-kingdom-serie-da-netflix-e-renovada-para-a-5a-temporada/?$ https://deveserisso.com.br/the-last-kingdom-entenda-a-relacao-entre-vikings-e-the-last-kingdom/ [R=301,L]
+RewriteRule ^space-force-veja-o-trailer-da-nova-comedia-da-netflix-com-steve-carell/?$ https://deveserisso.com.br/space-force-e-bom-e-vale-a-pena-assistir-confira-trailer-sinopse-e-mais/ [R=301,L]
+RewriteRule ^vazam-imagens-do-novo-visual-da-arlequina-em-esquadrao-suicida-2/?$ https://deveserisso.com.br/esquadrao-suicida-e-bom-e-vale-a-pena-assistir-confira-trailer-sinopse-e-mais/ [R=301,L]
+RewriteRule ^lider-da-nox-e-revelado-em-novo-capitulo-de-the-god-of-high-school/?$ https://deveserisso.com.br/the-god-of-high-school-e-bom-e-vale-a-pena-assistir-animes-parecidos-trailer-e-mais/ [R=301,L]
+RewriteRule ^expresso-do-amanha-serie-inspirada-em-filme-com-chris-evans-estreia-esse-mes-na-netflix/?$ https://deveserisso.com.br/expresso-do-amanha-serie-netflix-e-bom-e-vale-a-pena-assistir-confira-trailer-sinopse-e-mais/ [R=301,L]
+RewriteRule ^por-que-a-3a-temporada-de-mindhunter-pode-demorar-para-acontecer/?$ https://deveserisso.com.br/mindhunter-e-bom-e-vale-a-pena-assistir-confira-trailer-sinopse-e-mais/ [R=301,L]
+RewriteRule ^millie-bobby-brown-trailer-enola-holmes-netflix-henry-cavill/?$ https://deveserisso.com.br/tudo-sobre-enola-holmes-filme-da-netflix-com-millie-bobby-brown-e-henry-cavill/ [R=301,L]
+RewriteRule ^quase-uma-rockstar-promete-mostrar-um-lado-otimista-da-sociedade/?$ https://deveserisso.com.br/quase-uma-rockstar-e-bom-e-vale-a-pena-assistir-confira-trailer-sinopse-e-mais/ [R=301,L]
+</IfModule>
+# END 301 - Noticia datada consolidada
+
 # BEGIN 301 - Noticia/conteudo datado (grupo outro + revisao pontual) (2026-09-20)
 # Segunda leva: posts do grupo "outro" (catalogo do mes, cobertura de evento,
 # noticia de celebridade) que ficaram de fora da primeira limpeza por serem
