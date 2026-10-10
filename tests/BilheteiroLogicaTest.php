@@ -499,6 +499,60 @@ final class BilheteiroLogicaTest extends TestCase {
 		}
 	}
 
+	// -- respostas curtas e em parágrafos -------------------------------------
+
+	private function resposta_longa(): string {
+		return 'Segundo a crítica do Deveserisso, o filme funciona justamente por não tentar ser mais do que é, uma ação de MMA que honra o contrato da franquia. '
+			. 'A crítica elogia a direção de Michael Jai White pelo bom senso de ritmo e diz que a presença de Josh Barnett eleva a credibilidade das lutas. '
+			. 'Por outro lado, aponta que o roteiro não esconde as costuras, com superação previsível e vilão corporativo sem camadas. '
+			. 'No balanço, a crítica considera que ele entrega consistência e boas lutas, não roteiro original.';
+	}
+
+	public function test_enxugar_limita_frases_e_caracteres(): void {
+		$saida   = dsi_curador_enxugar( $this->resposta_longa() );
+		$frases  = dsi_curador_frases( $saida );
+		$this->assertLessThanOrEqual( DSI_CURADOR_RESPOSTA_MAX_FRASES, count( $frases ) );
+		$this->assertLessThanOrEqual( DSI_CURADOR_RESPOSTA_MAX_CHARS + 60, mb_strlen( $saida ) );
+		$this->assertStringStartsWith( 'Segundo a crítica do Deveserisso', $saida );
+		$this->assertStringNotContainsString( 'No balanço', $saida );
+	}
+
+	public function test_enxugar_quebra_em_paragrafos_curtos(): void {
+		$saida = dsi_curador_enxugar( $this->resposta_longa(), 4, 2000 );
+		foreach ( explode( "\n\n", $saida ) as $paragrafo ) {
+			$this->assertLessThanOrEqual( DSI_CURADOR_PARAGRAFO_MAX_FRASES, count( dsi_curador_frases( $paragrafo ) ), $paragrafo );
+		}
+		$this->assertGreaterThanOrEqual( 2, count( explode( "\n\n", $saida ) ) );
+	}
+
+	public function test_enxugar_mantem_texto_curto_e_ignora_vazio(): void {
+		$this->assertSame( 'Tem crítica no site.', dsi_curador_enxugar( "  Tem crítica no site.  \n" ) );
+		$this->assertSame( '', dsi_curador_enxugar( '   ' ) );
+	}
+
+	public function test_enxugar_nunca_perde_o_link_da_critica(): void {
+		$texto = 'Primeira frase longa sobre o filme e seu elenco principal. Segunda frase com mais detalhes da história. Terceira frase sobre a nota do público. Quarta frase que não cabe. A crítica está em https://deveserisso.com.br/john-wick-4-baba-yaga/';
+		$saida = dsi_curador_enxugar( $texto );
+		$this->assertStringContainsString( 'https://deveserisso.com.br/john-wick-4-baba-yaga/', $saida );
+		$this->assertStringNotContainsString( 'Quarta frase', $saida );
+	}
+
+	public function test_enxugar_nao_corta_numero_decimal_nem_sigla(): void {
+		$saida = dsi_curador_enxugar( 'O filme tem nota 7,7 de 10 na média do público no TMDB. Foi dirigido por Chad Stahelski.' );
+		$this->assertCount( 2, dsi_curador_frases( $saida ) );
+		$this->assertStringContainsString( '7,7 de 10', $saida );
+	}
+
+	public function test_interpretadores_aplicam_o_limite(): void {
+		$json = json_encode( [ 'resposta' => $this->resposta_longa(), 'outro_titulo' => null, 'quer_recomendacao' => false ] );
+		$r    = dsi_bilheteiro_conversa_filme_interpretar( $json );
+		$this->assertLessThanOrEqual( DSI_CURADOR_RESPOSTA_MAX_FRASES, count( dsi_curador_frases( $r['resposta'] ) ) );
+		$r = dsi_a2ui_interpretar_resposta( json_encode( [ 'resposta' => $this->resposta_longa(), 'intencao' => 'outra', 'titulo' => null ] ), 3 );
+		$this->assertLessThanOrEqual( DSI_CURADOR_RESPOSTA_MAX_FRASES, count( dsi_curador_frases( $r['resposta'] ) ) );
+		$r = dsi_a2ui_interpretar_resposta( $this->resposta_longa(), 3 );
+		$this->assertLessThanOrEqual( DSI_CURADOR_RESPOSTA_MAX_FRASES, count( dsi_curador_frases( $r['resposta'] ) ) );
+	}
+
 	public function test_mensagem_confusa_reconhece_e_ignora(): void {
 		$this->assertTrue( dsi_curador_mensagem_confusa( 'nao entendi estava falando la do filme' ) );
 		$this->assertTrue( dsi_curador_mensagem_confusa( 'Não entendi' ) );

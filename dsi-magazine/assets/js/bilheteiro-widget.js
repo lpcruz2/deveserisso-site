@@ -60,6 +60,14 @@
 		return d.innerHTML;
 	}
 
+	// Texto do modelo em paragrafos (2026-10-10): o servidor separa as ideias
+	// com linha em branco; cada bloco vira um <p>. Recebe texto puro e escapa.
+	function paragrafosHtml( texto ) {
+		return String( texto || '' ).split( /\n\s*\n/ ).map( function ( p ) { return p.trim(); } ).filter( Boolean ).map( function ( p ) {
+			return '<p class="dsi-bh-p">' + escapeHtml( p ) + '</p>';
+		} ).join( '' );
+	}
+
 	// https e host na lista (ou subdominio) -- mesma regra do servidor
 	// (dsi_a2ui_url_permitida). Imagem e link do cartao passam por aqui.
 	function urlPermitida( url, hosts ) {
@@ -180,6 +188,8 @@
 			'.dsi-bh-thread{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}' +
 			'.dsi-bh-msg{max-width:85%;padding:8px 11px;border-radius:10px;line-height:1.4;}' +
 			'.dsi-bh-msg--bot{background:#ebe3d2;align-self:flex-start;border-bottom-left-radius:2px;}' +
+			/* Paragrafos das respostas do modelo (2026-10-10). */
+			'.dsi-bh-p{margin:0 0 10px;}.dsi-bh-p:last-child{margin-bottom:0;}' +
 			'.dsi-bh-msg--user{background:#c2511d;color:#fff;align-self:flex-end;border-bottom-right-radius:2px;' +
 			'white-space:pre-wrap;}' +
 			/* Boxes de indicacao (2026-09-22, pedido do gestor: "os boxes
@@ -984,7 +994,7 @@
 				// (2026-10-08, achado do gestor: conversa e quiz se contradiziam).
 				var html = data.quer_recomendacao
 					? 'Claro! Vou te indicar títulos parecidos com <strong>' + escapeHtml( conversaTitulo ) + '</strong>. Para acertar, preciso de umas respostas rápidas.'
-					: escapeHtml( data.resposta );
+					: paragrafosHtml( data.resposta );
 				var resposta = { html: html, sugestoes: null, cartao: data.quer_recomendacao ? null : ( data.cartao || null ), quer_recomendacao: !! data.quer_recomendacao };
 				if ( talvezPedirEmail( resposta ) ) return;
 				talvezAvisarLimite();
@@ -1312,7 +1322,7 @@
 				}
 				// Pedido/aviso ANTES da resposta -- ver mesmo comentario em
 				// processarResposta().
-				var resposta = { html: linkarCriticas( escapeHtml( data.resposta ) ), sugestoes: null, a2ui: data.a2ui || null };
+				var resposta = { html: linkarCriticas( paragrafosHtml( data.resposta ) ), sugestoes: null, a2ui: data.a2ui || null };
 				if ( talvezPedirEmail( resposta ) ) return;
 				talvezAvisarLimite();
 				mostrarResposta( resposta );
