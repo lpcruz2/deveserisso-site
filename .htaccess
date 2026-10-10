@@ -209,6 +209,26 @@ RewriteRule ^quase-uma-rockstar-promete-mostrar-um-lado-otimista-da-sociedade/?$
 </IfModule>
 # END 301 - Noticia datada consolidada
 
+# BEGIN 301 - Listas pequenas agrupadas em guias (2026-10-10)
+# 13 listas absorvidas pelos guias de destino, em rascunho no WP. Lista e criterio: experimentos/triagem-2026-10/consolidacao/.
+# Rollback: git revert + voltar os posts a publicado.
+<IfModule mod_rewrite.c>
+RewriteRule ^melhores-series-dramaticas-para-ver-na-netflix/?$ https://deveserisso.com.br/melhores-series-para-assistir-na-netflix/ [R=301,L]
+RewriteRule ^melhores-series-de-romancepara-ver-na-netflix-hoje/?$ https://deveserisso.com.br/melhores-series-para-assistir-na-netflix/ [R=301,L]
+RewriteRule ^melhores-series-de-suspense-e-misterio-para-ver-na-netflix/?$ https://deveserisso.com.br/melhores-series-para-assistir-na-netflix/ [R=301,L]
+RewriteRule ^7-series-mais-assistidas-da-netflix-de-todos-os-tempos/?$ https://deveserisso.com.br/melhores-series-para-assistir-na-netflix/ [R=301,L]
+RewriteRule ^veja-aqui-quais-sao-as-series-mais-assistidas-na-netflix/?$ https://deveserisso.com.br/melhores-series-para-assistir-na-netflix/ [R=301,L]
+RewriteRule ^9-filmes-perfeitos-escondidos-na-netflix/?$ https://deveserisso.com.br/melhores-filmes-netflix-para-assistir-hoje/ [R=301,L]
+RewriteRule ^melhores-filmes-estrangeiros-para-ver-no-netflix/?$ https://deveserisso.com.br/melhores-filmes-netflix-para-assistir-hoje/ [R=301,L]
+RewriteRule ^melhores-filmes-originais-da-netflix-para-assistir/?$ https://deveserisso.com.br/melhores-filmes-originais-netlfix-segundo-imdb/ [R=301,L]
+RewriteRule ^pela-primeira-vez-sabemos-quais-sao-os-filmes-mais-assistidos-na-netflix/?$ https://deveserisso.com.br/melhores-filmes-originais-netlfix-segundo-imdb/ [R=301,L]
+RewriteRule ^6-filmes-inspiradores-com-animais-que-aquecem-o-coracao/?$ https://deveserisso.com.br/8-filmes-inspiradores-e-com-licoes-de-vida-incriveis/ [R=301,L]
+RewriteRule ^10-atores-de-harry-potter-que-ja-morreram/?$ https://deveserisso.com.br/como-assistir-todos-os-filmes-de-harry-potter-online-sem-download/ [R=301,L]
+RewriteRule ^harry-potter-nunca-pause-o-filme-a-pedra-filosofal-ou-voce-vera-isso/?$ https://deveserisso.com.br/como-assistir-todos-os-filmes-de-harry-potter-online-sem-download/ [R=301,L]
+RewriteRule ^a-rivalidade-entre-marvel-e-dc-so-existe-na-cabeca-dos-fas/?$ https://deveserisso.com.br/os-7-melhores-crossovers-das-historias-em-quadrinhos/ [R=301,L]
+</IfModule>
+# END 301 - Listas pequenas agrupadas em guias
+
 # BEGIN 301 - Noticia/conteudo datado (grupo outro + revisao pontual) (2026-09-20)
 # Segunda leva: posts do grupo "outro" (catalogo do mes, cobertura de evento,
 # noticia de celebridade) que ficaram de fora da primeira limpeza por serem
