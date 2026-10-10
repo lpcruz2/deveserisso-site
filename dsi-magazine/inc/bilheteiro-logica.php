@@ -625,7 +625,7 @@ const DSI_A2UI_VERSAO        = 'v0.9';
 const DSI_A2UI_HOSTS_IMAGEM  = [ 'deveserisso.com.br', 'image.tmdb.org' ];
 const DSI_A2UI_HOSTS_LINK    = [ 'deveserisso.com.br' ];
 const DSI_A2UI_ACOES         = [ 'mais_parecidos' ];
-const DSI_A2UI_INTENCOES     = [ 'avaliar_titulo', 'outra' ];
+const DSI_A2UI_INTENCOES     = [ 'avaliar_titulo', 'onde_assistir', 'outra' ];
 
 // O widget declara o catalogo que sabe desenhar (a2uiClientCapabilities da
 // especificacao). Sem declaracao, nada de cartao: widget antigo em cache
