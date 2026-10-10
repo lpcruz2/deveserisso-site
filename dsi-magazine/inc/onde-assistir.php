@@ -8,8 +8,12 @@
  * com os dados do TMDB (watch/providers, Brasil, fornecidos pelo JustWatch). O modelo
  * nunca escreve nome de plataforma.
  *
- * Parte pura (sem WordPress, testada em tests/OndeAssistirTest.php): normalizacao,
- * escolha do resultado do TMDB e texto da resposta. Parte WP no fim do arquivo.
+ * Foco da conversa: o servidor nao guarda historico. Quando a resposta e sobre um titulo, devolve
+ * `titulo_foco`; o widget manda de volta no proximo turno, e "e da pra alugar?" sem nome de titulo
+ * continua falando do mesmo filme.
+ *
+ * Parte pura (sem WordPress, testada em tests/OndeAssistirTest.php): normalizacao, deteccao da
+ * pergunta, escolha do titulo, escolha do resultado do TMDB e texto da resposta. Parte WP no fim.
  */
 
 if ( ! defined( 'DSI_ONDE_ASSISTIR_CACHE_S' ) ) {
@@ -26,6 +30,50 @@ function dsi_onde_assistir_normalizar( string $s ): string {
 		'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u', 'ç' => 'c', 'ñ' => 'n',
 	] );
 	return trim( preg_replace( '/[^a-z0-9]+/', ' ', $s ) );
+}
+
+/**
+ * A pergunta e sobre onde ver / alugar / comprar? So palavras claras: com falso positivo
+ * o Curador responderia disponibilidade a quem perguntou outra coisa.
+ */
+function dsi_onde_assistir_pergunta_pede( string $pergunta ): bool {
+	$q = dsi_onde_assistir_normalizar( $pergunta );
+	return (bool) preg_match( '/\b(onde (?:(?:da|posso|tem|esta|fica|consigo)(?: pra| para)? )?(?:assist|ver\b|vej|passa|encontr)|em que (streaming|plataforma|servico)|qual (streaming|plataforma|servico)|streaming|plataforma|alugar|aluguel|comprar|compra|sem assinar|sem assinatura|de graca|gratis)/', $q );
+}
+
+// "Sem assinar", "alugar", "comprar": a resposta foca nessas opcoes.
+function dsi_onde_assistir_sem_assinatura( string $pergunta ): bool {
+	$q = dsi_onde_assistir_normalizar( $pergunta );
+	return (bool) preg_match( '/\b(alugar|aluguel|comprar|compra|sem assinar|sem assinatura|de graca|gratis)/', $q );
+}
+
+/**
+ * Qual titulo da lista a pergunta quer: o citado na pergunta (o mais longo, em palavra inteira)
+ * ou, sem citacao, o que estava em foco na conversa. Devolve o numero (1...) ou null.
+ */
+function dsi_onde_assistir_achar_item( array $itens, string $pergunta, string $foco = '' ): ?int {
+	$q       = ' ' . dsi_onde_assistir_normalizar( $pergunta ) . ' ';
+	$melhor  = null;
+	$tamanho = 0;
+	foreach ( $itens as $i => $item ) {
+		$t = dsi_onde_assistir_normalizar( (string) ( $item['titulo'] ?? '' ) );
+		if ( $t !== '' && strpos( $q, ' ' . $t . ' ' ) !== false && strlen( $t ) > $tamanho ) {
+			$melhor  = $i + 1;
+			$tamanho = strlen( $t );
+		}
+	}
+	if ( $melhor !== null ) {
+		return $melhor;
+	}
+	$f = dsi_onde_assistir_normalizar( $foco );
+	if ( $f !== '' ) {
+		foreach ( $itens as $i => $item ) {
+			if ( dsi_onde_assistir_normalizar( (string) ( $item['titulo'] ?? '' ) ) === $f ) {
+				return $i + 1;
+			}
+		}
+	}
+	return null;
 }
 
 /**
@@ -54,7 +102,7 @@ function dsi_onde_assistir_escolher( array $resultados, string $titulo, int $ano
 		if ( ! $bate ) {
 			continue;
 		}
-		$data = (string) ( $r['release_date'] ?? ( $r['first_air_date'] ?? '' ) );
+		$data  = (string) ( $r['release_date'] ?? ( $r['first_air_date'] ?? '' ) );
 		$ano_r = (int) substr( $data, 0, 4 );
 		if ( $ano > 0 && $ano_r !== $ano ) {
 			continue;
@@ -85,28 +133,38 @@ function dsi_onde_assistir_nomes( $lista ): array {
 /**
  * Texto da resposta. $br: bloco "BR" do watch/providers; [] = sem disponibilidade
  * registrada; null = a consulta falhou (resposta honesta, sem inventar).
+ * $sem_assinatura: a pessoa quer alugar, comprar ou ver de graca; a assinatura sai da lista.
  */
-function dsi_onde_assistir_texto( string $titulo, ?array $br ): string {
+function dsi_onde_assistir_texto( string $titulo, ?array $br, bool $sem_assinatura = false ): string {
 	if ( $br === null ) {
 		return "Não consegui consultar agora onde \"{$titulo}\" está disponível. Tente de novo em alguns minutos.";
 	}
-	$linhas = [];
-	$grupos = [
-		'Assinatura'                => dsi_onde_assistir_nomes( $br['flatrate'] ?? [] ),
-		'Grátis'                    => array_merge( dsi_onde_assistir_nomes( $br['free'] ?? [] ), dsi_onde_assistir_nomes( $br['ads'] ?? [] ) ),
-		'Aluguel'                   => dsi_onde_assistir_nomes( $br['rent'] ?? [] ),
-		'Compra'                    => dsi_onde_assistir_nomes( $br['buy'] ?? [] ),
+	$rodape     = "Dados do JustWatch, via TMDB. A disponibilidade muda com frequência.";
+	$assinatura = array_values( array_unique( dsi_onde_assistir_nomes( $br['flatrate'] ?? [] ) ) );
+	$grupos     = [
+		'Assinatura' => $assinatura,
+		'Grátis'     => array_merge( dsi_onde_assistir_nomes( $br['free'] ?? [] ), dsi_onde_assistir_nomes( $br['ads'] ?? [] ) ),
+		'Aluguel'    => dsi_onde_assistir_nomes( $br['rent'] ?? [] ),
+		'Compra'     => dsi_onde_assistir_nomes( $br['buy'] ?? [] ),
 	];
+	if ( $sem_assinatura ) {
+		unset( $grupos['Assinatura'] );
+	}
+	$linhas = [];
 	foreach ( $grupos as $rotulo => $nomes ) {
 		$nomes = array_values( array_unique( $nomes ) );
 		if ( $nomes ) {
 			$linhas[] = $rotulo . ': ' . implode( ', ', array_slice( $nomes, 0, 8 ) ) . '.';
 		}
 	}
+	if ( ! $linhas && $sem_assinatura && $assinatura ) {
+		return "Não achei \"{$titulo}\" para alugar, comprar ou ver de graça no Brasil agora. Ele está só em assinatura: " . implode( ', ', array_slice( $assinatura, 0, 8 ) ) . ".\n\n" . $rodape;
+	}
 	if ( ! $linhas ) {
 		return "Não encontrei \"{$titulo}\" em nenhum serviço de streaming, aluguel ou compra no Brasil agora.\n\nA disponibilidade vem do JustWatch, via TMDB, e muda com frequência.";
 	}
-	return "Onde ver \"{$titulo}\" no Brasil:\n\n" . implode( "\n", $linhas ) . "\n\nDados do JustWatch, via TMDB. A disponibilidade muda com frequência.";
+	$abertura = $sem_assinatura ? "Para ver \"{$titulo}\" sem assinar, no Brasil:" : "Onde ver \"{$titulo}\" no Brasil:";
+	return $abertura . "\n\n" . implode( "\n", $linhas ) . "\n\n" . $rodape;
 }
 
 // ------------------------------------------------------------------ parte WordPress
@@ -176,19 +234,31 @@ function dsi_onde_assistir_provedores( int $id, string $tipo ): ?array {
 }
 
 /**
- * Se o modelo reconheceu "onde assistir" para um titulo da lista, troca o texto da resposta
- * pelo montado com dados do TMDB. Qualquer outra intencao passa sem mudanca.
+ * "Onde assistir" e foco da conversa. Se o modelo reconheceu a intencao para um titulo da lista,
+ * ou a pergunta e claramente sobre onde ver e da para saber o titulo (citado na pergunta ou o que
+ * estava em foco), troca o texto pela resposta montada com dados do TMDB. Sempre que a resposta e
+ * sobre um titulo, devolve `titulo_foco` para o widget mandar de volta no proximo turno.
  */
-function dsi_onde_assistir_aplicar( array $resposta, array $itens ): array {
-	if ( ( $resposta['intencao'] ?? '' ) !== 'onde_assistir' || empty( $resposta['titulo'] ) ) {
+function dsi_onde_assistir_aplicar( array $resposta, array $itens, string $pergunta = '', string $foco = '' ): array {
+	$numero = ! empty( $resposta['titulo'] ) ? (int) $resposta['titulo'] : 0;
+	if ( ( $resposta['intencao'] ?? '' ) !== 'onde_assistir' && dsi_onde_assistir_pergunta_pede( $pergunta ) ) {
+		$achado = dsi_onde_assistir_achar_item( $itens, $pergunta, $foco );
+		if ( $achado !== null ) {
+			$resposta['intencao'] = 'onde_assistir';
+			$numero               = $achado;
+		}
+	}
+	$item = $numero > 0 ? ( $itens[ $numero - 1 ] ?? null ) : null;
+	if ( ! $item ) {
 		return $resposta;
 	}
-	$item = $itens[ (int) $resposta['titulo'] - 1 ] ?? null;
-	if ( ! $item ) {
+	$resposta['titulo']      = $numero;
+	$resposta['titulo_foco'] = (string) $item['titulo'];
+	if ( ( $resposta['intencao'] ?? '' ) !== 'onde_assistir' ) {
 		return $resposta;
 	}
 	$obra = dsi_onde_assistir_resolver( $item );
 	$br   = $obra ? dsi_onde_assistir_provedores( $obra['id'], $obra['tipo'] ) : null;
-	$resposta['resposta'] = dsi_onde_assistir_texto( (string) $item['titulo'], $br );
+	$resposta['resposta'] = dsi_onde_assistir_texto( (string) $item['titulo'], $br, dsi_onde_assistir_sem_assinatura( $pergunta ) );
 	return $resposta;
 }

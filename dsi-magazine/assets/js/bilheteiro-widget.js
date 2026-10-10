@@ -462,6 +462,8 @@
 		// nada). Ver perguntarSobreRecomendacoes() e o branch em
 		// form.addEventListener('submit', ...) abaixo.
 		var ultimosItensRecomendados = [];
+		// Titulo de que a conversa esta falando (devolvido pelo servidor); "e da pra alugar?" sem nome usa ele.
+		var tituloFoco               = '';
 		var perguntasEncerradas      = false;
 		// Captura de email (2026-09-24): conta toda mensagem do usuario
 		// (preferencia ou pergunta), independente do rate limit por IP --
@@ -507,6 +509,7 @@
 				excluirFilmes: excluirFilmes,
 				historico: historico,
 				ultimosItensRecomendados: ultimosItensRecomendados,
+				tituloFoco: tituloFoco,
 				perguntasEncerradas: perguntasEncerradas,
 				respostaPendente: respostaPendente,
 				modoConversa: modoConversa,
@@ -690,6 +693,7 @@
 			excluirFilmes            = [];
 			historico                = [];
 			ultimosItensRecomendados = [];
+			tituloFoco               = '';
 			perguntasEncerradas      = false;
 			// Nao mexe em emailJaCapturado() -- e duravel, guardado numa
 			// chave separada de proposito (nao repetir o pedido pra quem ja
@@ -759,6 +763,7 @@
 			excluirFilmes            = dados.excluirFilmes || [];
 			historico                = dados.historico || [];
 			ultimosItensRecomendados = dados.ultimosItensRecomendados || [];
+			tituloFoco               = dados.tituloFoco || '';
 			perguntasEncerradas      = !! dados.perguntasEncerradas;
 			mensagensEnviadas        = dados.mensagensEnviadas || 0;
 			pedidoEmailMostrado      = !! dados.pedidoEmailMostrado;
@@ -1287,7 +1292,7 @@
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify( {
-					pergunta: texto, itens: ultimosItensRecomendados, sessao_id: sessaoId, rodada: rodadaAtual,
+					pergunta: texto, itens: ultimosItensRecomendados, sessao_id: sessaoId, rodada: rodadaAtual, titulo_foco: tituloFoco,
 					// A2UI fase 1: diz ao servidor que este widget sabe desenhar o catalogo do Curador.
 					a2ui_capacidades: { supportedCatalogIds: [ A2UI_CATALOGO ] }
 				} )
@@ -1303,6 +1308,7 @@
 				} );
 			} ).then( function ( data ) {
 				carregando.remove();
+				if ( data && data.titulo_foco ) { tituloFoco = String( data.titulo_foco ); salvarEstado(); }
 				// "como escolho outro gênero?"/"nova simulação" nao sao
 				// pergunta sobre o elenco/genero dos filmes ja mostrados --
 				// sao pedido de RECOMEÇAR (achado do gestor 2026-09-23: sem
@@ -1926,6 +1932,7 @@
 				// usa genero/elenco/ano, sem_resenha usa generos/atores/
 				// ano_lancamento; manda os dois nomes quando existirem, o
 				// backend normaliza (dsi_bilheteiro_normalizar_item_pergunta).
+				tituloFoco = '';
 				ultimosItensRecomendados = itens.concat( semResenha ).map( function ( f ) {
 					return {
 						titulo: f.titulo, sinopse: f.sinopse,

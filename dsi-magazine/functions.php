@@ -2115,7 +2115,21 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		$sem_resenha_candidatos = array_values( array_filter( $sem_resenha_candidatos, $respeita_exclusao ) );
 	}
 
-	usort( $candidatos, fn( array $a, array $b ): int => $b['score'] <=> $a['score'] );
+	// Empate de score (ex.: todo terror vale o mesmo) desempata pela nota TMDB, como ja fazia a lista sem
+	// resenha (2026-10-10, eval do Curador: pedido de "bem avaliado" trazia titulos de nota 5,4).
+	$notas_desempate = [];
+	if ( $candidatos ) {
+		$ids_desempate = array_map( fn( array $c ): int => (int) $c['post']->ID, $candidatos );
+		$marcas_desempate = implode( ',', array_fill( 0, count( $ids_desempate ), '%d' ) );
+		$linhas_desempate = $wpdb->get_results( $wpdb->prepare(
+			"SELECT post_id_gerado, nota_tmdb FROM {$tabela_notas} WHERE nota_tmdb IS NOT NULL AND post_id_gerado IN ({$marcas_desempate})",
+			$ids_desempate
+		), ARRAY_A );
+		foreach ( (array) $linhas_desempate as $l_desempate ) {
+			$notas_desempate[ (int) $l_desempate['post_id_gerado'] ] = (float) $l_desempate['nota_tmdb'];
+		}
+	}
+	usort( $candidatos, fn( array $a, array $b ): int => ( $b['score'] <=> $a['score'] ) ?: ( ( $notas_desempate[ $b['post']->ID ] ?? 0 ) <=> ( $notas_desempate[ $a['post']->ID ] ?? 0 ) ) );
 
 	// Mesma filosofia de honestidade de antes (achado ao vivo: Netflix + "Rir"
 	// devolvia um Drama só porque era o único post Netflix com ficha técnica)
@@ -2383,6 +2397,9 @@ const DSI_BILHETEIRO_CAMPOS              = [ 'plataforma', 'tipo', 'emocao', 'ge
 // insistencia com jeito no genero (ver DSI_BILHETEIRO_INSTRUCAO) sem
 // estourar o limite por causa disso.
 const DSI_BILHETEIRO_LIMITE_PERGUNTAS    = 6;
+// Chat sem minigames (widget): genero + no maximo UMA pergunta de acompanhamento, depois indica (2026-10-10, eval:
+// quem ja disse o genero respondia 2-3 perguntas antes de ver a lista).
+const DSI_BILHETEIRO_LIMITE_PERGUNTAS_CHAT = 2;
 // Sentinela pra "perguntei, insisti, a pessoa nao respondeu" -- diferente de
 // null ("ainda nao perguntei"). Nunca trava o fluxo por causa de um
 // obrigatorio sem resposta (PRD secao 3, trava de seguranca corrigida
@@ -3065,7 +3082,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// travar o fluxo para sempre -- ao bater o limite de perguntas, o que
 	// ainda estiver null vira "sem preferencia" em vez de ficar esperando
 	// resposta indefinidamente.
-	$limite_atingido = $perguntas_feitas >= DSI_BILHETEIRO_LIMITE_PERGUNTAS;
+	$limite_atingido = $perguntas_feitas >= ( ! empty( $contexto_minigames['sem_minigames'] ) ? DSI_BILHETEIRO_LIMITE_PERGUNTAS_CHAT : DSI_BILHETEIRO_LIMITE_PERGUNTAS );
 	if ( $limite_atingido || $pedido_pular ) {
 		foreach ( dsi_bilheteiro_campos_obrigatorios( $contexto_minigames ) as $campo ) {
 			if ( in_array( $campo, DSI_BILHETEIRO_CAMPOS_ARRAY, true ) ) {
@@ -3401,7 +3418,7 @@ function dsi_bilheteiro_perguntar_pos_recomendacao( WP_REST_Request $req ): WP_R
 	$resposta  = dsi_bilheteiro_responder_pos_recomendacao( $pergunta, $itens, $api_key );
 	// "Onde assistir?" (2026-10-10): o modelo so reconhece a intencao; a lista de servicos vem do TMDB.
 	if ( ! is_wp_error( $resposta ) ) {
-		$resposta = dsi_onde_assistir_aplicar( $resposta, $itens );
+		$resposta = dsi_onde_assistir_aplicar( $resposta, $itens, $pergunta, (string) $req->get_param( 'titulo_foco' ) );
 	}
 	$sessao_id = (string) $req->get_param( 'sessao_id' );
 	if ( is_wp_error( $resposta ) ) {
@@ -3414,6 +3431,9 @@ function dsi_bilheteiro_perguntar_pos_recomendacao( WP_REST_Request $req ): WP_R
 	// widget declarou que sabe desenhar o catalogo. O texto vai sempre junto:
 	// e o que aparece se o cartao falhar (widget antigo, erro de desenho).
 	$corpo    = [ 'resposta' => $resposta['resposta'] ];
+	if ( ! empty( $resposta['titulo_foco'] ) ) {
+		$corpo['titulo_foco'] = $resposta['titulo_foco'];
+	}
 	$interface = null;
 	if ( $resposta['intencao'] === 'avaliar_titulo' && $resposta['titulo'] && dsi_a2ui_cliente_suporta( $req->get_param( 'a2ui_capacidades' ) ) ) {
 		$item       = $itens[ $resposta['titulo'] - 1 ] ?? null;
