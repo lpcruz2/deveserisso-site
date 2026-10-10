@@ -3525,6 +3525,9 @@ function dsi_bilheteiro_conversa_filme( WP_REST_Request $req ): WP_REST_Response
 		if ( ! is_wp_error( $response ) && (int) wp_remote_retrieve_response_code( $response ) === 200 ) {
 			$body  = json_decode( wp_remote_retrieve_body( $response ), true );
 			$texto = trim( (string) ( $body['choices'][0]['message']['content'] ?? '' ) );
+			if ( ! dsi_bilheteiro_conversa_filme_utilizavel( $texto ) ) {
+				$texto = ''; // vazio ou JSON sem "resposta": tenta de novo
+			}
 		}
 	}
 	$motivo = 'conversa_filme:' . $post->ID;

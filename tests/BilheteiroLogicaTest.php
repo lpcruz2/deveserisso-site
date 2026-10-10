@@ -1003,6 +1003,28 @@ final class BilheteiroLogicaTest extends TestCase {
 		$this->assertSame( [], dsi_bilheteiro_conversa_filme_historico( 'texto' ) );
 	}
 
+	public function test_conversa_historico_do_bot_vai_no_formato_json_da_resposta(): void {
+		$h = dsi_bilheteiro_conversa_filme_historico( [
+			[ 'papel' => 'user', 'texto' => 'quem dirige?' ],
+			[ 'papel' => 'bot', 'texto' => "Michael Jai White dirige.\n\nTambém atua." ],
+		] );
+		$this->assertSame( 'quem dirige?', $h[0]['content'] );
+		$json = json_decode( $h[1]['content'], true );
+		$this->assertSame( "Michael Jai White dirige.\n\nTambém atua.", $json['resposta'] );
+		$this->assertNull( $json['outro_titulo'] );
+		$this->assertFalse( $json['quer_recomendacao'] );
+	}
+
+	public function test_conversa_resposta_utilizavel(): void {
+		$this->assertTrue( dsi_bilheteiro_conversa_filme_utilizavel( '{"resposta":"Oi!","outro_titulo":null}' ) );
+		$this->assertTrue( dsi_bilheteiro_conversa_filme_utilizavel( 'Texto puro sem JSON.' ) );
+		$this->assertFalse( dsi_bilheteiro_conversa_filme_utilizavel( '' ) );
+		$this->assertFalse( dsi_bilheteiro_conversa_filme_utilizavel( '   ' ) );
+		$this->assertFalse( dsi_bilheteiro_conversa_filme_utilizavel( '{}' ) );
+		$this->assertFalse( dsi_bilheteiro_conversa_filme_utilizavel( '{"resposta":"","outro_titulo":null}' ) );
+		$this->assertFalse( dsi_bilheteiro_conversa_filme_utilizavel( '{"resposta":42}' ) );
+	}
+
 	public function test_conversa_historico_guarda_so_as_ultimas_falas(): void {
 		$bruto = [];
 		for ( $i = 1; $i <= 10; $i++ ) {

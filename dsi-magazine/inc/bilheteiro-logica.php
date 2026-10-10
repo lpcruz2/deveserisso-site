@@ -1031,9 +1031,30 @@ function dsi_bilheteiro_conversa_filme_historico( $bruto, int $max = 6 ): array 
 		if ( $papel === '' || $texto === '' ) {
 			continue;
 		}
+		// Falas do bot voltam no mesmo formato JSON que o modelo deve devolver:
+		// com texto puro no historico e response_format json_object, o modelo
+		// respondia JSON degenerado (55 a 77 bytes) ou vazio, e a pessoa recebia
+		// 502 (medido em 2026-10-10: 4 de 6 perguntas seguidas).
+		if ( $papel === 'assistant' ) {
+			$texto = (string) json_encode( [ 'resposta' => $texto, 'outro_titulo' => null, 'quer_recomendacao' => false ], JSON_UNESCAPED_UNICODE );
+		}
 		$turnos[] = [ 'role' => $papel, 'content' => $texto ];
 	}
 	return $turnos;
+}
+
+// A resposta do modelo serve? Texto puro nao vazio, ou JSON com "resposta"
+// preenchida. JSON sem ela (ex.: {}) e tratado como falha e a chamada se repete.
+function dsi_bilheteiro_conversa_filme_utilizavel( string $conteudo ): bool {
+	$conteudo = trim( $conteudo );
+	if ( $conteudo === '' ) {
+		return false;
+	}
+	$json = json_decode( $conteudo, true );
+	if ( ! is_array( $json ) ) {
+		return true;
+	}
+	return isset( $json['resposta'] ) && is_string( $json['resposta'] ) && trim( $json['resposta'] ) !== '';
 }
 
 // Resposta do modelo: {"resposta","outro_titulo","quer_recomendacao"}. Sem JSON
