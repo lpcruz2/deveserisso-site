@@ -723,6 +723,10 @@ function dsi_curador_enxugar( string $texto, int $max_frases = DSI_CURADOR_RESPO
 function dsi_a2ui_interpretar_resposta( string $conteudo, int $n_itens ): array {
 	$conteudo = trim( $conteudo );
 	$json     = json_decode( $conteudo, true );
+	// Pedido de nova busca: nao depende do texto da resposta (pode vir vazio) nem de titulo.
+	if ( is_array( $json ) && ( $json['intencao'] ?? null ) === 'nova_recomendacao' ) {
+		return [ 'resposta' => '', 'intencao' => 'nova_recomendacao', 'titulo' => null, 'frase' => '' ];
+	}
 	if ( ! is_array( $json ) || ! isset( $json['resposta'] ) || ! is_string( $json['resposta'] ) || trim( $json['resposta'] ) === '' ) {
 		// Nao veio JSON: usa o texto puro, sem cartao.
 		return [ 'resposta' => dsi_curador_enxugar( mb_substr( $conteudo, 0, 1500 ) ), 'intencao' => 'outra', 'titulo' => null, 'frase' => '' ];
