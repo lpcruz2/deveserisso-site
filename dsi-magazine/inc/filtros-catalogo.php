@@ -135,19 +135,37 @@ function dsi_filtros_aviso( array $filtros, int $passaram ): string {
 		: "Não achei título com {$lista} entre os que têm esse dado confirmado.";
 }
 
+/**
+ * O que o item mostra do dado do TMDB: classificacao indicativa ('L', '10'...) e se o 1o nome do elenco e mulher
+ * (a mesma regra do filtro). null = titulo sem o dado. Vai no item de /recomendar-filme para o Curador e o juiz do
+ * eval poderem conferir o filtro.
+ *
+ * @return array{classificacao_br:?string,protagonista_feminina:?bool}
+ */
+function dsi_filtros_evidencia( ?array $dados ): array {
+	if ( $dados === null ) {
+		return [ 'classificacao_br' => null, 'protagonista_feminina' => null ];
+	}
+	$cert = isset( $dados['cert_br'] ) && $dados['cert_br'] !== '' ? strtoupper( (string) $dados['cert_br'] ) : null;
+	return [
+		'classificacao_br'      => ( $cert !== null && preg_match( '/^(L|10|12|14|16|18)$/', $cert ) ) ? $cert : null,
+		'protagonista_feminina' => ( isset( $dados['protagonista_g'] ) && $dados['protagonista_g'] !== null ) ? dsi_filtros_passa( $dados, [ 'protagonista' => 'feminina' ] ) : null,
+	];
+}
+
 // ------------------------------------------------------------------ parte WordPress
 
 // "tmdb_id:tipo" => dados da carga do TMDB, em cache curto (a carga e rara).
 function dsi_filtros_mapa_enriquecimento(): array {
 	global $wpdb;
-	$chave = 'dsi_filtros_enriq_v1_' . md5( $wpdb->prefix );
+	$chave = 'dsi_filtros_enriq_v2_' . md5( $wpdb->prefix );
 	$cache = get_transient( $chave );
 	if ( is_array( $cache ) ) {
 		return $cache;
 	}
 	$tabela = $wpdb->prefix . 'dsi_tmdb_enriquecimento';
 	$wpdb->suppress_errors( true );
-	$linhas = $wpdb->get_results( "SELECT tmdb_id, tipo, protagonista_g, mulheres_top3, cert_idade FROM {$tabela}", ARRAY_A );
+	$linhas = $wpdb->get_results( "SELECT tmdb_id, tipo, protagonista_g, mulheres_top3, cert_idade, cert_br FROM {$tabela}", ARRAY_A );
 	$wpdb->suppress_errors( false );
 	$mapa = [];
 	foreach ( (array) $linhas as $l ) {
@@ -155,6 +173,7 @@ function dsi_filtros_mapa_enriquecimento(): array {
 			'protagonista_g' => $l['protagonista_g'] !== null ? (int) $l['protagonista_g'] : null,
 			'mulheres_top3'  => $l['mulheres_top3'] !== null ? (int) $l['mulheres_top3'] : null,
 			'cert_idade'     => $l['cert_idade'] !== null ? (int) $l['cert_idade'] : null,
+			'cert_br'        => $l['cert_br'] !== null ? (string) $l['cert_br'] : null,
 		];
 	}
 	set_transient( $chave, $mapa, 30 * MINUTE_IN_SECONDS );
@@ -187,4 +206,31 @@ function dsi_filtros_aplicar( array $filtros, array $candidatos, array $sem_rese
 		return dsi_filtros_passa( ! empty( $c['tmdb_id'] ) ? ( $mapa[ (int) $c['tmdb_id'] . ':' . $tipo ] ?? null ) : null, $filtros );
 	} ) );
 	return [ $candidatos, $sem_resenha ];
+}
+
+// Evidencia por post de critica (vinculo critica -> TMDB -> carga). Posts sem vinculo ou sem carga ficam fora do mapa.
+function dsi_filtros_evidencias_dos_posts( array $post_ids ): array {
+	if ( ! $post_ids ) {
+		return [];
+	}
+	$mapa = dsi_filtros_mapa_enriquecimento();
+	try {
+		$vinculo = dsi_perfil_repo()->titulosDosPosts( $post_ids );
+	} catch ( Throwable $e ) {
+		return [];
+	}
+	$saida = [];
+	foreach ( $vinculo as $post_id => $v ) {
+		$saida[ (int) $post_id ] = dsi_filtros_evidencia( $mapa[ $v['tmdb_id'] . ':' . $v['tipo'] ] ?? null );
+	}
+	return $saida;
+}
+
+// Evidencia de um titulo do catalogo externo (sem critica), pelo tmdb_id.
+function dsi_filtros_evidencia_externo( int $tmdb_id, string $tipo ): array {
+	if ( $tmdb_id <= 0 ) {
+		return dsi_filtros_evidencia( null );
+	}
+	$mapa = dsi_filtros_mapa_enriquecimento();
+	return dsi_filtros_evidencia( $mapa[ $tmdb_id . ':' . ( $tipo === 'serie' ? 'serie' : 'filme' ) ] ?? null );
 }

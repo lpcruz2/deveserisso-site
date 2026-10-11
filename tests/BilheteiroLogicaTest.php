@@ -263,6 +263,8 @@ final class BilheteiroLogicaTest extends TestCase {
 			'tem_critica'    => false,
 			'link'           => '',
 			'poster'         => '',
+			'classificacao'  => null,
+			'protagonista_feminina' => null,
 		], $normalizado );
 	}
 

@@ -179,6 +179,18 @@ function dsi_bilheteiro_detectar_plataformas_texto( string $mensagem ): array {
 // em functions.php). Campo ausente vira "não informado" em vez de sumir,
 // assim a IA sabe que nao tem certeza em vez de inferir a partir de um
 // campo faltando.
+// Linhas extras do contexto (carga do TMDB): classificacao indicativa e protagonista. So aparecem quando o dado existe.
+function dsi_bilheteiro_linhas_catalogo( array $filme ): string {
+	$linhas = '';
+	if ( ! empty( $filme['classificacao'] ) ) {
+		$linhas .= "\nClassificação indicativa (Brasil): " . ( $filme['classificacao'] === 'L' ? 'livre para todos os públicos' : $filme['classificacao'] . ' anos' );
+	}
+	if ( isset( $filme['protagonista_feminina'] ) && is_bool( $filme['protagonista_feminina'] ) ) {
+		$linhas .= "\nProtagonista mulher (primeiro nome do elenco no TMDB): " . ( $filme['protagonista_feminina'] ? 'sim' : 'não' );
+	}
+	return $linhas;
+}
+
 function dsi_bilheteiro_montar_contexto_filmes( array $filmes ): string {
 	if ( empty( $filmes ) ) {
 		return '';
@@ -201,7 +213,8 @@ function dsi_bilheteiro_montar_contexto_filmes( array $filmes ): string {
 			'Elenco conhecido: ' . $atores . "\n" .
 			'Sinopse: ' . $sinopse . "\n" .
 			'Nota: ' . $nota . "\n" .
-			'Crítica no site: ' . $critica;
+			'Crítica no site: ' . $critica .
+			dsi_bilheteiro_linhas_catalogo( $filme );
 	}
 	return implode( "\n\n", $blocos );
 }
@@ -492,6 +505,9 @@ function dsi_bilheteiro_normalizar_item_pergunta( array $item ): array {
 		'tem_critica'    => ( $item['fonte'] ?? '' ) === 'catalogo' && $link !== '',
 		'link'           => $link,
 		'poster'         => is_string( $item['poster'] ?? null ) ? mb_substr( $item['poster'], 0, 500 ) : '',
+		// Dados da carga do TMDB (2026-10-11); null quando o titulo ainda nao tem o dado.
+		'classificacao'  => ( is_string( $item['classificacao'] ?? null ) && preg_match( '/^(L|10|12|14|16|18)$/', $item['classificacao'] ) ) ? $item['classificacao'] : null,
+		'protagonista_feminina' => is_bool( $item['protagonista_feminina'] ?? null ) ? $item['protagonista_feminina'] : null,
 	];
 }
 

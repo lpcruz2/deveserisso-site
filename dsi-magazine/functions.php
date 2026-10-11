@@ -2062,7 +2062,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			'tem_genero'     => $tem_genero,
 			'viola_exclusao' => $viola_exclusao,
 			'tem_ambientacao' => $tem_ambientacao,
-			'nota'           => $linha['nota_tmdb'] !== null ? (float) $linha['nota_tmdb'] : null,
+			'nota'           => ( $linha['nota_tmdb'] !== null && (float) $linha['nota_tmdb'] > 0 ) ? (float) $linha['nota_tmdb'] : null,
 			'id'             => (int) $linha['id'],
 			'tmdb_id'        => (int) $linha['tmdb_id'],
 			'dados'          => [
@@ -2169,7 +2169,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			...$ids_finais
 		), ARRAY_A );
 		foreach ( $linhas_nota as $linha ) {
-			if ( $linha['nota_tmdb'] !== null ) {
+			if ( $linha['nota_tmdb'] !== null && (float) $linha['nota_tmdb'] > 0 ) {
 				$notas_por_post[ (int) $linha['post_id_gerado'] ] = (float) $linha['nota_tmdb'];
 			}
 		}
@@ -2188,10 +2188,13 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		}
 	}
 
-	$resultados = array_map( function ( array $c ) use ( $notas_por_post ): array {
+	// Classificacao indicativa e protagonista (carga do TMDB, 2026-10-11): vao no item para o Curador responder
+	// e para o filtro ser verificavel; null quando o titulo ainda nao tem o dado.
+	$evidencias_posts = dsi_filtros_evidencias_dos_posts( array_map( fn( array $c ): int => (int) $c['post']->ID, $candidatos ) );
+	$resultados = array_map( function ( array $c ) use ( $notas_por_post, $evidencias_posts ): array {
 		$post = $c['post'];
 		$d    = $c['dados'];
-		return [
+		return array_merge( $evidencias_posts[ (int) $post->ID ] ?? [ 'classificacao_br' => null, 'protagonista_feminina' => null ], [
 			'id'                  => $post->ID,
 			'fonte'               => 'catalogo',
 			'titulo'              => $d['titulo'],
@@ -2219,7 +2222,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			'poster'              => get_the_post_thumbnail_url( $post->ID, 'dsi-poster' ) ?: null,
 			'link'                => get_permalink( $post ),
 			'score'               => $c['score'],
-		];
+		] );
 	}, $candidatos );
 
 	usort( $sem_resenha_candidatos, function ( array $a, array $b ): int {
@@ -2239,7 +2242,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	// 'id' e 'fonte' aqui (fonte sempre 'externo') seguem o mesmo contrato
 	// do 'id'/'fonte' de itemListElement -- e o que o widget usa pra montar
 	// excluir_filmes e nao repetir o mesmo titulo numa proxima rodada.
-	$sem_resenha = array_map( fn( array $c ) => array_merge( $c['dados'], [ 'id' => $c['id'], 'fonte' => 'externo', 'nota' => $c['nota'] ] ), $sem_resenha_candidatos );
+	$sem_resenha = array_map( fn( array $c ) => array_merge( $c['dados'], dsi_filtros_evidencia_externo( (int) ( $c['tmdb_id'] ?? 0 ), (string) ( $c['dados']['tipo'] ?? 'filme' ) ), [ 'id' => $c['id'], 'fonte' => 'externo', 'nota' => $c['nota'] ] ), $sem_resenha_candidatos );
 
 	// Aviso sobre o ator pedido (2026-09-25, achados com transcripts reais),
 	// dito pelo widget antes da lista:

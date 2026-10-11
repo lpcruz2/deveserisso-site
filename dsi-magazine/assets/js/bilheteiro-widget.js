@@ -1946,6 +1946,7 @@
 						direcao: f.direcao, atores: f.atores, elenco: f.elenco,
 						// "é bom?" (2026-09-28): nota TMDB e link da critica.
 						nota: f.nota, fonte: f.fonte, link: f.link,
+						classificacao: f.classificacao_br, protagonista_feminina: f.protagonista_feminina,
 						// poster do cartao A2UI (com resenha: poster; sem resenha: poster_url)
 						poster: f.poster || f.poster_url
 					};
