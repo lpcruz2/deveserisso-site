@@ -1849,6 +1849,9 @@
 			if ( valorOuVazio( estado.plataforma ) ) params.plataforma = estado.plataforma;
 			if ( valorOuVazio( estado.tipo ) ) params.tipo = estado.tipo;
 			if ( estado.baseado_fatos_reais === true ) params.baseado_fatos_reais = 'sim';
+			// Filtros por dados do TMDB (2026-10-11): protagonista feminina e idade de quem vai assistir.
+			if ( estado.protagonista === 'feminina' ) params.protagonista = 'feminina';
+			if ( estado.idade ) params.idade = estado.idade;
 			if ( valorOuVazio( estado.q ) ) params.q = estado.q;
 			// Obra exata escolhida quando o titulo era ambiguo, e epoca pedida (2026-09-28).
 			if ( estado.q_tmdb ) params.q_tmdb = estado.q_tmdb;
@@ -1869,6 +1872,7 @@
 				var itens = ( data && data.itemListElement ) || [];
 				var semResenha = ( data && data.sem_resenha ) || [];
 				if ( ! itens.length && ! semResenha.length ) {
+					if ( data && data.aviso_filtros ) addBot( escapeHtml( data.aviso_filtros ) );
 					// Proxima mensagem volta a ser preferencia nova, nao pergunta
 					// sobre a lista anterior (2026-09-28, junto do "mais opções").
 					perguntasEncerradas = false;
@@ -1878,6 +1882,7 @@
 						: 'Não achei nada pra essa combinação ainda. Quer tentar outro gênero ou emoção?' );
 					return;
 				}
+				if ( data.aviso_filtros ) addBot( escapeHtml( data.aviso_filtros ) );
 				if ( data.aviso_ambientacao ) {
 					var epoca = escapeHtml( data.aviso_ambientacao.ambientacao );
 					addBot( data.aviso_ambientacao.tipo === 'sem_titulos'

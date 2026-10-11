@@ -1609,6 +1609,9 @@ add_action( 'rest_api_init', function (): void {
 			'baseado_fatos_reais' => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
 			'q'                   => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
 			'limite'              => [ 'required' => false, 'sanitize_callback' => 'absint' ],
+			// 2026-10-11: filtros por dados do TMDB (inc/filtros-catalogo.php)
+			'protagonista'        => [ 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+			'idade'               => [ 'required' => false, 'sanitize_callback' => 'absint' ],
 		],
 	] );
 } );
@@ -2061,6 +2064,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 			'tem_ambientacao' => $tem_ambientacao,
 			'nota'           => $linha['nota_tmdb'] !== null ? (float) $linha['nota_tmdb'] : null,
 			'id'             => (int) $linha['id'],
+			'tmdb_id'        => (int) $linha['tmdb_id'],
 			'dados'          => [
 				'titulo'          => $linha['titulo'],
 				'titulo_original' => $linha['titulo_original'],
@@ -2113,6 +2117,14 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 	if ( array_filter( array_merge( $candidatos, $sem_resenha_candidatos ), $respeita_exclusao ) ) {
 		$candidatos             = array_values( array_filter( $candidatos, $respeita_exclusao ) );
 		$sem_resenha_candidatos = array_values( array_filter( $sem_resenha_candidatos, $respeita_exclusao ) );
+	}
+
+	// Protagonista feminina e faixa etaria (2026-10-11): so passa titulo com o dado confirmado na carga do TMDB.
+	$filtros_cat   = dsi_filtros_do_pedido( $req->get_param( 'protagonista' ), $req->get_param( 'idade' ) );
+	$aviso_filtros = '';
+	if ( $filtros_cat ) {
+		[ $candidatos, $sem_resenha_candidatos ] = dsi_filtros_aplicar( $filtros_cat, $candidatos, $sem_resenha_candidatos );
+		$aviso_filtros = dsi_filtros_aviso( $filtros_cat, count( $candidatos ) + count( $sem_resenha_candidatos ) );
 	}
 
 	// Empate de score (ex.: todo terror vale o mesmo) desempata pela nota TMDB, como ja fazia a lista sem
@@ -2317,6 +2329,7 @@ function dsi_recomendar_filme( WP_REST_Request $req ): WP_REST_Response {
 		// Aditivo tambem (2026-09-25) -- null quando nao ha o que avisar.
 		'aviso_atores'     => $aviso_atores,
 		'aviso_ambientacao' => $aviso_ambientacao,
+		'aviso_filtros'    => $aviso_filtros !== '' ? $aviso_filtros : null,
 		'a2ui_feedback'    => $a2ui_feedback,
 		'a2ui_aviso_ator'  => $a2ui_aviso_ator,
 	] );
@@ -2372,6 +2385,7 @@ add_action( 'rest_api_init', function (): void {
 // o cabecalho daquele arquivo antes de mexer nela.
 require_once __DIR__ . '/inc/bilheteiro-logica.php';
 require_once __DIR__ . '/inc/onde-assistir.php';
+require_once __DIR__ . '/inc/filtros-catalogo.php';
 
 // Perfil de gosto (2026-09-28): conta, marcacoes, resenhas de leitor. Regras,
 // esquema e repositorio em inc/perfil/ sao PHP puro (o site pode sair do WP);
@@ -2758,6 +2772,10 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	}
 	$estado['confirmacoes'] = is_array( $estado_recebido['confirmacoes'] ?? null ) ? $estado_recebido['confirmacoes'] : [];
 	$estado['atores_sem_preferencia'] = ! empty( $estado_recebido['atores_sem_preferencia'] );
+	// Filtros por dados do TMDB (2026-10-11): protagonista feminina e idade de quem vai assistir.
+	$estado['protagonista'] = ( $estado_recebido['protagonista'] ?? '' ) === 'feminina' ? 'feminina' : null;
+	$idade_recebida         = isset( $estado_recebido['idade'] ) ? (int) $estado_recebido['idade'] : 0;
+	$estado['idade']        = ( $idade_recebida >= 1 && $idade_recebida <= 17 ) ? $idade_recebida : null;
 	// Titulo de referencia ambiguo (2026-09-28, "O Reino" virou a serie de
 	// terror de 1994 numa conversa sobre Idade Media): opcoes oferecidas a
 	// pessoa e a obra escolhida ("filme:123"/"serie:123", id da TMDB).
@@ -2960,6 +2978,13 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		}
 		$estado['plataforma'] = implode( ', ', $itens_atuais );
 	}
+	$filtros_msg = dsi_filtros_extrair_do_texto( $mensagem );
+	if ( $filtros_msg['protagonista'] !== null ) {
+		$estado['protagonista'] = $filtros_msg['protagonista'];
+	}
+	if ( $filtros_msg['idade'] !== null ) {
+		$estado['idade'] = $filtros_msg['idade'];
+	}
 	// exclusoes: uniao normalizada, nunca sobrescreve (PRD secao 3, campo opcional).
 	$exclusoes_novas = array_filter( (array) ( $extraido['exclusoes'] ?? [] ) );
 	if ( $exclusoes_novas ) {
@@ -3112,7 +3137,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// (resposta a "Quer que eu traga mais recomendações?" do 👎), encerra
 	// sem buscar outra lista.
 	$nada_novo         = false;
-	$campos_comparados = array_merge( DSI_BILHETEIRO_CAMPOS, [ 'atores', 'exclusoes', 'temas', 'atores_principais' ] );
+	$campos_comparados = array_merge( DSI_BILHETEIRO_CAMPOS, [ 'atores', 'exclusoes', 'temas', 'atores_principais', 'protagonista', 'idade' ] );
 	if ( $deve_parar && ! $pedido_pular ) {
 		$nada_novo = true;
 		foreach ( $campos_comparados as $campo_c ) {
@@ -3385,7 +3410,7 @@ function dsi_bilheteiro_perguntar_pos_recomendacao( WP_REST_Request $req ): WP_R
 	// e mais rapido) -- o widget, ao ver pedir_nova_recomendacao, reabre a
 	// extracao de preferencia com a mesma mensagem em vez de deixar a
 	// pessoa presa numa recusa em loop (ver dsi_bilheteiro_pede_nova_recomendacao).
-	if ( dsi_bilheteiro_pede_nova_recomendacao( $pergunta ) ) {
+	if ( dsi_bilheteiro_pede_nova_recomendacao( $pergunta ) || dsi_filtros_pede_refinar( $pergunta ) ) {
 		return new WP_REST_Response( [ 'pedir_nova_recomendacao' => true ] );
 	}
 	// "tem outros?" (relatorio semanal 2026-09-28): nova rodada com as mesmas

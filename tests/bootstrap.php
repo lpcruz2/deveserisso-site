@@ -22,6 +22,7 @@ if ( ! function_exists( 'wp_strip_all_tags' ) ) {
 
 require_once __DIR__ . '/../dsi-magazine/inc/bilheteiro-logica.php';
 require_once __DIR__ . '/../dsi-magazine/inc/onde-assistir.php';
+require_once __DIR__ . '/../dsi-magazine/inc/filtros-catalogo.php';
 
 // Perfil de gosto (2026-09-28): PHP puro por premissa (site pode sair do WP),
 // nao precisa de nenhuma funcao do WordPress.
