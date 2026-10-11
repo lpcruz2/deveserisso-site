@@ -1840,6 +1840,15 @@
 			} );
 		}
 
+		// O aviso do filtro aparece quando muda, nao a cada rodada (2026-10-11).
+		var ultimoAvisoFiltros = '';
+		function mostrarAvisoFiltros( data, forcar ) {
+			if ( ! data || ! data.aviso_filtros ) return;
+			if ( ! forcar && data.aviso_filtros === ultimoAvisoFiltros ) return;
+			ultimoAvisoFiltros = data.aviso_filtros;
+			addBot( escapeHtml( data.aviso_filtros ) );
+		}
+
 		function buscarRecomendacoes() {
 			var carregando = renderBot( 'Só um instante, escolhendo uns filmes pra você...' );
 			var url = new URL( CINEQUIZ_ENDPOINT );
@@ -1872,7 +1881,7 @@
 				var itens = ( data && data.itemListElement ) || [];
 				var semResenha = ( data && data.sem_resenha ) || [];
 				if ( ! itens.length && ! semResenha.length ) {
-					if ( data && data.aviso_filtros ) addBot( escapeHtml( data.aviso_filtros ) );
+					mostrarAvisoFiltros( data, true );
 					// Proxima mensagem volta a ser preferencia nova, nao pergunta
 					// sobre a lista anterior (2026-09-28, junto do "mais opções").
 					perguntasEncerradas = false;
@@ -1882,7 +1891,7 @@
 						: 'Não achei nada pra essa combinação ainda. Quer tentar outro gênero ou emoção?' );
 					return;
 				}
-				if ( data.aviso_filtros ) addBot( escapeHtml( data.aviso_filtros ) );
+				mostrarAvisoFiltros( data, false );
 				if ( data.aviso_ambientacao ) {
 					var epoca = escapeHtml( data.aviso_ambientacao.ambientacao );
 					addBot( data.aviso_ambientacao.tipo === 'sem_titulos'
@@ -1896,7 +1905,7 @@
 						|| addAvisoAtor( data.aviso_atores, estado.genero );
 				}
 				if ( itens.length ) {
-					itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
+					itens.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte, titulo: r.titulo } ); } );
 					addFilmes( itens ); // seta ancoraComResenha internamente
 				}
 				// Com aviso de ator, a tela para nele (e nao na lista), senao a
@@ -1906,7 +1915,7 @@
 					// Achado ao vivo 2026-09-22: sem isso, "quero outras" so
 					// trocava a lista com resenha -- os externos (sem_resenha)
 					// nunca tinham exclusao nenhuma, entao repetiam sempre.
-					semResenha.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte } ); } );
+					semResenha.forEach( function ( r ) { excluirFilmes.push( { id: r.id, fonte: r.fonte, titulo: r.titulo } ); } );
 					addSemResenha( semResenha );
 				}
 				// Pedido de feedback DEPOIS dos externos tambem (2026-09-25,

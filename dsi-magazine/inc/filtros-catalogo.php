@@ -120,7 +120,7 @@ function dsi_filtros_passa( ?array $dados, array $filtros ): bool {
 function dsi_filtros_aviso( array $filtros, int $passaram ): string {
 	$partes = [];
 	if ( isset( $filtros['protagonista'] ) ) {
-		$partes[] = 'protagonista mulher';
+		$partes[] = 'protagonista mulher (primeiro nome do elenco no TMDB)';
 	}
 	if ( isset( $filtros['idade'] ) ) {
 		$max      = dsi_filtros_classificacao_maxima( $filtros['idade'] );
@@ -131,8 +131,8 @@ function dsi_filtros_aviso( array $filtros, int $passaram ): string {
 	}
 	$lista = implode( ' e ', $partes );
 	return $passaram > 0
-		? "Filtrei por {$lista}. Só entram títulos com esse dado confirmado, então a lista pode ser menor."
-		: "Não achei título com {$lista} entre os que têm esse dado confirmado.";
+		? "Filtrei por {$lista}. Só entram títulos que têm esse dado, então a lista pode ser menor."
+		: "Não achei título com {$lista} entre os que têm esse dado no catálogo.";
 }
 
 /**
@@ -151,6 +151,75 @@ function dsi_filtros_evidencia( ?array $dados ): array {
 		'classificacao_br'      => ( $cert !== null && preg_match( '/^(L|10|12|14|16|18)$/', $cert ) ) ? $cert : null,
 		'protagonista_feminina' => ( isset( $dados['protagonista_g'] ) && $dados['protagonista_g'] !== null ) ? dsi_filtros_passa( $dados, [ 'protagonista' => 'feminina' ] ) : null,
 	];
+}
+
+/**
+ * Pedido com mais de um genero ("comedia romantica" -> "comedia, romance"): um grupo de chaves por genero pedido.
+ * Quem acerta os dois generos deve vir antes de quem acerta so um (eval K02: comedia sem romance preenchia a lista).
+ *
+ * @return array<int,array<int,string>>
+ */
+function dsi_filtros_grupos_genero( string $filtro_normalizado ): array {
+	$grupos = [];
+	foreach ( array_filter( array_map( 'trim', explode( ',', $filtro_normalizado ) ), 'strlen' ) as $g ) {
+		$chaves = dsi_generos_chaves_busca( $g );
+		if ( $chaves ) {
+			$grupos[] = $chaves;
+		}
+	}
+	return $grupos;
+}
+
+// Quantos dos generos pedidos o item tem. $generos_item_norm: generos do item ja normalizados.
+function dsi_filtros_acertos_genero( array $generos_item_norm, array $grupos ): int {
+	$acertos = 0;
+	foreach ( $grupos as $chaves ) {
+		foreach ( $generos_item_norm as $g ) {
+			if ( dsi_genero_bate( (string) $g, $chaves ) ) {
+				$acertos++;
+				break;
+			}
+		}
+	}
+	return $acertos;
+}
+
+// Chave de titulo para detectar o mesmo filme em duas linhas do catalogo ("A Familia Addams 2" 1993 e 2001, Enola Holmes duas vezes).
+function dsi_filtros_chave_titulo( $titulo ): string {
+	return trim( str_replace( '?', '', dsi_filtros_normalizar( (string) $titulo ) ) );
+}
+
+/**
+ * Titulo ja visto (ou ja mostrado em rodada anterior)? Mesma chave e anos a ate 10 de distancia (ou sem ano) = repetido.
+ * Remakes (Mulan 1998 e 2020) ficam separados. Registra o titulo em $vistos quando e novo.
+ *
+ * @param array<string,array<int,int|null>> $vistos
+ */
+function dsi_filtros_repetido( array &$vistos, $titulo, $ano ): bool {
+	$chave = dsi_filtros_chave_titulo( $titulo );
+	if ( $chave === '' ) {
+		return false;
+	}
+	$ano = ( is_numeric( $ano ) && (int) $ano > 0 ) ? (int) $ano : null;
+	foreach ( $vistos[ $chave ] ?? [] as $a ) {
+		if ( $a === null || $ano === null || abs( $a - $ano ) <= 10 ) {
+			return true;
+		}
+	}
+	$vistos[ $chave ][] = $ano;
+	return false;
+}
+
+// Titulos mostrados em rodadas anteriores (o widget manda o titulo junto do id) -> chave => [null]: vale para qualquer ano.
+function dsi_filtros_titulos_excluidos( array $excluir_filmes ): array {
+	$vistos = [];
+	foreach ( $excluir_filmes as $f ) {
+		$chave = is_array( $f ) ? dsi_filtros_chave_titulo( $f['titulo'] ?? '' ) : '';
+		if ( $chave !== '' ) {
+			$vistos[ $chave ] = [ null ];
+		}
+	}
+	return $vistos;
 }
 
 // ------------------------------------------------------------------ parte WordPress
