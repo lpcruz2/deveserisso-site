@@ -36,6 +36,25 @@ final class FiltrosCatalogoTest extends TestCase {
 		$this->assertSame( 10, dsi_filtros_extrair_do_texto( 'algo para crianças' )['idade'] );
 	}
 
+	public function test_negacao_de_publico_infantil_nao_vira_filtro(): void {
+		// Eval K06 (2026-10-12): estas frases ativavam o filtro de 10 anos e travavam a conversa.
+		foreach ( [
+			'Mas o Sonic 3 é pra criança né, tá fora. Dá pra filtrar só ação?',
+			'Quero ação sem ser coisa infantil',
+			'Nada de filme infantil, por favor',
+			'Não é pra criança, é pra mim',
+			'Esse é infantil demais',
+		] as $m ) {
+			$this->assertNull( dsi_filtros_extrair_do_texto( $m )['idade'], $m );
+		}
+	}
+
+	public function test_pedido_positivo_de_publico_infantil_vira_filtro(): void {
+		$this->assertSame( 10, dsi_filtros_extrair_do_texto( 'Quero um filme infantil' )['idade'] );
+		$this->assertSame( 10, dsi_filtros_extrair_do_texto( 'algo pra ver com as crianças' )['idade'] );
+		$this->assertSame( 10, dsi_filtros_extrair_do_texto( 'um desenho infantil pro fim de semana' )['idade'] );
+	}
+
 	public function test_idade_do_adulto_nao_vira_filtro(): void {
 		$this->assertNull( dsi_filtros_extrair_do_texto( 'Tenho 30 anos e gosto de terror' )['idade'] );
 		$this->assertNull( dsi_filtros_extrair_do_texto( 'Tenho 30 anos e meus filhos adoram terror' )['idade'] );

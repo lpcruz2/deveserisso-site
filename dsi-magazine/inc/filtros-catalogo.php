@@ -37,6 +37,13 @@ const DSI_FILTROS_PROTAGONISTA_REGEX = [
 
 const DSI_FILTROS_CRIANCA_TERMOS = '(?:crianca|criancas|filh[oa]s?|sobrinh[oa]s?|net[oa]s?|afilhad[oa]s?|menino|menina|pequen[oa]s?)';
 
+// Ha negacao logo antes da posicao? ("nao e pra crianca", "sem ser infantil", "nada de filme infantil", "ta fora").
+function dsi_filtros_negado( string $q, int $pos ): bool {
+	$antes = substr( $q, max( 0, $pos - 25 ), min( 25, $pos ) );
+	$depois = substr( $q, $pos, 60 );
+	return (bool) preg_match( '/\b(nao|sem|nada de|nem|fora)\b/', $antes ) || (bool) preg_match( '/\b(ta fora|esta fora|fica fora|nao serve)\b/', $depois );
+}
+
 /**
  * O que a pessoa pediu que da para filtrar: protagonista feminina e faixa etaria de quem vai assistir.
  *
@@ -51,13 +58,15 @@ function dsi_filtros_extrair_do_texto( string $mensagem ): array {
 			break;
 		}
 	}
+	// Conservador (eval K06, 2026-10-12): "o Sonic e pra crianca, ta fora" e "sem ser coisa infantil" ativavam o filtro
+	// de 10 anos e travavam a conversa. So conta pedido positivo, sem negacao logo antes do termo.
 	$t = DSI_FILTROS_CRIANCA_TERMOS;
-	if ( preg_match( '/\b' . $t . '\b[^?]{0,40}?\b(\d{1,2}) anos?\b/', $q, $m ) || preg_match( '/\b(\d{1,2}) anos?\b[^?]{0,20}\b' . $t . '\b/', $q, $m ) ) {
-		$idade = (int) $m[1];
-		if ( $idade >= 1 && $idade <= 17 ) {
+	if ( preg_match( '/\b' . $t . '\b[^?]{0,40}?\b(\d{1,2}) anos?\b/', $q, $m, PREG_OFFSET_CAPTURE ) || preg_match( '/\b(\d{1,2}) anos?\b[^?]{0,20}\b' . $t . '\b/', $q, $m, PREG_OFFSET_CAPTURE ) ) {
+		$idade = (int) $m[1][0];
+		if ( $idade >= 1 && $idade <= 17 && ! dsi_filtros_negado( $q, $m[0][1] ) ) {
 			$res['idade'] = $idade;
 		}
-	} elseif ( preg_match( '/\b(crianca|criancas|infantil)\b/', $q ) ) {
+	} elseif ( preg_match( '/\b(?:pra|para|com)\s+(?:a\s+|as\s+|os\s+|o\s+|uma\s+|umas\s+|minha\s+|meu\s+|minhas\s+|meus\s+)?(?:crianca|criancas|filh[oa]s?|pequen[oa]s?)\b|\b(?:filme|filmes|desenho|desenhos|serie|series)\s+infant\w*/', $q, $m, PREG_OFFSET_CAPTURE ) && ! dsi_filtros_negado( $q, $m[0][1] ) ) {
 		$res['idade'] = 10; // "para crianca" sem idade: livre e 10 anos
 	}
 	return $res;

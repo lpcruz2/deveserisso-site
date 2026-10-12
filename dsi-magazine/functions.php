@@ -3125,7 +3125,9 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// travar o fluxo para sempre -- ao bater o limite de perguntas, o que
 	// ainda estiver null vira "sem preferencia" em vez de ficar esperando
 	// resposta indefinidamente.
-	$limite_atingido = $perguntas_feitas >= ( ! empty( $contexto_minigames['sem_minigames'] ) ? DSI_BILHETEIRO_LIMITE_PERGUNTAS_CHAT : DSI_BILHETEIRO_LIMITE_PERGUNTAS );
+	// O limite curto do chat so vale depois que a pessoa disse o genero (eval K08, 2026-10-12: duas mensagens fora do
+	// tema ja contavam como perguntas respondidas e o Curador buscava lista sem genero, em laco de "nao achei nada").
+	$limite_atingido = $perguntas_feitas >= ( ( ! empty( $contexto_minigames['sem_minigames'] ) && $estado['genero'] !== null ) ? DSI_BILHETEIRO_LIMITE_PERGUNTAS_CHAT : DSI_BILHETEIRO_LIMITE_PERGUNTAS );
 	if ( $limite_atingido || $pedido_pular ) {
 		foreach ( dsi_bilheteiro_campos_obrigatorios( $contexto_minigames ) as $campo ) {
 			if ( in_array( $campo, DSI_BILHETEIRO_CAMPOS_ARRAY, true ) ) {
