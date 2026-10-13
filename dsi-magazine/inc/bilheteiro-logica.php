@@ -448,6 +448,20 @@ function dsi_curador_esclarecimento( $titulo_referencia ): string {
 		: 'Desculpa a confusão. Estou na parte das indicações e preciso de umas respostas rápidas para acertar. ';
 }
 
+// Aviso de limitacao uma vez por conversa (eval K10/K12, 2026-10-12: "esse tipo de filtro eu ainda nao faco"
+// saiu quatro vezes seguidas). Devolve o aviso (vazio se ja foi dado) e a lista de tipos ja avisados.
+function dsi_curador_aviso_limitacao_uma_vez( $tipo, array $ja_avisados ): array {
+	$aviso = dsi_curador_aviso_limitacao( $tipo );
+	if ( $aviso === '' ) {
+		return [ '', $ja_avisados ];
+	}
+	if ( in_array( $tipo, $ja_avisados, true ) ) {
+		return [ '', $ja_avisados ];
+	}
+	$ja_avisados[] = $tipo;
+	return [ $aviso, $ja_avisados ];
+}
+
 function dsi_curador_aviso_limitacao( $tipo ): string {
 	return is_string( $tipo ) ? ( DSI_CURADOR_LIMITACOES[ $tipo ] ?? '' ) : '';
 }

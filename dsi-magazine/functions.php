@@ -2794,6 +2794,8 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	$estado['protagonista'] = ( $estado_recebido['protagonista'] ?? '' ) === 'feminina' ? 'feminina' : null;
 	$idade_recebida         = isset( $estado_recebido['idade'] ) ? (int) $estado_recebido['idade'] : 0;
 	$estado['idade']        = ( $idade_recebida >= 1 && $idade_recebida <= 17 ) ? $idade_recebida : null;
+	// Tipos de limitacao ja avisados nesta conversa (aviso uma vez so).
+	$estado['avisos_limitacao'] = array_values( array_intersect( array_map( 'strval', (array) ( $estado_recebido['avisos_limitacao'] ?? [] ) ), array_keys( DSI_CURADOR_LIMITACOES ) ) );
 	// Titulo de referencia ambiguo (2026-09-28, "O Reino" virou a serie de
 	// terror de 1994 numa conversa sobre Idade Media): opcoes oferecidas a
 	// pessoa e a obra escolhida ("filme:123"/"serie:123", id da TMDB).
@@ -3173,7 +3175,7 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	$recusou_mais = $nada_novo && dsi_bilheteiro_eh_negativa( $mensagem );
 	// Pedido que o Curador nao filtra (diretor, letra do titulo...): avisa em vez
 	// de elogiar e seguir calado. Se nada mais mudou, nao busca outra lista.
-	$limitacao_aviso = dsi_curador_aviso_limitacao( $extraido['limitacao'] ?? null );
+	[ $limitacao_aviso, $estado['avisos_limitacao'] ] = dsi_curador_aviso_limitacao_uma_vez( $extraido['limitacao'] ?? null, $estado['avisos_limitacao'] );
 	$sem_lista       = $recusou_mais || ( $nada_novo && $limitacao_aviso !== '' );
 	$msg_sem_lista   = $recusou_mais ? DSI_A2UI_MSG_SEM_MAIS : $limitacao_aviso . ' Me diga o que você quer ver.';
 
