@@ -1,0 +1,35 @@
+{
+  "protocolVersion": "0.3.0",
+  "name": "Deveserisso — recomendação de filmes e séries",
+  "description": "Agente de recomendação do Deveserisso, portal brasileiro de críticas de filmes e séries. Recebe o que a pessoa quer assistir (clima, gênero, tipo, streaming) e devolve títulos com crítica publicada no site, com link. Somente leitura, sem autenticação.",
+  "url": "https://deveserisso.com.br/wp-json/a2a/v1/rpc",
+  "preferredTransport": "JSONRPC",
+  "version": "1.0.0",
+  "provider": {
+    "organization": "Deveserisso",
+    "url": "https://deveserisso.com.br"
+  },
+  "documentationUrl": "https://deveserisso.com.br/desenvolvedores/",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
+  "skills": [
+    {
+      "id": "recomendar-filme-serie",
+      "name": "Recomendar filme ou série",
+      "description": "Sugere até 5 filmes ou séries com crítica publicada no Deveserisso, por clima (rir, medo, chorar, adrenalina, paixão), gênero, tipo (filme ou série) e streaming (Netflix, Amazon Prime, Globoplay, Disney+, Telecine, Apple TV). Use quando o usuário pedir indicação do que assistir em português do Brasil. Não serve para notícia em tempo real, bilheteria ou horário de sessão.",
+      "tags": ["filmes", "series", "recomendacao", "criticas", "pt-BR"],
+      "examples": [
+        "filme de terror na Netflix",
+        "série de comédia no Globoplay",
+        "algo para chorar, filme"
+      ],
+      "inputModes": ["text/plain", "application/json"],
+      "outputModes": ["text/plain", "application/json"]
+    }
+  ]
+}
