@@ -42,6 +42,15 @@ RewriteRule ^(developers|docs|api)/?$ https://deveserisso.com.br/desenvolvedores
 </IfModule>
 # END 404 Fix - Pages
 
+# BEGIN 301 - Slug de autor trocado (2026-10-15)
+# user_nicename do ID 1 trocado de lpcruz2 (prefixo do Gmail do gestor) pra
+# leo-cruz na varredura de seguranca -- URL antiga redireciona em vez de 404.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^author/lpcruz2/?$ https://deveserisso.com.br/author/leo-cruz/ [R=301,L]
+</IfModule>
+# END 301 - Slug de autor trocado
+
 # BEGIN 301 - Slug sem ano (2026-09-08)
 # post_title ja tinha o ano trocado pra 2026 (evergreen), slug antigo mantinha
 # "-em-2020" -- removido pra ficar consistente com os outros posts da mesma
@@ -357,6 +366,11 @@ Header set X-Content-Type-Options "nosniff"
 Header set Referrer-Policy "strict-origin-when-cross-origin"
 Header set Permissions-Policy "geolocation=(), camera=(), microphone=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=()"
 Header set X-XSS-Protection "1; mode=block"
+# expose_php e PHP_INI_SYSTEM (nao da pra desligar via .user.ini em hospedagem
+# compartilhada) -- tira o header na camada do servidor em vez de no PHP
+# (achado 2026-10-15, varredura de seguranca)
+Header unset X-Powered-By
+Header always unset X-Powered-By
 </IfModule>
 # END Security Headers
 
@@ -389,6 +403,11 @@ Header set Access-Control-Allow-Origin "*"
 # dsi-ai-markdown.php, que so cobre post/pagina do WordPress), entao
 # precisa do Content-Type explicito aqui, mesmo padrao do llms.txt.
 <Files "SKILL.md">
+Header set Content-Type "text/markdown; charset=utf-8"
+</Files>
+
+# auth.md (2026-10-15): arquivo estatico na raiz; sem isso sai text/plain.
+<Files "auth.md">
 Header set Content-Type "text/markdown; charset=utf-8"
 </Files>
 <Files "index.json">
