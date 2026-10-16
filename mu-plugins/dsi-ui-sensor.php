@@ -1165,6 +1165,42 @@ function dsi_uisensor_sql_quarentena( string $table ): string {
 }
 
 /**
+ * Rótulos de crawler que executam JavaScript e entram no sensor (task P0,
+ * 2026-10-16). Lista EXPLÍCITA, de propósito: agentes de navegação que se
+ * autodeclaram (Manus-User, app Claude Desktop) são o alvo do sensor e não
+ * podem sair por uma regra do tipo "qualquer rótulo diferente de
+ * desconhecido". Casa por prefixo (o fallback de classify_bot devolve
+ * variações como "Baiduspider-render").
+ */
+function dsi_uisensor_crawlers_js(): array {
+	return [ 'Baiduspider', 'PetalBot', 'meta-externalagent', 'Querit-SearchBot', 'curl' ];
+}
+
+/**
+ * Fragmento SQL "não é crawler declarado". Inclui o Chrome/99.0.4844.51 em
+ * User-Agent de desktop: versão de 2022, 42 sessões em 34 dias, todas da
+ * China, com webdriver ligado e bot_label "desconhecido" -- crawler sem
+ * rótulo. Feito por SQL e não em dsi_agentmd_classify_bot() porque essa
+ * função é compartilhada com o log de bots do WebMCP e porque assim vale
+ * também para as linhas já gravadas. ATENÇÃO: o fragmento usa "%%" porque
+ * só é interpolado dentro de $wpdb->prepare() (onde "%%" vira "%"); não use
+ * fora dele.
+ */
+function dsi_uisensor_sql_sem_crawler(): string {
+	$partes = [];
+	foreach ( dsi_uisensor_crawlers_js() as $rotulo ) {
+		$partes[] = "COALESCE(bot_label,'') NOT LIKE '" . esc_sql( $rotulo ) . "%%'";
+	}
+	$partes[] = "COALESCE(user_agent,'') NOT LIKE '%%Chrome/99.0.4844.51%%'";
+	return '(' . implode( ' AND ', $partes ) . ')';
+}
+
+/** Fragmento SQL: a linha tem 2 ou mais sinais distintos (motivos já são únicos por linha, array_unique na ingestão). */
+function dsi_uisensor_sql_dois_sinais(): string {
+	return "( LENGTH(heuristic_reasons) - LENGTH(REPLACE(heuristic_reasons, ',', '')) + 1 ) >= 2";
+}
+
+/**
  * Núcleo da prevalência por sessão -- "que fração das visitas parece vir de
  * um agente". Separado de qualquer renderização (task V1) pra alimentar os
  * blocos 1 e 2 sem rodar a mesma query duas vezes.
@@ -1185,24 +1221,28 @@ function dsi_uisensor_sql_quarentena( string $table ): string {
  *    sem a mesma chance de acender sinal que uma sessão real de várias
  *    páginas teria -- excluída aqui.
  *
- * @return array{amostradas:int,flagradas:int,p:?float,inf:?float,sup:?float,confiavel:bool}
+ * @return array{amostradas:int,flagradas:int,confirmadas:int,indicios:int,p:?float,inf:?float,sup:?float,confiavel:bool}
  */
 function dsi_uisensor_prevalencia_dados( string $table, string $inicio_sql, string $fim_sql ): array {
 	global $wpdb;
 
-	$quarentena = dsi_uisensor_sql_quarentena( $table );
+	$quarentena  = dsi_uisensor_sql_quarentena( $table );
+	$sem_crawler = dsi_uisensor_sql_sem_crawler();
+	$dois_sinais = dsi_uisensor_sql_dois_sinais();
 
 	$r = $wpdb->get_row(
 		$wpdb->prepare(
 			"SELECT
 			   COUNT(DISTINCT session_id) amostradas,
-			   COUNT(DISTINCT CASE WHEN heuristic_reasons <> '' THEN session_id END) flagradas
+			   COUNT(DISTINCT CASE WHEN heuristic_reasons <> '' THEN session_id END) flagradas,
+			   COUNT(DISTINCT CASE WHEN {$dois_sinais} THEN session_id END) confirmadas
 			 FROM {$table}
 			 WHERE sampled = 1
 			   AND is_dev_traffic = 0
 			   AND session_degradada = 0
 			   AND session_id <> ''
 			   AND recorded_at BETWEEN %s AND %s
+			   AND {$sem_crawler}
 			   AND {$quarentena}",
 			$inicio_sql,
 			$fim_sql
@@ -1211,12 +1251,18 @@ function dsi_uisensor_prevalencia_dados( string $table, string $inicio_sql, stri
 
 	$amostradas = (int) ( $r->amostradas ?? 0 );
 	$flagradas  = (int) ( $r->flagradas ?? 0 );
+	$confirmadas = (int) ( $r->confirmadas ?? 0 );
 
-	[ $p, $inf, $sup ] = dsi_uisensor_wilson( $flagradas, $amostradas );
+	// Taxa principal = sessões CONFIRMADAS (2+ sinais distintos na mesma
+	// página, decisão do gestor em 2026-10-01). Sessões com 1 sinal só são
+	// "indício" e aparecem como número secundário.
+	[ $p, $inf, $sup ] = dsi_uisensor_wilson( $confirmadas, $amostradas );
 
 	return [
-		'amostradas' => $amostradas,
-		'flagradas'  => $flagradas,
+		'amostradas'  => $amostradas,
+		'flagradas'   => $flagradas,
+		'confirmadas' => $confirmadas,
+		'indicios'    => max( 0, $flagradas - $confirmadas ),
 		'p'          => $p,
 		'inf'        => $inf,
 		'sup'        => $sup,
@@ -1238,7 +1284,8 @@ function dsi_uisensor_prevalencia_dados( string $table, string $inicio_sql, stri
 function dsi_uisensor_render_prevalencia_por_pagina( string $table, string $inicio_sql, string $fim_sql ): void {
 	global $wpdb;
 
-	$quarentena = dsi_uisensor_sql_quarentena( $table );
+	$quarentena  = dsi_uisensor_sql_quarentena( $table );
+	$sem_crawler = dsi_uisensor_sql_sem_crawler();
 
 	$rp = $wpdb->get_row(
 		$wpdb->prepare(
@@ -1250,6 +1297,7 @@ function dsi_uisensor_render_prevalencia_por_pagina( string $table, string $inic
 			   AND is_dev_traffic = 0
 			   AND session_degradada = 0
 			   AND recorded_at BETWEEN %s AND %s
+			   AND {$sem_crawler}
 			   AND {$quarentena}",
 			$inicio_sql,
 			$fim_sql
@@ -1563,11 +1611,14 @@ function dsi_uisensor_frase_caso_forte( object $row ): string {
 function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $inicio_sql, string $fim_sql ): void {
 	global $wpdb;
 
-	$quarentena = dsi_uisensor_sql_quarentena( $table );
+	$quarentena  = dsi_uisensor_sql_quarentena( $table );
+	$sem_crawler = dsi_uisensor_sql_sem_crawler();
 
 	// "Caso confirmado" = sessão com pelo menos uma página com 2+ sinais
-	// independentes OU com um sinal que nunca teve falso positivo conhecido
-	// (webdriver/clique_nao_confiavel/tecla_nao_confiavel). Quarentena
+	// distintos (decisão do gestor, 2026-10-01). Sinal forte (webdriver /
+	// clique_nao_confiavel / tecla_nao_confiavel) isolado NÃO confirma: só
+	// sobe a confiança de um caso que já tem 2 sinais. Crawlers declarados
+	// ficam de fora (seção própria). Quarentena
 	// aplicada aqui mesmo não estando na lista literal da Armadilha 1 (que
 	// fala em blocos 2/3): isto é uma contagem POR SESSÃO, e uma sessão
 	// contaminada (múltiplos visitantes reais somados sob o mesmo
@@ -1583,23 +1634,25 @@ function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $
 			        ( LENGTH(heuristic_reasons) - LENGTH(REPLACE(heuristic_reasons, ',', '')) + 1 ) n_sinais
 			   FROM {$table}
 			  WHERE is_dev_traffic = 0 AND session_id <> '' AND heuristic_reasons <> ''
-			    AND recorded_at BETWEEN %s AND %s AND {$quarentena}
-			    AND (
-			         ( LENGTH(heuristic_reasons) - LENGTH(REPLACE(heuristic_reasons, ',', '')) + 1 ) >= 2
-			      OR FIND_IN_SET(%s, heuristic_reasons)
-			      OR FIND_IN_SET(%s, heuristic_reasons)
-			      OR FIND_IN_SET(%s, heuristic_reasons)
-			      )
+			    AND recorded_at BETWEEN %s AND %s AND {$sem_crawler} AND {$quarentena}
+			    AND ( LENGTH(heuristic_reasons) - LENGTH(REPLACE(heuristic_reasons, ',', '')) + 1 ) >= 2
 			  ORDER BY n_sinais DESC, recorded_at DESC",
 			$inicio_sql,
-			$fim_sql,
-			'webdriver',
-			'clique_nao_confiavel',
-			'tecla_nao_confiavel'
+			$fim_sql
 		)
 	);
 
 	$n_sessoes_confirmadas = count( array_unique( wp_list_pluck( $casos, 'session_id' ) ) );
+
+	// Confiança alta = confirmado com pelo menos um sinal forte.
+	$fortes        = [ 'webdriver', 'clique_nao_confiavel', 'tecla_nao_confiavel' ];
+	$sessoes_altas = [];
+	foreach ( $casos as $c ) {
+		if ( array_intersect( $fortes, explode( ',', (string) $c->heuristic_reasons ) ) ) {
+			$sessoes_altas[ $c->session_id ] = true;
+		}
+	}
+	$n_alta = count( $sessoes_altas );
 
 	if ( $n_sessoes_confirmadas > 0 ) {
 		$fundo = '#fcf9e8';
@@ -1642,7 +1695,7 @@ function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $
 				   SELECT ( LENGTH(heuristic_reasons) - LENGTH(REPLACE(heuristic_reasons, ',', '')) + 1 ) n_sinais
 				     FROM {$table}
 				    WHERE is_dev_traffic = 0 AND session_id <> '' AND heuristic_reasons <> ''
-				      AND recorded_at BETWEEN %s AND %s AND {$quarentena}
+				      AND recorded_at BETWEEN %s AND %s AND {$sem_crawler} AND {$quarentena}
 				 ) x GROUP BY n_sinais ORDER BY n_sinais",
 				$inicio_sql,
 				$fim_sql
@@ -1654,9 +1707,48 @@ function dsi_uisensor_render_bloco1( array $prevalencia, string $table, string $
 			$partes[] = (int) $d->total . ' com ' . (int) $d->n_sinais . ( (int) $d->n_sinais === 1 ? ' sinal' : ' sinais' );
 		}
 		echo '<p style="font-size:13px;color:#646970;line-height:1.6;margin-top:12px;">Força da evidência: dos ' . (int) $total_registros . ' registros flagrados do período, ' . esc_html( implode( ', ', $partes ) ) . '.</p>';
+		echo '<p style="font-size:13px;color:#646970;line-height:1.6;margin-top:8px;">Confiança alta (confirmado com pelo menos um sinal forte): ' . (int) $n_alta . ' de ' . (int) $n_sessoes_confirmadas . ' sessões. Sessões com 1 sinal só (' . (int) ( $prevalencia['indicios'] ?? 0 ) . ' no período) são indício e não entram na contagem de confirmados.</p>';
 	}
 
 	echo '</div>';
+}
+
+/**
+ * Seção "Crawlers que executam JavaScript": o que o sensor exclui da taxa,
+ * contado por rótulo. Mostra a exclusão em vez de escondê-la.
+ */
+function dsi_uisensor_render_crawlers( string $table, string $inicio_sql, string $fim_sql ): void {
+	global $wpdb;
+
+	$sem_crawler = dsi_uisensor_sql_sem_crawler();
+
+	$linhas = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT CASE WHEN COALESCE(user_agent,'') LIKE '%%Chrome/99.0.4844.51%%' THEN 'Chrome/99 (China, webdriver, sem rótulo)' ELSE bot_label END rotulo,
+			        COUNT(DISTINCT CASE WHEN session_id <> '' THEN session_id END) sessoes,
+			        COUNT(*) linhas
+			   FROM {$table}
+			  WHERE is_dev_traffic = 0 AND sampled = 1
+			    AND recorded_at BETWEEN %s AND %s
+			    AND NOT {$sem_crawler}
+			  GROUP BY rotulo ORDER BY linhas DESC",
+			$inicio_sql,
+			$fim_sql
+		)
+	);
+
+	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:24px;margin:16px 0;box-sizing:border-box;">';
+	echo '<h2 style="margin-top:0;margin-bottom:8px;">Crawlers que executam JavaScript</h2>';
+	echo '<p style="color:#646970;font-size:13px;line-height:1.6;margin-top:0;">Fora da taxa de automação: indexadores e ferramentas que rolam a página mas não são navegador conduzido por agente. Agentes que se autodeclaram (Manus-User, app Claude Desktop) continuam dentro.</p>';
+	if ( ! $linhas ) {
+		echo '<p style="color:#646970;">Nenhum no período.</p></div>';
+		return;
+	}
+	echo '<table class="widefat striped" style="max-width:none;"><thead><tr><th>Rótulo</th><th>Sessões</th><th>Linhas</th></tr></thead><tbody>';
+	foreach ( $linhas as $l ) {
+		printf( '<tr><td><code>%s</code></td><td>%d</td><td>%d</td></tr>', esc_html( (string) $l->rotulo ), (int) $l->sessoes, (int) $l->linhas );
+	}
+	echo '</tbody></table></div>';
 }
 
 /**
@@ -1672,7 +1764,7 @@ function dsi_uisensor_render_bloco2( array $prevalencia, string $table ): void {
 	// tabelas dos blocos 4/5 em vez de flutuar mais estreito que o resto
 	// da página.
 	echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:24px;margin:16px 0;box-sizing:border-box;">';
-	echo '<div style="font-size:13px;color:#646970;">Quantos % das visitas parecem automação?</div>';
+	echo '<div style="font-size:13px;color:#646970;">Quantos % das visitas têm automação confirmada (2+ sinais)?</div>';
 
 	if ( ! $prevalencia['confiavel'] ) {
 		$meta       = 500;
@@ -1707,12 +1799,14 @@ function dsi_uisensor_render_bloco2( array $prevalencia, string $table ): void {
 	} else {
 		printf(
 			'<div style="font-size:36px;font-weight:600;color:#1d2327;margin:12px 0;">%s</div>
-			<div style="font-size:13px;color:#646970;line-height:1.6;">IC95%% Wilson: %s–%s · %d de %d sessões sorteadas</div>',
+			<div style="font-size:13px;color:#646970;line-height:1.6;">IC95%% Wilson: %s–%s · %d confirmadas de %d sessões sorteadas</div>
+			<div style="font-size:13px;color:#646970;line-height:1.6;margin-top:6px;">Mais %d sessões com 1 sinal só (indício, fora da taxa). Crawlers declarados ficam de fora do cálculo.</div>',
 			esc_html( sprintf( '%.1f%%', $prevalencia['p'] * 100 ) ),
 			esc_html( sprintf( '%.1f%%', $prevalencia['inf'] * 100 ) ),
 			esc_html( sprintf( '%.1f%%', $prevalencia['sup'] * 100 ) ),
-			$prevalencia['flagradas'],
-			$prevalencia['amostradas']
+			$prevalencia['confirmadas'],
+			$prevalencia['amostradas'],
+			$prevalencia['indicios']
 		);
 	}
 
@@ -1771,7 +1865,8 @@ function dsi_uisensor_ritmo_sessoes_dia( string $table ): float {
 function dsi_uisensor_render_bloco3_grafico( string $table, string $inicio_sql, string $fim_sql ): void {
 	global $wpdb;
 
-	$quarentena = dsi_uisensor_sql_quarentena( $table );
+	$quarentena  = dsi_uisensor_sql_quarentena( $table );
+	$sem_crawler = dsi_uisensor_sql_sem_crawler();
 
 	$dias = $wpdb->get_results(
 		$wpdb->prepare(
@@ -1782,7 +1877,7 @@ function dsi_uisensor_render_bloco3_grafico( string $table, string $inicio_sql, 
 			        MAX(COALESCE(ruleset_version, 0)) rv_max
 			   FROM {$table}
 			  WHERE is_dev_traffic = 0 AND session_id <> ''
-			    AND recorded_at BETWEEN %s AND %s AND {$quarentena}
+			    AND recorded_at BETWEEN %s AND %s AND {$sem_crawler} AND {$quarentena}
 			  GROUP BY dia ORDER BY dia",
 			$inicio_sql,
 			$fim_sql
@@ -2093,7 +2188,7 @@ function dsi_uisensor_render_log_paginas( string $table, string $inicio_sql, str
 			esc_html( $row->url_path ),
 			esc_html( $rotulos ),
 			esc_attr( $row->user_agent ),
-			esc_html( $row->bot_label ?? '—' ),
+			esc_html( ( $row->bot_label ?? '' ) === 'desconhecido' ? 'navegador comum' : ( $row->bot_label ?? '—' ) ),
 			esc_html( (string) $rede ),
 			esc_html( $row->country ?? '—' ),
 			(int) $row->n_clicks,
@@ -2184,6 +2279,7 @@ function dsi_uisensor_admin_page(): void {
 	dsi_uisensor_render_bloco3_grafico( $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_bloco1( $prevalencia, $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_bloco2( $prevalencia, $table );
+	dsi_uisensor_render_crawlers( $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_bloco4_conteudos( $table, $inicio_sql, $fim_sql );
 	dsi_uisensor_render_bloco5_sinais( $table, $inicio_sql, $fim_sql );
 
