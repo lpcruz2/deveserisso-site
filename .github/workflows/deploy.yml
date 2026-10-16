@@ -164,7 +164,13 @@ jobs:
           state-name: .ftp-deploy-sync-state-dsi-magazine-muplugins.json
 
       - name: Purge cache
-        run: curl -s https://deveserisso.com.br/purge_ls.php
+        env:
+          PURGE_TOKEN: ${{ secrets.PURGE_TOKEN }}
+        run: |
+          # purge_ls.php exige o token no cabecalho (2026-10-16). Sem token valido ele responde 404 vazio.
+          out=$(curl -s -H "X-Purge-Token: $PURGE_TOKEN" https://deveserisso.com.br/purge_ls.php)
+          echo "$out"
+          echo "$out" | grep -qiE "purged|flushed" || { echo "::error::purge falhou (secret PURGE_TOKEN ausente ou errado?)"; exit 1; }
 
       - name: Purge Cloudflare cache
         env:
