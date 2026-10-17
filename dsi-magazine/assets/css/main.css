@@ -537,3 +537,22 @@ html body .dsi-prose .wp-block-details summary{background:#f4eee2!important;back
 @media(min-width:769px) and (max-width:1199px){.dsi-masthead__nav{gap:20px;padding-inline:32px}.dsi-masthead__nav-list{gap:20px}}
 /* Botao antes da busca (pedido do gestor): ele empurra pra direita, a busca fica colada */
 .dsi-masthead__cta{margin-left:auto}.dsi-masthead__cta+.dsi-masthead__search-wrap{margin-left:0}
+
+/* Submenu "Filmes de A a Z" (2026-09-30): dropdown por hover/foco no desktop, lista recuada no celular */
+.dsi-masthead__nav-list .menu-item-has-children{position:relative}
+.dsi-masthead__nav-list .menu-item-has-children>a::after{content:"";display:inline-block;width:5px;height:5px;margin-left:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-2px) rotate(45deg)}
+.dsi-masthead__nav-list .sub-menu{display:none;position:absolute;top:100%;left:-14px;z-index:60;grid-template-columns:repeat(4,auto);padding:10px 6px;background:#f4eee2;border:1px solid #1d1a14;box-shadow:0 8px 20px rgba(29,26,20,.14)}
+.dsi-masthead__nav-list .menu-item-has-children:hover>.sub-menu,.dsi-masthead__nav-list .menu-item-has-children:focus-within>.sub-menu{display:grid}
+.dsi-masthead__nav-list .sub-menu a{display:block;padding:6px 14px;white-space:nowrap;font-size:14px}
+.dsi-masthead__nav-list .sub-menu a:hover{background:#ebe3d2}
+.dsi-mobile-nav__list .sub-menu{display:grid;grid-template-columns:repeat(3,1fr);column-gap:8px;padding:0 0 8px 16px}
+.dsi-mobile-nav__list .sub-menu li{border-bottom:none}
+.dsi-mobile-nav__list .sub-menu a{padding:8px 0;font-size:14px;color:#6a5f4d}
+/* Com o item "Filmes de A a Z" o menu passou a quebrar em 2 linhas abaixo de ~1300px; testado em 800, 1024, 1280 e 1440 (2026-09-30) */
+@media(min-width:769px) and (max-width:1439px){.dsi-masthead__nav{padding-inline:24px;gap:16px}.dsi-masthead__nav-list{gap:14px;flex-wrap:nowrap}.dsi-masthead__nav-list .menu-item>a{font-size:13px;white-space:nowrap}.dsi-masthead__cta{padding:9px 14px;white-space:nowrap}}
+@media(min-width:769px) and (max-width:959px){.dsi-masthead__nav{padding-inline:14px;gap:8px}.dsi-masthead__nav-list{gap:8px}.dsi-masthead__nav-list .menu-item>a{font-size:12px}.dsi-masthead__cta{padding:7px 9px;font-size:9px;letter-spacing:.04em}.dsi-masthead__search-toggle{font-size:0}}
+
+/* Lighthouse mobile (2026-10-14): em post, o texto a partir do 5o bloco e as secoes finais so sao renderizados perto da viewport.
+   Mediu TBT 1600 -> 580 ms, CLS 0 na carga e na rolagem. Estimativa 'auto' guarda a altura real depois da 1a renderizacao. */
+html:not(.dsi-cv-off) body.single-post #dsi-post-content>:nth-child(n+5){content-visibility:auto;contain-intrinsic-size:auto 220px}
+html:not(.dsi-cv-off) body.single-post .dsi-related,html:not(.dsi-cv-off) body.single-post .dsi-newsletter,html:not(.dsi-cv-off) body.single-post .dsi-footer{content-visibility:auto;contain-intrinsic-size:auto 600px}
