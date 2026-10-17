@@ -7,6 +7,15 @@ RewriteCond %{REQUEST_URI} !^/\.well-known/acme-challenge/
 RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
 </IfModule>
 # END Really Simple Security Redirect
+# BEGIN Descoberta registrada (2026-10-16)
+# Arquivos de /.well-known/ passam por dsi-wk.php, que entrega o mesmo arquivo
+# e grava o acesso no painel Ferramentas -> Bots (tipo "wk"). Lista fechada;
+# para incluir outro arquivo, adicionar aqui E no array de dsi-wk.php.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^\.well-known/(poppy\.json)$ dsi-wk.php?f=$1 [L,QSA]
+</IfModule>
+# END Descoberta registrada
 # BEGIN Redirect - aprovados legado (N2, sprint 2026-08-02)
 <IfModule mod_rewrite.c>
 RewriteEngine On

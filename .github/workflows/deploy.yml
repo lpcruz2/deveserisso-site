@@ -89,6 +89,7 @@ jobs:
         run: |
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T .htaccess "ftp://45.151.121.68/.htaccess"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T purge_ls.php "ftp://45.151.121.68/purge_ls.php"
+          curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T dsi-wk.php "ftp://45.151.121.68/dsi-wk.php"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T llms.txt "ftp://45.151.121.68/llms.txt"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T robots.txt "ftp://45.151.121.68/robots.txt"
           curl --user "$FTP_USER:$FTP_PASS" -Q "CWD /" -T AGENTS.md "ftp://45.151.121.68/AGENTS.md"

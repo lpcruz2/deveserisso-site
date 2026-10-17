@@ -49,12 +49,12 @@ function dsi_agentmd_bot_from_request(): string {
 }
 
 function dsi_agentmd_tipo_label( string $tipo ): string {
-	return [ 'md' => 'Markdown', 'html' => 'Página HTML', 'mcp' => 'MCP (tool call)' ][ $tipo ] ?? $tipo;
+	return [ 'md' => 'Markdown', 'html' => 'Página HTML', 'mcp' => 'MCP (tool call)', 'wk' => 'Arquivo de descoberta' ][ $tipo ] ?? $tipo;
 }
 
 function dsi_agentmd_tipo_from_request(): string {
 	$tipo = isset( $_GET['tipo'] ) ? sanitize_text_field( wp_unslash( $_GET['tipo'] ) ) : '';
-	return in_array( $tipo, [ 'md', 'html', 'mcp' ], true ) ? $tipo : '';
+	return in_array( $tipo, [ 'md', 'html', 'mcp', 'wk' ], true ) ? $tipo : '';
 }
 
 /** '' = todos, '1' = so assinados (Web Bot Auth, RFC 9421), '0' = so nao assinados */
@@ -307,6 +307,7 @@ function dsi_agentmd_admin_page(): void {
 	printf( '<option value="md"%s>Markdown</option>', selected( $tipo, 'md', false ) );
 	printf( '<option value="html"%s>Página HTML</option>', selected( $tipo, 'html', false ) );
 	printf( '<option value="mcp"%s>MCP (tool call)</option>', selected( $tipo, 'mcp', false ) );
+	printf( '<option value="wk"%s>Arquivo de descoberta (.well-known)</option>', selected( $tipo, 'wk', false ) );
 	echo '</select></label>';
 
 	echo '<label title="Verificado via assinatura HTTP Message Signatures, RFC 9421 -- Web Bot Auth">Assinado <select name="assinado">';
