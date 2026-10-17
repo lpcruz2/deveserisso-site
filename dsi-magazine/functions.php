@@ -516,7 +516,7 @@ function dsi_nav_menu_args( string $menu_class ): ?array {
 	$base = [
 		'container'   => false,
 		'menu_class'  => $menu_class,
-		'depth'       => 1,
+		'depth'       => 2, // o filtro dsi_menu_so_submenu_az() limita o 2o nivel ao menu "Filmes de A a Z"
 		'fallback_cb' => false, // desativa o fallback nativo (geraria HTML indesejado)
 	];
 
@@ -535,6 +535,29 @@ function dsi_nav_menu_args( string $menu_class ): ?array {
 	// 3. Nenhum menu existe → template usa fallback hardcoded
 	return null;
 }
+
+// Submenu "Filmes de A a Z" (2026-09-30, pedido do gestor). O menu principal
+// tem outros itens-filhos cadastrados (ex.: sob "Filmes") que nunca foram
+// exibidos porque o tema renderizava 1 nivel so. Para nao mostrar esses de
+// repente, so os filhos de um item com a classe CSS `dsi-menu-az` (definida
+// no item pai, em Aparencia > Menus) passam. Os demais filhos continuam
+// escondidos como antes.
+add_filter( 'wp_nav_menu_objects', function ( array $itens, $args ): array {
+	$classe = isset( $args->menu_class ) ? (string) $args->menu_class : '';
+	if ( strpos( $classe, 'dsi-masthead__nav-list' ) === false && strpos( $classe, 'dsi-mobile-nav__list' ) === false ) {
+		return $itens;
+	}
+	$pais_az = [];
+	foreach ( $itens as $item ) {
+		if ( in_array( 'dsi-menu-az', (array) $item->classes, true ) ) {
+			$pais_az[ (int) $item->ID ] = true;
+		}
+	}
+	return array_values( array_filter( $itens, function ( $item ) use ( $pais_az ) {
+		$pai = (int) $item->menu_item_parent;
+		return $pai === 0 || isset( $pais_az[ $pai ] );
+	} ) );
+}, 10, 2 );
 
 // Link de documentação da API na home (2026-10-17). O scan de agent readiness
 // (orank, check public-api-docs) acha a documentação em /api, que faz 301 para
@@ -2837,7 +2860,8 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 	// campos conhecidos e um numero pequeno.
 	$estado['tentativas'] = [];
 	foreach ( (array) ( $estado_recebido['tentativas'] ?? [] ) as $campo_t => $n ) {
-		if ( in_array( $campo_t, DSI_BILHETEIRO_CAMPOS_ACEITAM_NEGATIVA, true ) ) {
+		// 'genero' entra so como contador do reengajamento (nao como campo que aceita negativa).
+		if ( in_array( $campo_t, array_merge( DSI_BILHETEIRO_CAMPOS_ACEITAM_NEGATIVA, [ 'genero' ] ), true ) ) {
 			$estado['tentativas'][ $campo_t ] = max( 0, min( 9, (int) $n ) );
 		}
 	}
@@ -3134,7 +3158,21 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		}
 	}
 
-	$perguntas_feitas++;
+	// "Tanto faz" ao genero (2026-10-12, relatorio semanal: a pergunta voltava
+	// igual 3 vezes e a pessoa desistiu). Genero continua obrigatorio (decisao
+	// de 2026-09-22), mas a 1ª recusa ganha UMA reabordagem: uma frase com o
+	// ganho pra pessoa e 4 opcoes concretas, sem gastar o orcamento de
+	// perguntas. Na 2ª recusa o limite fecha e a lista sai com aviso.
+	$reengajar_genero = $campo_perguntado_antes === 'genero'
+		&& $estado['genero'] === null
+		&& dsi_bilheteiro_eh_negativa( $mensagem )
+		&& ( $estado['tentativas']['genero'] ?? 0 ) === 0
+		&& empty( $extraido['pedido_pular'] );
+	if ( $reengajar_genero ) {
+		$estado['tentativas']['genero'] = 1;
+	} else {
+		$perguntas_feitas++;
+	}
 
 	$pedido_pular = ! empty( $extraido['pedido_pular'] );
 	// Trava de seguranca corrigida (PRD secao 3): nenhum obrigatorio pode
@@ -3238,6 +3276,15 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 		// Texto neutro: vale tanto pra "sim" quanto pra mensagem sem novidade.
 		// Pedido nao suportado junto com outra mudanca: o aviso dele vai antes da lista.
 		$aviso = $limitacao_aviso !== '' ? $limitacao_aviso : ( $nada_novo ? DSI_A2UI_AVISO_OUTRAS : '' );
+		// Genero recusado e fechado pelo limite: diz o que a lista e, em vez de so mostra-la.
+		if (
+			$aviso === '' && ! $pedido_pular
+			&& ( $estado_antes['genero'] ?? null ) === null
+			&& $estado['genero'] === DSI_BILHETEIRO_SEM_PREFERENCIA
+			&& ( $estado['tentativas']['genero'] ?? 0 ) >= 1
+		) {
+			$aviso = 'Sem um gênero definido, trouxe uma seleção variada. Se quiser afinar, é só me dizer o gênero.';
+		}
 		dsi_bilheteiro_registrar_resposta( $id_linha_log, $aviso !== '' ? $aviso . ' [mostrou as recomendações]' : '[mostrou as recomendações]' );
 		return new WP_REST_Response( [
 			'estado'                       => $estado,
@@ -3270,7 +3317,10 @@ function dsi_bilheteiro_chat( WP_REST_Request $req ): WP_REST_Response {
 			$lista
 		);
 	}
-	if ( $limitacao_aviso !== '' ) {
+	if ( $reengajar_genero && $limitacao_aviso === '' ) {
+		$proxima_pergunta = 'Com o gênero eu acerto bem mais no que indicar. Qual destes combina com hoje: comédia, drama, ação ou suspense?';
+		$sugestoes_genero = [ 'Comédia', 'Drama', 'Ação', 'Suspense' ];
+	} elseif ( $limitacao_aviso !== '' ) {
 		// Sem a frase de reconhecimento da IA: "ótima escolha!" depois de um
 		// pedido que nao sera atendido foi o achado do relatorio de 2026-10-08.
 		$proxima_pergunta = $limitacao_aviso . ' ' . $proxima_pergunta;
@@ -3595,6 +3645,30 @@ function dsi_bilheteiro_conversa_filme( WP_REST_Request $req ): WP_REST_Response
 	}
 	$ficha   = dsi_parse_dados_tecnicos( $raw );
 	$critica = wp_strip_all_tags( strip_shortcodes( $post->post_content ) );
+	$motivo  = 'conversa_filme:' . $post->ID;
+
+	// "Onde assistir?" (2026-10-12): a resposta vem do TMDB, como no fluxo de
+	// recomendacao, e nao do modelo (que e proibido de citar plataforma). Medido
+	// na semana de 6 a 12/10: na pagina de Sai de Baixo, o Curador disse que nao
+	// podia afirmar a plataforma.
+	if ( dsi_onde_assistir_pergunta_pede( $pergunta ) ) {
+		$titulo_obra = trim( (string) ( $ficha['titulo'] ?? '' ) ) ?: get_the_title( $post );
+		$item        = [
+			'titulo'         => $titulo_obra,
+			'tem_critica'    => true,
+			'link'           => get_permalink( $post ),
+			'ano_lancamento' => (int) ( $ficha['ano'] ?? 0 ),
+		];
+		$obra     = dsi_onde_assistir_resolver( $item );
+		$br       = $obra ? dsi_onde_assistir_provedores( $obra['id'], $obra['tipo'] ) : null;
+		$resposta = dsi_onde_assistir_texto( $titulo_obra, $br, dsi_onde_assistir_sem_assinatura( $pergunta ) );
+		dsi_bilheteiro_registrar_pergunta( $sessao_id, $pergunta, $resposta, $motivo . ':onde_assistir' );
+		return new WP_REST_Response( [
+			'resposta'          => $resposta,
+			'cartao'            => null,
+			'quer_recomendacao' => false,
+		] );
+	}
 
 	$mensagens = array_merge(
 		[ [ 'role' => 'system', 'content' => DSI_BILHETEIRO_CONVERSA_FILME_INSTRUCAO . "\n\nTítulo da página:\n" . dsi_bilheteiro_conversa_filme_contexto( $ficha, $critica ) ] ],
@@ -3623,7 +3697,6 @@ function dsi_bilheteiro_conversa_filme( WP_REST_Request $req ): WP_REST_Response
 			}
 		}
 	}
-	$motivo = 'conversa_filme:' . $post->ID;
 	if ( $texto === '' ) {
 		dsi_bilheteiro_registrar_pergunta( $sessao_id, $pergunta, null, $motivo . ':erro' );
 		return new WP_REST_Response( [ 'erro' => 'Não consegui responder isso agora, pode tentar de novo?' ], 502 );
@@ -6036,17 +6109,9 @@ add_action( 'init', function (): void {
 // data-dsi-delay="1"`, trocado por um `<script>` real no `wp_footer` só
 // depois do evento `load` + idle) -- agora aplicado direto no snippet oficial
 // do Google, sem precisar interceptar saída de plugin nenhum.
-add_action( 'wp_head', function (): void {
-	?>
-	<script async src="https://www.googletagmanager.com/gtag/js?id=G-57L645JCXT" type="text/plain" data-dsi-delay="1"></script>
-	<script type="text/plain" data-dsi-delay="1">
-	window.dataLayer = window.dataLayer || [];
-	function gtag(){ dataLayer.push(arguments); }
-	gtag('js', new Date());
-	gtag('config', 'G-57L645JCXT');
-	</script>
-	<?php
-} );
+// 2026-10-15: o GA4 (G-57L645JCXT) passou a ser enviado pelo Cloudflare Zaraz (servidor),
+// sem gtag.js no navegador. O bloco que imprimia o gtag.js foi removido daqui; o carregador
+// de scripts adiados no wp_footer logo abaixo continua (nao ha mais script adiado no head).
 
 add_action( 'wp_footer', function (): void {
 	?>
@@ -6153,3 +6218,19 @@ function dsi_mcp_uso_widget(): void {
 add_action( 'wp_head', function (): void {
 	echo '<meta name="is-agentic-site-type" content="content">' . "\n";
 }, 1 );
+
+
+// Ancora x content-visibility (2026-10-14). O main.css renderiza so perto da
+// viewport o texto do post a partir do 5o bloco (baixa o TBT no Lighthouse).
+// Em salto por ancora (sumario, link com #hash) as alturas estimadas dos
+// blocos pulados fazem o scroll cair fora do alvo; entao, havendo ancora, a
+// classe dsi-cv-off desliga o recurso antes do salto (ver main.css).
+add_action( 'wp_head', function (): void {
+	if ( ! is_singular( 'post' ) ) {
+		return;
+	}
+	echo '<script>(function(){var d=document.documentElement;function o(){d.classList.add("dsi-cv-off")}'
+		. 'if(location.hash.length>1)o();'
+		. 'document.addEventListener("click",function(e){var a=e.target.closest&&e.target.closest("a[href^=\'#\']");if(a&&a.getAttribute("href").length>1)o()},true);'
+		. 'window.addEventListener("hashchange",o)})();</script>' . "\n";
+}, 2 );
