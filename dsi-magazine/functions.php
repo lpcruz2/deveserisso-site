@@ -536,6 +536,20 @@ function dsi_nav_menu_args( string $menu_class ): ?array {
 	return null;
 }
 
+// Link de documentação da API na home (2026-10-17). O scan de agent readiness
+// (orank, check public-api-docs) acha a documentação em /api, que faz 301 para
+// /desenvolvedores/, e só conta como "linkada da home" um link para /api.
+// O item de menu "Desenvolvedores" passa a apontar para /api (continua
+// chegando na mesma página; o texto do link não muda).
+add_filter( 'wp_nav_menu_objects', function ( array $itens ): array {
+	foreach ( $itens as $item ) {
+		if ( untrailingslashit( (string) wp_parse_url( (string) $item->url, PHP_URL_PATH ) ) === '/desenvolvedores' ) {
+			$item->url = home_url( '/api' );
+		}
+	}
+	return $itens;
+}, 20 );
+
 // =============================================================================
 // 17b. BOTÃO DO CURADOR NO MENU (2026-09-28, pedido do gestor)
 // =============================================================================
