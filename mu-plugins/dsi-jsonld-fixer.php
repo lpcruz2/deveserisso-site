@@ -23,9 +23,10 @@ function dsi_jfix_start(): void {
 function dsi_jfix_end(): void {
 	$html = ob_get_clean();
 
-	// Captura todos os blocos <script type="application/ld+json">
-	$pattern = '@<script\b[^>]*\btype=["\']application/ld\+json["\'][^>]*>(.*?)</script>@si';
-	preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER );
+	// Captura todos os blocos <script type="application/ld+json"> (sem regex no bloco inteiro:
+	// o ItemList de "melhores animes" passa de 1 MB e estourava o PCRE, saindo sem correção).
+	$spans   = dsi_jfix_find_blocks( $html );
+	$matches = array_map( fn( $b ) => [ substr( $html, $b[0], $b[1] - $b[0] ), substr( $html, $b[2], $b[3] - $b[2] ) ], $spans );
 
 	if ( empty( $matches ) ) {
 		echo $html;
@@ -196,7 +197,13 @@ function dsi_jfix_end(): void {
 	// não o HTML completo. O </head> está fora desse buffer (no header.php).
 	// Portanto: removemos os blocos do buffer e emitimos os corrigidos
 	// diretamente como parte do wp_head — eles aparecerão dentro do <head>.
-	$clean = preg_replace( $pattern, '', $html );
+	$clean = '';
+	$pos   = 0;
+	foreach ( $spans as $b ) {
+		$clean .= substr( $html, $pos, $b[0] - $pos );
+		$pos    = $b[1];
+	}
+	$clean .= substr( $html, $pos );
 	echo $clean;
 
 	// ── 5. Emitir JSON-LD corrigido ──────────────────────────────────────
@@ -205,6 +212,31 @@ function dsi_jfix_end(): void {
 			. wp_json_encode( $node, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT )
 			. "\n</script>\n";
 	}
+}
+
+/**
+ * Localiza os <script type="application/ld+json"> por busca de texto.
+ * Devolve [ início do bloco, fim do bloco, início do JSON, fim do JSON ] de cada um.
+ */
+function dsi_jfix_find_blocks( string $html ): array {
+	$spans = [];
+	$pos   = 0;
+	while ( ( $a = stripos( $html, '<script', $pos ) ) !== false ) {
+		$gt = strpos( $html, '>', $a );
+		if ( $gt === false ) {
+			break;
+		}
+		$end = stripos( $html, '</script>', $gt );
+		if ( $end === false ) {
+			break;
+		}
+		$tag = substr( $html, $a, $gt - $a + 1 );
+		if ( preg_match( '@\btype=["\']application/ld\+json["\']@i', $tag ) ) {
+			$spans[] = [ $a, $end + 9, $gt + 1, $end ];
+		}
+		$pos = $end + 9;
+	}
+	return $spans;
 }
 
 // =============================================================================
@@ -235,10 +267,19 @@ function dsi_jfix_is_third_party_video( array $node ): bool {
 /** Reduz o VideoObject ao que é verdade sobre o trailer (sem data/autor/transcript do post). */
 function dsi_jfix_trailer_from_video( array $video, string $titulo ): array {
 	$trailer = [
-		'@type'    => 'VideoObject',
-		'name'     => $titulo !== '' ? 'Trailer: ' . $titulo : 'Trailer',
-		'embedUrl' => $video['embedUrl'],
+		'@type'       => 'VideoObject',
+		'name'        => $titulo !== '' ? 'Trailer: ' . $titulo : 'Trailer',
+		'embedUrl'    => $video['embedUrl'],
+		'description' => $titulo !== '' ? 'Trailer oficial de ' . $titulo . '.' : 'Trailer oficial.',
 	];
+	// uploadDate é obrigatório no Google (Vídeos). Usa o do nó original; sem ele, a data do post (aproximação).
+	$upload = (string) ( $video['uploadDate'] ?? '' );
+	if ( $upload === '' && function_exists( 'get_the_date' ) ) {
+		$upload = (string) get_the_date( 'c' );
+	}
+	if ( $upload !== '' ) {
+		$trailer['uploadDate'] = $upload;
+	}
 	if ( ! empty( $video['thumbnailUrl'] ) ) {
 		$trailer['thumbnailUrl'] = $video['thumbnailUrl'];
 	}
@@ -266,6 +307,20 @@ function dsi_jfix_move_trailers( array $all_nodes ): array {
 	return array_values( $all_nodes );
 }
 
+/** Data ISO 8601 com fuso (usa o do site quando falta); '' se não for data válida. */
+function dsi_jfix_iso_date( string $v ): string {
+	$v = trim( $v );
+	if ( $v === '' ) {
+		return '';
+	}
+	try {
+		$d = new DateTimeImmutable( $v, wp_timezone() );
+	} catch ( Exception $e ) {
+		return '';
+	}
+	return $d->format( 'c' );
+}
+
 /** VideoObject: remove headline inválido, corrige embedUrl, remove contentUrl de watch */
 function dsi_jfix_video( array $node ): array {
 	unset( $node['headline'] );
@@ -276,6 +331,23 @@ function dsi_jfix_video( array $node ): array {
 			'youtube.com/embed/$1',
 			$node['embedUrl']
 		);
+	}
+
+	// uploadDate precisa ser ISO 8601 com fuso; só data ("2024-09-01") ou valor inválido falha no Google.
+	if ( isset( $node['uploadDate'] ) ) {
+		$up = dsi_jfix_iso_date( (string) $node['uploadDate'] );
+		if ( $up === '' ) {
+			unset( $node['uploadDate'] );
+		} else {
+			$node['uploadDate'] = $up;
+		}
+	}
+
+	// Sem embedUrl, a URL de watch do YouTube vira embedUrl (contentUrl é só para arquivo de vídeo).
+	if ( ! isset( $node['embedUrl'] ) && isset( $node['contentUrl'] )
+		&& preg_match( '@youtube\.com/watch\?v=([a-zA-Z0-9_-]+)@i', (string) $node['contentUrl'], $yt ) ) {
+		$node['embedUrl'] = 'https://www.youtube.com/embed/' . $yt[1];
+		unset( $node['contentUrl'] );
 	}
 
 	// contentUrl deve ser URL direta do arquivo de vídeo.
