@@ -175,6 +175,9 @@ $related = new WP_Query( [
 
 </main>
 
+<!-- Filmes parecidos + "Não gostei de nenhum" (só post com ficha técnica) -->
+<?php get_template_part( 'template-parts/filmes-parecidos' ); ?>
+
 <!-- Comentários — antes dos relacionados -->
 <?php comments_template(); ?>
 

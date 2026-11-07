@@ -949,6 +949,18 @@
 			comecarRecomendacao( pagina.titulo );
 		}
 
+		// "Nao gostei de nenhum" (bloco de parecidos no fim da critica, 2026-11-07):
+		// abre o chat e pede outras sugestoes a partir do filme da pagina, sem
+		// repetir os cartoes que a pessoa acabou de ver.
+		window.dsiBhOutrasSugestoes = function ( mostrados ) {
+			if ( ! pagina ) return;
+			abrir();
+			track( 'widget_pagina_escolha', { escolha: 'nao_gostei_de_nenhum', filme_id: pagina.post_id, sessao_id: sessaoId } );
+			escolhaPaginaId = pagina.post_id;
+			excluirFilmes   = ( mostrados || [] ).slice();
+			comecarRecomendacao( pagina.titulo );
+		};
+
 		// Sai da conversa e abre o fluxo de recomendacao com o titulo da pagina
 		// como referencia (estado.q), entao o Curador nao pergunta de novo.
 		function comecarRecomendacao( tituloRef, jaAvisou ) {
