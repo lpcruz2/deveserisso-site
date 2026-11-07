@@ -405,7 +405,7 @@
 		raiz.className = 'dsi-bh-widget' + ( modoLP ? ' dsi-bh-widget--lp' : '' );
 		raiz.innerHTML =
 			'<button class="dsi-bh-bolha" type="button" aria-expanded="false">' +
-				'<span class="dsi-bh-bolha-emoji" aria-hidden="true">🎬</span> O que assistir hoje?' +
+				'<span class="dsi-bh-bolha-emoji" aria-hidden="true">🎬</span> Sem ideia do que ver?' +
 			'</button>' +
 			'<div class="dsi-bh-painel">' +
 				'<div class="dsi-bh-cabecalho">' +
