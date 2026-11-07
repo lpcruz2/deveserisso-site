@@ -1,7 +1,7 @@
 <?php
 /**
- * Botão "Sem ideia do que ver?" dentro das listas (post sem ficha técnica com 6+ seções h2),
- * antes da 4ª seção e no fim do texto. Leva ao Curador (LP). Cliques entram no evento
+ * Botão "Sem ideia do que ver?" dentro das listas (post sem ficha técnica com 6+ itens numerados ("1.", "2."...)),
+ * antes do 4º item e no fim do texto. Leva ao Curador (LP). Cliques entram no evento
  * menu_curador_clicado (posicao = lista_meio / lista_fim), o mesmo do botão do cabeçalho.
  * 2026-11-07, texto escolhido pelo gestor.
  */
@@ -12,7 +12,7 @@ add_filter( 'the_content', function ( string $html ): string {
 	if ( (string) get_post_meta( get_the_ID(), '_dsi_dados_tecnicos_raw', true ) !== '' ) {
 		return $html;
 	}
-	if ( preg_match_all( '/<h2[\s>]/i', $html, $m, PREG_OFFSET_CAPTURE ) < 6 ) {
+	if ( preg_match_all( '/<p[^>]*>\s*<b[^>]*>\s*\d+\.\s*<\/b>/i', $html, $m, PREG_OFFSET_CAPTURE ) < 6 ) {
 		return $html;
 	}
 	$url   = esc_url( home_url( '/filme-serie-bom-assistir-hoje/' ) );
