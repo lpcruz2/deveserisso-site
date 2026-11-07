@@ -6023,6 +6023,11 @@ add_filter( 'request', function ( array $query_vars ): array {
 	}
 	$slug = sanitize_title( $slug );
 	$post = get_page_by_path( $slug, OBJECT, 'post' );
+	// 2026-11-08: teste encerrado (meta = 'revertido'). /filmes/slug/ passa a 301 pra URL flat.
+	if ( $post && 'revertido' === get_post_meta( $post->ID, '_dsi_teste_url_filmes', true ) ) {
+		wp_safe_redirect( get_permalink( $post ), 301 );
+		exit;
+	}
 	if ( $post && '1' === get_post_meta( $post->ID, '_dsi_teste_url_filmes', true ) ) {
 		return [ 'p' => $post->ID, 'post_type' => 'post' ];
 	}
@@ -6037,8 +6042,8 @@ add_filter( 'request', function ( array $query_vars ): array {
 		'meta_value'  => $slug,
 		'numberposts' => 1,
 	] );
-	if ( $antigo && '1' === get_post_meta( $antigo[0]->ID, '_dsi_teste_url_filmes', true ) ) {
-		wp_safe_redirect( home_url( '/filmes/' . $antigo[0]->post_name . '/' ), 301 );
+	if ( $antigo && in_array( get_post_meta( $antigo[0]->ID, '_dsi_teste_url_filmes', true ), [ '1', 'revertido' ], true ) ) {
+		wp_safe_redirect( get_permalink( $antigo[0] ), 301 );
 		exit;
 	}
 	// slug nao existe ou nao esta no grupo controle -- 404 real, nao expor
