@@ -12,6 +12,8 @@ if ( ! have_posts() ) {
 
 the_post();
 
+require_once get_theme_file_path( 'template-parts/cta-lista.php' ); // botão "Sem ideia do que ver?" nas listas
+
 $post_id     = get_the_ID();
 $author_id   = get_the_author_meta( 'ID' );
 $category    = dsi_primary_category();

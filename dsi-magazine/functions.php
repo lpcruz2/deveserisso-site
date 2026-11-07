@@ -586,7 +586,7 @@ add_filter( 'wp_nav_menu_objects', function ( array $itens ): array {
 function dsi_masthead_cta( string $onde ): string {
 	$url    = home_url( '/filme-serie-bom-assistir-hoje/' );
 	$classe = $onde === 'mobile' ? 'dsi-mobile-nav__cta' : 'dsi-masthead__cta';
-	$html   = '<a href="' . esc_url( $url ) . '" class="' . $classe . '" data-dsi-cta="' . esc_attr( $onde ) . '">O que assistir hoje?</a>';
+	$html   = '<a href="' . esc_url( $url ) . '" class="' . $classe . '" data-dsi-cta="' . esc_attr( $onde ) . '">Sem ideia do que ver?</a>';
 	static $script_impresso = false;
 	if ( ! $script_impresso ) {
 		$script_impresso = true;
@@ -5806,7 +5806,7 @@ add_action( 'wp_enqueue_scripts', function (): void {
 		// mexeram no JS sem bumpar aqui -- botao de expandir, nota,
 		// exclusao de sem_resenha etc nunca chegaram em quem ja tinha
 		// visitado o site antes.)
-		'1.12.6',
+		'1.12.7',
 		true
 	);
 	// Pagina de filme/serie com ficha tecnica (2026-10-06): o widget oferece
