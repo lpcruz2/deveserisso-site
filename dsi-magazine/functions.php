@@ -584,6 +584,8 @@ add_filter( 'wp_nav_menu_objects', function ( array $itens ): array {
 // masthead-search.php), no desktop e no menu do celular. Clique vira evento
 // GA4 menu_curador_clicado (dataLayer), no mesmo padrao dos eventos do widget.
 function dsi_masthead_cta( string $onde ): string {
+	// Removido do cabecalho a pedido do gestor (2026-11-07): o Curador segue na bolha flutuante e nas listas.
+	return '';
 	$url    = home_url( '/filme-serie-bom-assistir-hoje/' );
 	$classe = $onde === 'mobile' ? 'dsi-mobile-nav__cta' : 'dsi-masthead__cta';
 	$html   = '<a href="' . esc_url( $url ) . '" class="' . $classe . '" data-dsi-cta="' . esc_attr( $onde ) . '">Sem ideia do que ver?</a>';
@@ -611,8 +613,6 @@ function dsi_render_comment( WP_Comment $comment, array $args, int $depth ): voi
 
     // Iniciais fallback
     $name     = get_comment_author( $comment );
-	// Removido do cabecalho a pedido do gestor (2026-11-07): o Curador segue na bolha flutuante e nas listas.
-	return '';
     $parts    = explode( ' ', $name, 2 );
     $initials = strtoupper( mb_substr( $parts[0], 0, 1 ) ) . ( isset( $parts[1] ) ? strtoupper( mb_substr( $parts[1], 0, 1 ) ) : '' );
 
