@@ -1529,7 +1529,9 @@ add_action( 'save_post', function ( int $post_id ): void {
 	$items = array_map( function ( array $p ): array {
 		return [
 			'question' => $p['question'],
-			'answer'   => mb_substr( implode( ' ', $p['answer_paragraphs'] ), 0, 600 ),
+			'answer'   => mb_substr( implode( ' ', array_map( function ( $para ) {
+				return is_array( $para ) ? implode( ', ', $para['list'] ) : $para;
+			}, $p['answer_paragraphs'] ) ), 0, 600 ),
 		];
 	}, $pairs );
 	update_post_meta( $post_id, '_dsi_faq_active', '1' );
@@ -1549,13 +1551,32 @@ function dsi_parse_faq( string $raw ): array {
 	$question   = null;
 	$paragraphs = [];
 	$buffer     = [];
+	$list       = [];
+
+	// Fecha o texto corrido e a lista numerada em andamento, na ordem em que apareceram.
+	$flush = function () use ( &$paragraphs, &$buffer, &$list ): void {
+		if ( $buffer ) {
+			$paragraphs[] = implode( ' ', $buffer );
+			$buffer = [];
+		}
+		if ( $list ) {
+			$paragraphs[] = [ 'list' => $list ];
+			$list = [];
+		}
+	};
 
 	foreach ( $lines as $line ) {
-		if ( $line !== '' && substr( $line, -1 ) === '?' ) {
+		// Item de lista numerada ("1. Filme"): vem antes da checagem de "?" porque título de filme pode terminar em "?".
+		if ( $question !== null && preg_match( '/^\d+[.)]\s+(.+)$/u', $line, $m ) ) {
 			if ( $buffer ) {
 				$paragraphs[] = implode( ' ', $buffer );
 				$buffer = [];
 			}
+			$list[] = $m[1];
+			continue;
+		}
+		if ( $line !== '' && substr( $line, -1 ) === '?' ) {
+			$flush();
 			if ( $question !== null && $paragraphs ) {
 				$pairs[] = [ 'question' => $question, 'answer_paragraphs' => $paragraphs ];
 			}
@@ -1567,17 +1588,16 @@ function dsi_parse_faq( string $raw ): array {
 			continue;
 		}
 		if ( $line === '' ) {
-			if ( $buffer ) {
-				$paragraphs[] = implode( ' ', $buffer );
-				$buffer = [];
-			}
+			$flush();
 			continue;
+		}
+		if ( $list ) { // texto depois da lista fecha a lista
+			$paragraphs[] = [ 'list' => $list ];
+			$list = [];
 		}
 		$buffer[] = $line;
 	}
-	if ( $buffer ) {
-		$paragraphs[] = implode( ' ', $buffer );
-	}
+	$flush();
 	if ( $question !== null && $paragraphs ) {
 		$pairs[] = [ 'question' => $question, 'answer_paragraphs' => $paragraphs ];
 	}
@@ -1599,6 +1619,12 @@ function dsi_render_faq_box( int $post_id ): string {
 	foreach ( $pairs as $p ) {
 		$answer_html = '';
 		foreach ( $p['answer_paragraphs'] as $para ) {
+			if ( is_array( $para ) ) {
+				$answer_html .= '<ol>' . implode( '', array_map( function ( $item ) {
+					return '<li>' . esc_html( $item ) . '</li>';
+				}, $para['list'] ) ) . '</ol>';
+				continue;
+			}
 			$answer_html .= '<p>' . esc_html( $para ) . '</p>';
 		}
 		$items .= '<details name="dsi-faq-' . $post_id . '">'
