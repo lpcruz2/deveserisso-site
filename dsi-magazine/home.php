@@ -1,132 +1,111 @@
 <?php
 /**
- * home.php — Template da homepage (blog posts index)
- * Seções: Frontispiece → HeroSplit → Tricolumn → PullQuote → TVAndCategories → MoreReading → Newsletter
+ * home.php — Template da homepage (layout de portal, inspirado na home do UOL)
+ * Seções: Manchete + subchamadas + lateral → Grade densa → Frase da semana → Programação de TV + Explorar por tema → Faixas por categoria → Newsletter
+ * Classes novas com prefixo dsi-portal-*; as antigas (dsi-hero, dsi-tricolumn, dsi-more…) seguem no CSS por segurança.
  */
 
 get_header();
 
-// Query principal (primeiro post para o hero)
-$hero_post = null;
-$three_posts = [];
-$more_posts = [];
+/** Card de grade: imagem 4:3, rótulo de categoria e título em negrito. */
+if ( ! function_exists( 'dsi_portal_card' ) ) :
+function dsi_portal_card( WP_Post $p, bool $eager = false ): void {
+    $thumb = get_the_post_thumbnail( $p->ID, 'dsi-wide-sm', [
+        'class'   => 'dsi-portal-card__img',
+        'loading' => $eager ? 'eager' : 'lazy',
+        'sizes'   => '(max-width:768px) 50vw, 240px',
+    ] );
+    ?>
+    <article class="dsi-portal-card">
+        <a class="dsi-portal-card__link" href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>">
+            <span class="dsi-portal-card__frame">
+                <?php echo $thumb ?: '<span class="dsi-portal-card__fallback" aria-hidden="true"></span>'; ?>
+            </span>
+            <span class="dsi-portal-card__tag"><?php echo esc_html( dsi_primary_category( $p->ID ) ); ?></span>
+            <h3 class="dsi-portal-card__title"><?php echo esc_html( get_the_title( $p->ID ) ); ?></h3>
+        </a>
+    </article>
+    <?php
+}
+endif;
 
 $recent = new WP_Query( [
-    'posts_per_page' => 22,
-    'post_status'    => 'publish',
-    'orderby'        => 'modified',
+    'posts_per_page'         => 70,
+    'post_status'            => 'publish',
+    'orderby'                => 'modified',
+    'no_found_rows'          => true,
+    'ignore_sticky_posts'    => true,
 ] );
 
-if ( $recent->have_posts() ) {
-    $all = $recent->posts;
-    $hero_post   = $all[0] ?? null;
-    $three_posts = array_slice( $all, 1, 3 );
-    $more_posts  = array_slice( $all, 4, 8 );
-    $extra_posts = array_slice( $all, 12, 6 );
-}
+// Fora do feed da home: páginas de filmes por letra (Stop/Adedonha) e a de mímica; elas têm lugar próprio no menu
+$dsi_no_feed = static function ( $p ) {
+    return ! preg_match( '/^(filmes?-com-(a-)?letra|filme-com-[a-z]-|filmes-para-brincar-de-mimica)/', $p->post_name );
+};
+$all = array_values( array_filter( $recent->have_posts() ? $recent->posts : [], $dsi_no_feed ) );
+$lead_post  = $all[0] ?? null;
+$sub_posts  = array_slice( $all, 1, 5 );   // 5 subchamadas ao lado da manchete
+$grid_posts = array_slice( $all, 6, 16 );  // grade densa
+$more_posts = array_slice( $all, 22, 16 ); // "Mais filmes e séries", abaixo da programação de TV
+$used_ids   = wp_list_pluck( array_merge( $lead_post ? [ $lead_post ] : [], $sub_posts, $grid_posts, $more_posts ), 'ID' ); // só o que já aparece na home
 wp_reset_postdata();
+
+// Faixas por categoria: slugs na option `dsi_home_faixas` (padrão: as categorias com mais conteúdo). Só renderiza faixa com 4 posts.
+$band_cats = [];
+foreach ( (array) get_option( 'dsi_home_faixas', [ 'filmes', 'series', 'animes-e-manga', 'livros' ] ) as $band_slug ) {
+    $t = get_category_by_slug( $band_slug );
+    if ( $t && $t->count > 0 ) $band_cats[] = $t;
+}
 ?>
 
-<main id="main-content">
+<main id="main-content" class="dsi-portal">
 
-<!-- ===== HERO SPLIT ===== -->
-<?php if ( $hero_post ) :
-    setup_postdata( $hero_post );
-    $hero_thumb = get_the_post_thumbnail( $hero_post->ID, 'dsi-poster', [ 'class' => 'dsi-hero__img', 'loading' => 'eager', 'fetchpriority' => 'high', 'decoding' => 'sync' ] );
-    $hero_author_initials = dsi_author_initials( $hero_post->post_author );
+<!-- ===== MANCHETE + SUBCHAMADAS + LATERAL ===== -->
+<?php if ( $lead_post ) :
+    $lead_thumb = get_the_post_thumbnail( $lead_post->ID, 'dsi-wide', [
+        'class'         => 'dsi-portal-lead__img',
+        'loading'       => 'eager',
+        'fetchpriority' => 'high',
+        'decoding'      => 'async',
+        'sizes'         => '(max-width:768px) 100vw, 640px',
+    ] );
 ?>
-<section class="dsi-hero" aria-label="Ensaio principal">
-    <div class="dsi-hero__text">
-        <div class="dsi-hero__badge">
-            <a href="<?php echo esc_url( dsi_primary_category_url( $hero_post->ID ) ); ?>">
-                <?php echo esc_html( dsi_primary_category( $hero_post->ID ) ); ?>
+<section class="dsi-portal-top" aria-label="Destaques">
+    <div class="dsi-portal-top__main">
+        <article class="dsi-portal-lead">
+            <a class="dsi-portal-lead__link" href="<?php echo esc_url( get_permalink( $lead_post->ID ) ); ?>">
+                <span class="dsi-portal-lead__frame">
+                    <?php echo $lead_thumb ?: '<span class="dsi-portal-card__fallback" aria-hidden="true"></span>'; ?>
+                </span>
+                <span class="dsi-portal-tag"><?php echo esc_html( dsi_primary_category( $lead_post->ID ) ); ?></span>
+                <h2 class="dsi-portal-lead__title"><?php echo esc_html( get_the_title( $lead_post->ID ) ); ?></h2>
+                <p class="dsi-portal-lead__excerpt"><?php echo dsi_excerpt( 160, $lead_post->ID ); ?></p>
             </a>
-        </div>
-        <a href="<?php echo esc_url( get_permalink( $hero_post->ID ) ); ?>" class="dsi-hero__content-link">
-            <h2 class="dsi-hero__title">
-                <?php echo esc_html( get_the_title( $hero_post->ID ) ); ?>
-            </h2>
-            <p class="dsi-hero__excerpt">
-                <?php echo get_the_excerpt( $hero_post->ID ); ?>
-            </p>
-        </a>
-        <div class="dsi-hero__byline">
-            <div class="dsi-hero__avatar" aria-hidden="true"><?php echo esc_html( $hero_author_initials ); ?></div>
-            <div>
-                <p class="dsi-hero__author"><?php echo esc_html( get_the_author_meta( 'display_name', $hero_post->post_author ) ); ?></p>
-                <p class="dsi-hero__meta">
-                    <?php echo get_the_date( 'j M Y', $hero_post->ID ); ?> ·
-                    <?php echo esc_html( dsi_read_time( $hero_post->ID ) ); ?>
-                </p>
-            </div>
-        </div>
-    </div>
-    <div class="dsi-hero__poster">
-        <a href="<?php echo esc_url( get_permalink( $hero_post->ID ) ); ?>" tabindex="-1" aria-hidden="true">
-        <div class="dsi-hero__poster-frame">
-            <?php if ( $hero_thumb ) : ?>
-                <?php
-                // Extract image URL from hero_thumb and add srcset
-                preg_match( '/src="([^"]+)"/', $hero_thumb, $matches );
-                $hero_img_url = $matches[1] ?? '';
+        </article>
 
-                if ( $hero_img_url ) {
-                    // Removido srcset manual que tentava criar versões não-regeneradas
-                    // O WordPress srcset do get_the_post_thumbnail já é suficiente
-                    $hero_thumb = str_replace( 'decoding="sync"', 'decoding="async"', $hero_thumb );
-                }
-                ?>
-                <?php echo $hero_thumb; ?>
-            <?php else : ?>
-                <div class="dsi-hero__poster-fallback" aria-hidden="true"></div>
-            <?php endif; ?>
-        </div>
-        </a>
-        <p class="dsi-hero__poster-caption" aria-hidden="true">
-            ↑ Imagem de destaque · <?php echo esc_html( get_the_title( $hero_post->ID ) ); ?>
-        </p>
+        <?php if ( $sub_posts ) : ?>
+        <ul class="dsi-portal-subs">
+            <?php foreach ( $sub_posts as $p ) : ?>
+                <li class="dsi-portal-subs__item">
+                    <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>">
+                        <span class="dsi-portal-subs__tag"><?php echo esc_html( dsi_primary_category( $p->ID ) ); ?></span>
+                        <span class="dsi-portal-subs__title"><?php echo esc_html( get_the_title( $p->ID ) ); ?></span>
+                    </a>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+        <?php endif; ?>
     </div>
+
+    <?php get_template_part( 'template-parts/home-sidebar' ); ?>
 </section>
-<?php wp_reset_postdata(); endif; ?>
+<?php endif; ?>
 
-<!-- ===== TRICOLUMN — Esta semana ===== -->
-<?php if ( count( $three_posts ) >= 1 ) : ?>
-<section class="dsi-tricolumn">
-    <div class="dsi-section-head">
-        <h2 class="dsi-tricolumn__heading">Esta semana</h2>
-        <span class="dsi-rule"></span>
-        <span class="dsi-tricolumn__label">Três leituras essenciais</span>
-    </div>
-    <div class="dsi-tricolumn__grid">
-        <?php foreach ( $three_posts as $i => $p ) :
-            $thumb   = get_the_post_thumbnail( $p->ID, 'dsi-wide', [ 'class' => 'dsi-tricolumn__img', 'width' => '768', 'height' => '512', 'loading' => 'lazy' ] );
-            $initials = dsi_author_initials( $p->post_author );
-        ?>
-            <article class="dsi-tricolumn__item<?php echo $i > 0 ? ' dsi-tricolumn__item--ruled' : ''; ?>">
-                <p class="dsi-tricolumn__num">
-                    <a href="<?php echo esc_url( dsi_primary_category_url( $p->ID ) ); ?>"><?php echo esc_html( dsi_primary_category( $p->ID ) ); ?></a>
-                </p>
-                <?php if ( $thumb ) : ?>
-                    <div class="dsi-tricolumn__frame">
-                        <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>" tabindex="-1" aria-hidden="true">
-                            <?php
-                            // Removido srcset manual que tentava criar versões não-regeneradas (mesmo bug do hero, acima)
-                            // O WordPress srcset do get_the_post_thumbnail já é suficiente
-                            echo $thumb;
-                            ?>
-                        </a>
-                    </div>
-                <?php endif; ?>
-                <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>" class="dsi-tricolumn__content-link">
-                    <h3 class="dsi-tricolumn__title"><?php echo esc_html( get_the_title( $p->ID ) ); ?></h3>
-                    <p class="dsi-tricolumn__excerpt"><?php echo dsi_excerpt( 140, $p->ID ); ?></p>
-                </a>
-                <p class="dsi-tricolumn__meta">
-                    <?php echo esc_html( get_the_author_meta( 'display_name', $p->post_author ) ); ?> ·
-                    <?php echo esc_html( dsi_read_time( $p->ID ) ); ?>
-                </p>
-            </article>
-        <?php endforeach; ?>
+<!-- ===== GRADE DENSA ===== -->
+<?php if ( $grid_posts ) : ?>
+<section class="dsi-portal-grid-sec" aria-label="Últimas do site">
+    <h2 class="dsi-portal-head"><span>Últimas do site</span></h2>
+    <div class="dsi-portal-grid">
+        <?php foreach ( $grid_posts as $p ) dsi_portal_card( $p ); ?>
     </div>
 </section>
 <?php endif; ?>
@@ -232,81 +211,41 @@ wp_reset_postdata();
     </div>
 </section>
 
-<!-- ===== MORE READING — Para continuar lendo ===== -->
-<?php if ( count( $more_posts ) >= 1 ) : ?>
-<section class="dsi-more">
-    <div class="dsi-section-head">
-        <h2 class="dsi-more__heading">Para continuar lendo</h2>
-        <span class="dsi-rule"></span>
-    </div>
-    <div class="dsi-more__grid">
-        <?php foreach ( $more_posts as $i => $p ) :
-            $thumb = get_the_post_thumbnail( $p->ID, 'dsi-square', [ 'class' => 'dsi-card__thumb-img', 'width' => '400', 'height' => '400', 'loading' => 'lazy' ] );
-        ?>
-            <article class="dsi-card">
-                <div class="dsi-card__thumb dsi-card__thumb--square">
-                    <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>" tabindex="-1" aria-hidden="true">
-                        <?php if ( $thumb ) : ?>
-                            <?php echo $thumb; ?>
-                        <?php else : ?>
-                            <div class="dsi-card__thumb-fallback" aria-hidden="true"></div>
-                        <?php endif; ?>
-                    </a>
-                </div>
-                <p class="dsi-card__eyebrow"><a href="<?php echo esc_url( dsi_primary_category_url( $p->ID ) ); ?>"><?php echo esc_html( dsi_primary_category( $p->ID ) ); ?></a></p>
-                <h3 class="dsi-card__title">
-                    <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>"><?php echo esc_html( get_the_title( $p->ID ) ); ?></a>
-                </h3>
-                <div class="dsi-card__meta">
-                    <div class="dsi-card__avatar" aria-hidden="true"><?php echo esc_html( dsi_author_initials( $p->post_author ) ); ?></div>
-                    <div>
-                        <p class="dsi-card__author-name"><?php echo esc_html( get_the_author_meta( 'display_name', $p->post_author ) ); ?></p>
-                        <p class="dsi-card__byline"><?php echo get_the_date( 'j M Y', $p->ID ); ?> · <?php echo esc_html( dsi_read_time( $p->ID ) ); ?></p>
-                    </div>
-                </div>
-            </article>
-        <?php endforeach; ?>
+<!-- ===== MAIS FILMES E SÉRIES (grade densa abaixo da programação, como no UOL) ===== -->
+<?php if ( $more_posts ) : ?>
+<section class="dsi-portal-grid-sec" aria-label="Mais filmes e séries">
+    <h2 class="dsi-portal-head"><span>Mais filmes e séries</span></h2>
+    <div class="dsi-portal-grid">
+        <?php foreach ( $more_posts as $p ) dsi_portal_card( $p ); ?>
     </div>
 </section>
 <?php endif; ?>
 
-<!-- ===== MAIS DA REDAÇÃO ===== -->
-<?php if ( count( $extra_posts ) >= 1 ) : ?>
-<section class="dsi-more">
-    <div class="dsi-section-head">
-        <h2 class="dsi-more__heading">Mais da redação</h2>
-        <span class="dsi-rule"></span>
-    </div>
-    <div class="dsi-more__grid dsi-more__grid--3col">
-        <?php foreach ( $extra_posts as $p ) :
-            $thumb = get_the_post_thumbnail( $p->ID, 'dsi-square', [ 'class' => 'dsi-card__thumb-img', 'width' => '400', 'height' => '400', 'loading' => 'lazy' ] );
-        ?>
-            <article class="dsi-card">
-                <div class="dsi-card__thumb dsi-card__thumb--square">
-                    <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>" tabindex="-1" aria-hidden="true">
-                        <?php if ( $thumb ) : ?>
-                            <?php echo $thumb; ?>
-                        <?php else : ?>
-                            <div class="dsi-card__thumb-fallback" aria-hidden="true"></div>
-                        <?php endif; ?>
-                    </a>
-                </div>
-                <p class="dsi-card__eyebrow"><a href="<?php echo esc_url( dsi_primary_category_url( $p->ID ) ); ?>"><?php echo esc_html( dsi_primary_category( $p->ID ) ); ?></a></p>
-                <h3 class="dsi-card__title">
-                    <a href="<?php echo esc_url( get_permalink( $p->ID ) ); ?>"><?php echo esc_html( get_the_title( $p->ID ) ); ?></a>
-                </h3>
-                <div class="dsi-card__meta">
-                    <div class="dsi-card__avatar" aria-hidden="true"><?php echo esc_html( dsi_author_initials( $p->post_author ) ); ?></div>
-                    <div>
-                        <p class="dsi-card__author-name"><?php echo esc_html( get_the_author_meta( 'display_name', $p->post_author ) ); ?></p>
-                        <p class="dsi-card__byline"><?php echo get_the_date( 'j M Y', $p->ID ); ?> · <?php echo esc_html( dsi_read_time( $p->ID ) ); ?></p>
-                    </div>
-                </div>
-            </article>
-        <?php endforeach; ?>
+<!-- ===== FAIXAS POR CATEGORIA (4 cards por faixa, mesma grade do resto da home) ===== -->
+<?php foreach ( $band_cats as $cat ) :
+    $band = new WP_Query( [
+        'cat'                 => $cat->term_id,
+        'posts_per_page'      => 60,
+        'post__not_in'        => $used_ids,
+        'post_status'         => 'publish',
+        'orderby'             => 'modified',
+        'no_found_rows'       => true,
+        'ignore_sticky_posts' => true,
+    ] );
+    $band_posts = array_slice( array_values( array_filter( $band->posts, $dsi_no_feed ) ), 0, 4 );
+    if ( count( $band_posts ) < 4 ) { wp_reset_postdata(); continue; }
+    $used_ids = array_merge( $used_ids, wp_list_pluck( $band_posts, 'ID' ) );
+?>
+<section class="dsi-portal-grid-sec dsi-portal-band" aria-label="<?php echo esc_attr( $cat->name ); ?>">
+    <h2 class="dsi-portal-head">
+        <a href="<?php echo esc_url( get_category_link( $cat ) ); ?>"><span><?php echo esc_html( $cat->name ); ?></span></a>
+        <a class="dsi-portal-head__more" href="<?php echo esc_url( get_category_link( $cat ) ); ?>">ver tudo ›</a>
+    </h2>
+    <div class="dsi-portal-grid">
+        <?php foreach ( $band_posts as $p ) dsi_portal_card( $p ); ?>
     </div>
 </section>
-<?php endif; ?>
+<?php wp_reset_postdata(); endforeach; ?>
 
 </main>
 

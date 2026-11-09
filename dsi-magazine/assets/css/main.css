@@ -564,6 +564,95 @@ html body .dsi-prose .wp-block-details summary{background:#f4eee2!important;back
    Mediu TBT 1600 -> 580 ms, CLS 0 na carga e na rolagem. Estimativa 'auto' guarda a altura real depois da 1a renderizacao. */
 html:not(.dsi-cv-off) body.single-post #dsi-post-content>:nth-child(n+5){content-visibility:auto;contain-intrinsic-size:auto 220px}
 html:not(.dsi-cv-off) body.single-post .dsi-related,html:not(.dsi-cv-off) body.single-post .dsi-newsletter,html:not(.dsi-cv-off) body.single-post .dsi-footer{content-visibility:auto;contain-intrinsic-size:auto 600px}
+
+/* Home em layout de portal (2026-10-24): manchete + lateral + grade densa + faixas por categoria. Classes dsi-portal-*; as antigas (dsi-hero, dsi-tricolumn, dsi-more) ficam sem uso na home. */
+.dsi-portal{padding-top:24px}
+.dsi-portal-top,.dsi-portal-grid-sec,.dsi-portal-band{width:min(1280px,calc(100% - 48px));margin-inline:auto}
+.dsi-portal a{color:inherit;text-decoration:none}
+.dsi-portal a:hover .dsi-portal-lead__title,.dsi-portal a:hover .dsi-portal-card__title,.dsi-portal a:hover .dsi-portal-band__lead-title,.dsi-portal a:hover .dsi-portal-subs__title,.dsi-portal-band__list a:hover,.dsi-portal-topics a:hover{color:#9c3f14;text-decoration:underline}
+.dsi-portal-tag,.dsi-portal-card__tag,.dsi-portal-subs__tag{display:inline-block;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fff;background:#9c3f14;padding:3px 7px;line-height:1.2}
+.dsi-portal-top{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:32px;align-items:start;padding-bottom:28px;border-bottom:2px solid #1d1a14}
+.dsi-portal-top__main{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:28px;align-items:start}
+.dsi-portal-lead__frame,.dsi-portal-card__frame{display:block;overflow:hidden;background:#e7dfcf}
+.dsi-portal-lead__frame{aspect-ratio:16/10;margin-bottom:12px}
+.dsi-portal-lead__img,.dsi-portal-card__img{display:block;width:100%;height:100%;object-fit:cover}
+.dsi-portal-card__fallback{display:block;width:100%;height:100%;background:#e7dfcf}
+.dsi-portal-lead__title{font-family:Manrope,system-ui,sans-serif;font-weight:800;font-size:clamp(28px,3vw,42px);line-height:1.08;letter-spacing:-.02em;color:#1d1a14;margin:10px 0 8px}
+.dsi-portal-lead__excerpt{font-family:Manrope,system-ui,sans-serif;font-size:17px;line-height:1.5;color:#4a4132;margin:0}
+.dsi-portal-subs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.dsi-portal-subs__item{padding:14px 0;border-bottom:1px solid rgba(29,26,20,.18)}
+.dsi-portal-subs__item:first-child{padding-top:0}
+.dsi-portal-subs__item:last-child{border-bottom:0}
+.dsi-portal-subs__item a{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.dsi-portal-subs__tag{background:none;color:#9c3f14;padding:0}
+.dsi-portal-subs__title{font-family:Manrope,system-ui,sans-serif;font-weight:700;font-size:19px;line-height:1.25;color:#1d1a14}
+.dsi-portal-side{display:flex;flex-direction:column;gap:20px}
+.dsi-portal-side__cta{display:flex;flex-direction:column;gap:4px;padding:18px 20px;background:#9c3f14;color:#fff!important}
+.dsi-portal-side__cta:hover{background:#7f3210}
+.dsi-portal-side__cta-kicker{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.9}
+.dsi-portal-side__cta-title{font-family:Manrope,system-ui,sans-serif;font-weight:800;font-size:26px;line-height:1.1}
+.dsi-portal-box{border-top:3px solid #1d1a14;padding-top:10px}
+.dsi-portal-box__head{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#9c3f14;margin:0 0 6px}
+.dsi-portal-tv,.dsi-portal-topics{list-style:none;margin:0;padding:0}
+.dsi-portal-tv__row{display:grid;grid-template-columns:56px 1fr;gap:10px;padding:10px 0;border-bottom:1px solid rgba(29,26,20,.15)}
+.dsi-portal-tv__time{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;font-weight:700;color:#1d1a14}
+.dsi-portal-tv__info{display:flex;flex-direction:column;gap:2px}
+.dsi-portal-tv__genre{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#6a5f4d}
+.dsi-portal-tv__title{font-family:Manrope,system-ui,sans-serif;font-weight:700;font-size:16px;line-height:1.2;color:#1d1a14}
+.dsi-portal-topics li{border-bottom:1px solid rgba(29,26,20,.15)}
+.dsi-portal-topics a{display:block;padding:9px 0;font-family:Manrope,system-ui,sans-serif;font-weight:600;font-size:15px}
+.dsi-portal-head{display:flex;align-items:baseline;justify-content:space-between;margin:28px 0 14px;padding-bottom:6px;border-bottom:3px solid #1d1a14;font-family:Manrope,system-ui,sans-serif}
+.dsi-portal-head>span,.dsi-portal-head>a:first-child span{font-weight:800;font-size:22px;letter-spacing:-.01em;color:#1d1a14;text-transform:uppercase}
+.dsi-portal-head__more{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;color:#9c3f14!important}
+.dsi-portal-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px 20px}
+.dsi-portal-card__link{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.dsi-portal-card__frame{width:100%;aspect-ratio:4/3}
+.dsi-portal-card__title{font-family:Manrope,system-ui,sans-serif;font-weight:800;font-size:18px;line-height:1.2;color:#1d1a14;margin:0}
+.dsi-portal-band__body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:24px;align-items:start}
+.dsi-portal-band__lead .dsi-portal-card__frame{display:block;aspect-ratio:16/10;margin-bottom:10px}
+.dsi-portal-band__lead-title{font-family:Manrope,system-ui,sans-serif;font-weight:800;font-size:22px;line-height:1.15;color:#1d1a14;margin:0}
+.dsi-portal-band__list{list-style:none;margin:0;padding:0}
+.dsi-portal-band__list li{padding:12px 0;border-bottom:1px solid rgba(29,26,20,.18)}
+.dsi-portal-band__list li:first-child{padding-top:0}
+.dsi-portal-band__list a{font-family:Manrope,system-ui,sans-serif;font-weight:700;font-size:17px;line-height:1.25;color:#1d1a14}
+@media(max-width:1100px){.dsi-portal-top{grid-template-columns:1fr}.dsi-portal-side{display:grid;grid-template-columns:1fr 1fr;gap:20px}.dsi-portal-side__cta{grid-column:1/-1}}
+@media(max-width:768px){.dsi-portal{padding-top:16px}.dsi-portal-top,.dsi-portal-grid-sec,.dsi-portal-band{width:calc(100% - 32px)}.dsi-portal-top__main{grid-template-columns:1fr}.dsi-portal-side{grid-template-columns:1fr}.dsi-portal-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 14px}.dsi-portal-card__title{font-size:16px}.dsi-portal-band__body{grid-template-columns:1fr}}
+html:not(.dsi-cv-off) .dsi-portal-grid-sec,html:not(.dsi-cv-off) .dsi-portal-band{content-visibility:auto;contain-intrinsic-size:auto 600px}
+.dsi-portal-box--watch{border-top:0;padding-top:0}
+.dsi-portal-box--watch .dsi-portal-side__cta{margin-bottom:14px}
+/* Espaçamento da home em portal (2026-10-24): respiro entre grade, faixas e seções mantidas; card sem categoria não mostra etiqueta vazia */
+.dsi-portal-grid{gap:40px 24px}
+.dsi-portal-card__link{gap:10px}
+.dsi-portal-card__title{line-height:1.25}
+.dsi-portal-grid-sec,.dsi-portal-band{margin-bottom:72px}
+.dsi-portal-top{margin-bottom:8px}
+.dsi-portal-head{margin-top:36px;margin-bottom:24px}
+.dsi-portal-card__tag:empty,.dsi-portal-tag:empty,.dsi-portal-subs__tag:empty{display:none}
+.dsi-portal-grid-sec:last-of-type{margin-top:72px}
+@media(max-width:768px){.dsi-portal-grid{gap:28px 14px}.dsi-portal-grid-sec,.dsi-portal-band{margin-bottom:48px}.dsi-portal-grid-sec:last-of-type{margin-top:48px}}
+/* Lateral da home: botão "O que assistir hoje" em tinta (#1d1a14), sem laranja; rótulo da lista na mesma cor (2026-10-24) */
+.dsi-portal-side__cta{background:#1d1a14}
+.dsi-portal-side__cta:hover{background:#3a352b}
+.dsi-portal-box--watch .dsi-portal-box__head{color:#1d1a14}
+
+/* Grades da home sempre com 4 filmes por linha (2 só no celular) (2026-10-24) */
+.dsi-portal-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:768px){.dsi-portal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Faixas por categoria agora usam a grade de 4 cards; o cabeçalho com link (2026-10-24) */
+.dsi-portal-head>a:first-child{color:inherit;text-decoration:none}
+.dsi-portal-head__more{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;color:#1d1a14;text-decoration:none}
+.dsi-portal-head__more:hover{text-decoration:underline}
+.dsi-portal-grid-sec:last-of-type{margin-top:0}
+.dsi-tv-cats+.dsi-portal-grid-sec{margin-top:72px}
+@media(max-width:768px){.dsi-portal-grid-sec:last-of-type{margin-top:0}.dsi-tv-cats+.dsi-portal-grid-sec{margin-top:48px}}
+/* Lateral da home: "O que assistir hoje" no painel bege com borda fina, igual ao "Explorar por tema" (2026-10-24) */
+.dsi-portal-side__cta{background:#e9e1d0;color:#1d1a14!important;border:1px solid #1d1a14}
+.dsi-portal-side__cta:hover{background:#dfd5bf}
+.dsi-portal-side__cta-kicker{color:#6a5f4d;opacity:1}
+.dsi-portal-side__cta-title{color:#1d1a14}
+/* Lateral da home: "O que assistir hoje" sem cor de fundo, sem caixa (2026-10-24) */
+.dsi-portal-side__cta,.dsi-portal-side__cta:hover{background:none;border:0;padding:0 0 4px}
+.dsi-portal-side__cta:hover .dsi-portal-side__cta-title{text-decoration:underline}
 /* FAQ: lista ordenada nas respostas (o reset global ul,ol{list-style:none} apagaria os numeros) */
 .dsi-faq details ol{list-style:decimal;padding-left:1.6em;margin:0 0 1em}
 .dsi-faq details ol li{margin-bottom:.3em;padding-left:.2em}
