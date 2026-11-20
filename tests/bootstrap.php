@@ -28,3 +28,8 @@ require_once __DIR__ . '/../dsi-magazine/inc/filtros-catalogo.php';
 // nao precisa de nenhuma funcao do WordPress.
 require_once __DIR__ . '/../dsi-magazine/inc/perfil/repositorio.php';
 require_once __DIR__ . '/../dsi-magazine/inc/perfil/auth.php';
+
+// 410 para slugs antigos (2026-11-20): a lógica pura vive no próprio mu-plugin; a constante
+// libera o arquivo fora do WordPress.
+define( 'DSI_GONE410_TESTE', true );
+require_once __DIR__ . '/../mu-plugins/dsi-gone-410.php';
