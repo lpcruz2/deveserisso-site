@@ -25,6 +25,8 @@ RewriteRule ^blog/aprovados-e-bom-e-vale-a-pena-assistir-confira-trailer-sinopse
 # BEGIN Blog to Root Redirects
 <IfModule mod_rewrite.c>
 RewriteEngine On
+RewriteRule ^blog/filmes-e-seriados/?$ https://deveserisso.com.br/filmes/ [R=301,L]
+RewriteRule ^blog/livros-e-quadrinhos/?$ https://deveserisso.com.br/livros/ [R=301,L]
 RewriteRule ^blog/?$ https://deveserisso.com.br/ [R=301,L]
 RewriteCond %{REQUEST_URI} !^/blog/(wp-admin|wp-includes|wp-content|wp-json|wp-login\.php|wp-comments-post\.php|wp-cron\.php|wp-trackback\.php|wp-links-opml\.php|xmlrpc\.php)
 RewriteRule ^blog/(.+)$ https://deveserisso.com.br/$1 [R=301,L]
