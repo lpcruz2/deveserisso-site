@@ -44,20 +44,22 @@ if ( count( $itens ) < 3 ) {
 $excluir = array_map( fn( array $i ): array => [ 'id' => $i['id'], 'fonte' => 'catalogo', 'titulo' => $i['titulo'] ], $itens );
 ?>
 <style>
-.dsi-parecidos{max-width:1100px;margin:48px auto;padding:0 20px}
+.dsi-parecidos{margin:56px 0;padding:0}
+.dsi-prose .dsi-parecidos h2.dsi-related__heading{margin:0;padding:0;border:0;font-size:36px;font-weight:400;line-height:1.1}
+.dsi-prose .dsi-parecidos a{text-decoration:none}
 .dsi-parecidos .dsi-related__bar{margin-bottom:24px}
 .dsi-parecidos__card{flex:0 0 260px;width:260px;scroll-snap-align:start;display:flex;flex-direction:column}
 .dsi-parecidos__thumb{display:block;overflow:hidden;background:#ebe3d2;border-radius:2px}
 .dsi-parecidos__thumb img{display:block;width:100%;aspect-ratio:2/3;object-fit:cover;transition:transform .3s ease}
 .dsi-parecidos__card:hover .dsi-parecidos__thumb img{transform:scale(1.03)}
 .dsi-parecidos__ano{margin-top:14px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#9c3f14}
-.dsi-parecidos__nome{margin:6px 0 0;font-size:24px;line-height:1.15}
-.dsi-parecidos__nome a{color:#1d1a14;text-decoration:none}
-.dsi-parecidos__nome a:hover{color:#9c3f14}
-.dsi-parecidos__sinopse{margin:10px 0 0;font-family:"Manrope",system-ui,sans-serif;font-size:15px;line-height:1.55;color:#4a4132;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.dsi-prose .dsi-parecidos h3.dsi-parecidos__nome{margin:6px 0 0;padding:0;min-height:0;font-size:24px;line-height:1.15;text-wrap:balance}
+.dsi-prose .dsi-parecidos__nome a{color:#1d1a14}
+.dsi-prose .dsi-parecidos__nome a:hover{color:#9c3f14}
+.dsi-prose .dsi-parecidos__sinopse{margin:8px 0 0;font-family:"Manrope",system-ui,sans-serif;font-size:15px;line-height:1.55;color:#4a4132;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .dsi-parecidos__nenhum{margin-top:20px;background:#9c3f14;color:#f4eee2;border:0;padding:16px 28px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;letter-spacing:.25em;text-transform:uppercase;font-weight:700;cursor:pointer;border-radius:2px;transition:background-color .15s ease,color .15s ease}
 .dsi-parecidos__nenhum:hover{background:#e8a83c;color:#1d1a14}
-@media(max-width:768px){.dsi-parecidos__card{flex:0 0 220px;width:220px}.dsi-parecidos__nome{font-size:21px}}
+@media(max-width:768px){.dsi-parecidos__card{flex:0 0 220px;width:220px}.dsi-prose .dsi-parecidos h3.dsi-parecidos__nome{font-size:21px}.dsi-prose .dsi-parecidos h2.dsi-related__heading{font-size:28px}}
 </style>
 <section class="dsi-parecidos" aria-label="Filmes parecidos">
 	<div class="dsi-related__bar">

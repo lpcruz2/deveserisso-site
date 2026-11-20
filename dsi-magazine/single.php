@@ -126,7 +126,11 @@ $related = new WP_Query( [
             <?php
             ob_start();
             the_content();
-            $dsi_faq_e_dados_tecnicos = dsi_render_faq_box( $post_id ) . dsi_render_dados_tecnicos_box( $post_id );
+            // Parecidos: dentro do texto, antes do FAQ e dos dados técnicos (antes ficava depois do autor).
+            ob_start();
+            get_template_part( 'template-parts/filmes-parecidos' );
+            $dsi_parecidos = ob_get_clean();
+            $dsi_faq_e_dados_tecnicos = $dsi_parecidos . dsi_render_faq_box( $post_id ) . dsi_render_dados_tecnicos_box( $post_id );
             echo dsi_insert_before_aval_widget( ob_get_clean(), $dsi_faq_e_dados_tecnicos );
             ?>
 
@@ -176,9 +180,6 @@ $related = new WP_Query( [
     </section>
 
 </main>
-
-<!-- Filmes parecidos + "Não gostei de nenhum" (só post com ficha técnica) -->
-<?php get_template_part( 'template-parts/filmes-parecidos' ); ?>
 
 <!-- Comentários — antes dos relacionados -->
 <?php comments_template(); ?>
