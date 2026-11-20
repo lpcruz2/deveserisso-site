@@ -127,17 +127,19 @@ $related = new WP_Query( [
             ob_start();
             the_content();
             $dsi_conteudo = ob_get_clean();
-            // Parecidos: entra antes do 2º <h2> do texto (depois da abertura e da primeira seção).
-            // Sem 2 <h2>, fica antes do FAQ (comportamento anterior).
+            // Parecidos: entra depois da 3ª seção, ou seja, antes do 4º <h2> do texto.
+            // Com menos de 4 <h2>, fica antes do FAQ. O bloco só existe em crítica com ficha técnica.
             ob_start();
             get_template_part( 'template-parts/filmes-parecidos' );
             $dsi_parecidos = ob_get_clean();
             $dsi_faq_e_dados_tecnicos = dsi_render_faq_box( $post_id ) . dsi_render_dados_tecnicos_box( $post_id );
             if ( $dsi_parecidos !== '' ) {
-                $dsi_h2_1 = strpos( $dsi_conteudo, '<h2' );
-                $dsi_h2_2 = $dsi_h2_1 !== false ? strpos( $dsi_conteudo, '<h2', $dsi_h2_1 + 3 ) : false;
-                if ( $dsi_h2_2 !== false ) {
-                    $dsi_conteudo = substr( $dsi_conteudo, 0, $dsi_h2_2 ) . $dsi_parecidos . substr( $dsi_conteudo, $dsi_h2_2 );
+                $dsi_pos_h2 = 0;
+                for ( $dsi_n = 0; $dsi_n < 4 && $dsi_pos_h2 !== false; $dsi_n++ ) {
+                    $dsi_pos_h2 = strpos( $dsi_conteudo, '<h2', $dsi_n ? $dsi_pos_h2 + 3 : 0 );
+                }
+                if ( $dsi_pos_h2 !== false ) {
+                    $dsi_conteudo = substr( $dsi_conteudo, 0, $dsi_pos_h2 ) . $dsi_parecidos . substr( $dsi_conteudo, $dsi_pos_h2 );
                 } else {
                     $dsi_faq_e_dados_tecnicos = $dsi_parecidos . $dsi_faq_e_dados_tecnicos;
                 }
